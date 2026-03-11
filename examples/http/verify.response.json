@@ -1,0 +1,12 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "purchased": true,
+    "purchase_time": "2026-02-27T12:00:05Z",
+    "tx_id": "pay_xxx",
+    "amount": "5.00",
+    "currency": "USDC"
+  }
+}
+
