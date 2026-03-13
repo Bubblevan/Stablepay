@@ -1,0 +1,44 @@
+# Payment Service 配置文件示例
+# 复制此文件为 config.yaml 并根据实际情况修改
+
+app:
+  name: payment-service
+  version: 1.0.0
+  env: development
+
+server:
+  http:
+    port: 8080
+  rpc:
+    port: 8888
+
+database:
+  mysql:
+    host: localhost
+    port: 3306
+    username: root
+    password: "your_password"
+    database: stablepay_payment_db
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+
+rocketmq:
+  name_servers:
+    - localhost:9876
+  producer_group: payment-service-producer
+
+rpc_clients:
+  did_service:
+    address: localhost:8889
+    timeout_ms: 1000
+  blockchain_adapter:
+    address: localhost:8890
+    timeout_ms: 5000
+
+payment:
+  max_amount_usdc: "1000.00"
+  timeout_minutes: 5
