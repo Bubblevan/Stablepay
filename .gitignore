@@ -1,0 +1,25 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# Go
+**/tmp/
+
+# verification
+test.db
+output/
+kitex_gen/
