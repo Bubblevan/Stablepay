@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stablepay/payment-service/pkg/common"
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 	"github.com/stablepay/payment-service/pkg/utils"
@@ -51,10 +52,28 @@ type Amount struct {
 	Currency  constants.Currency
 }
 
+// IsValidCurrency 检查币种是否有效
+func IsValidCurrency(c constants.Currency) bool {
+	switch c {
+	case constants.CurrencyUSDC, constants.CurrencyUSDT:
+		return true
+	}
+	return false
+}
+
+// GetCurrencyDecimals 获取币种精度
+func GetCurrencyDecimals(c constants.Currency) int {
+	switch c {
+	case constants.CurrencyUSDC, constants.CurrencyUSDT:
+		return constants.USDCDecimals
+	}
+	return constants.USDCDecimals
+}
+
 // NewAmount 从最小单位创建金额
 func NewAmount(minorUnit int64, currency constants.Currency) (Amount, error) {
-	if !currency.IsValid() {
-		return Amount{}, errors.Newf(errors.INVALID_PARAMETERS, "unsupported currency: %s", currency)
+	if !IsValidCurrency(currency) {
+		return Amount{}, errors.Newf(errors.INVALID_PARAMETERS, "unsupported currency: %d", currency)
 	}
 	return Amount{
 		MinorUnit: minorUnit,
@@ -65,8 +84,8 @@ func NewAmount(minorUnit int64, currency constants.Currency) (Amount, error) {
 // NewAmountFromString 从字符串创建金额
 // amount 格式如 "5.00"
 func NewAmountFromString(amountStr string, currency constants.Currency) (Amount, error) {
-	if !currency.IsValid() {
-		return Amount{}, errors.Newf(errors.INVALID_PARAMETERS, "unsupported currency: %s", currency)
+	if !IsValidCurrency(currency) {
+		return Amount{}, errors.Newf(errors.INVALID_PARAMETERS, "unsupported currency: %d", currency)
 	}
 
 	minorUnit, err := utils.StringToMinorUnit(amountStr)
@@ -82,12 +101,12 @@ func NewAmountFromString(amountStr string, currency constants.Currency) (Amount,
 
 // String 返回人类可读的金额字符串
 func (a Amount) String() string {
-	return utils.FormatAmount(a.MinorUnit) + " " + string(a.Currency)
+	return fmt.Sprintf("%s %d", utils.FormatAmount(a.MinorUnit), a.Currency)
 }
 
 // StringFull 返回完整精度的金额字符串
 func (a Amount) StringFull() string {
-	return utils.FormatAmountFull(a.MinorUnit) + " " + string(a.Currency)
+	return fmt.Sprintf("%s %d", utils.FormatAmountFull(a.MinorUnit), a.Currency)
 }
 
 // Add 金额相加
@@ -172,7 +191,7 @@ func (s Signature) IsExpired(ttlMinutes int) bool {
 // 根据 agent_did, skill_did, amount, currency, timestamp, nonce 构造
 func GetSignData(agentDID, skillDID string, amountMinor int64, currency constants.Currency,
 	timestamp int64, nonce string) string {
-	return fmt.Sprintf("%s|%s|%d|%s|%d|%s",
+	return fmt.Sprintf("%s|%s|%d|%d|%d|%s",
 		agentDID, skillDID, amountMinor, currency, timestamp, nonce)
 }
 
@@ -263,4 +282,26 @@ func NewPaymentRequirement(skillDID, skillName string, price Amount, endpoint st
 		Price:     price,
 		Endpoint:  endpoint,
 	}
+}
+
+// CommonCurrencyToString 将 common.Currency 转换为字符串
+func CommonCurrencyToString(c common.Currency) string {
+	switch c {
+	case common.Currency_USDC:
+		return "USDC"
+	case common.Currency_USDT:
+		return "USDT"
+	}
+	return "UNKNOWN"
+}
+
+// StringToCommonCurrency 将字符串转换为 common.Currency
+func StringToCommonCurrency(s string) common.Currency {
+	switch s {
+	case "USDC":
+		return common.Currency_USDC
+	case "USDT":
+		return common.Currency_USDT
+	}
+	return 0
 }

@@ -3,7 +3,6 @@ package router
 
 import (
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/route"
 	"github.com/stablepay/payment-service/internal/adapter/http/handler"
 )
 
@@ -26,11 +25,4 @@ func RegisterRoutes(h *server.Hertz, paymentHandler *handler.PaymentHandler) {
 
 	// 健康检查
 	h.GET("/health", paymentHandler.HealthCheck)
-}
-
-// RouterConfig 路由配置
-func RouterConfig() []route.Option {
-	return []route.Option{
-		route.WithBasePath("/"),
-	}
 }

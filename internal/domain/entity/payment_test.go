@@ -23,7 +23,7 @@ func TestPayment_TransitionTo(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		newStatus constants.PaymentStatus
+		newStatus int8
 		wantErr   bool
 	}{
 		{

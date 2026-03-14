@@ -20,7 +20,7 @@ type MockPayment struct {
 	TxID        string
 	AgentDID    string
 	SkillDID    string
-	Status      constants.PaymentStatus
+	Status      int8
 	AmountMinor int64
 }
 
@@ -98,7 +98,7 @@ func TestGenerateTxID(t *testing.T) {
 // TestDTOToMQEventTag 测试事件 Tag 转换
 func TestDTOToMQEventTag(t *testing.T) {
 	tests := []struct {
-		status   constants.PaymentStatus
+		status   int8
 		expected string
 	}{
 		{constants.PaymentStatusConfirmed, constants.MQTagPaymentSucceeded},
@@ -110,10 +110,10 @@ func TestDTOToMQEventTag(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.status.String(), func(t *testing.T) {
+		t.Run(constants.PaymentStatusToString(tt.status), func(t *testing.T) {
 			got := dto.ToMQEventTag(tt.status)
 			if got != tt.expected {
-				t.Errorf("ToMQEventTag(%s) = %s, want %s", tt.status.String(), got, tt.expected)
+				t.Errorf("ToMQEventTag(%d) = %s, want %s", tt.status, got, tt.expected)
 			}
 		})
 	}
@@ -136,7 +136,7 @@ func (m *MockBlockchainExecutor) ExecuteTransfer(ctx context.Context, fromWallet
 	return m.txHash, nil
 }
 
-func (m *MockBlockchainExecutor) QueryTxStatus(ctx context.Context, txHash string) (constants.PaymentStatus, *time.Time, error) {
+func (m *MockBlockchainExecutor) QueryTxStatus(ctx context.Context, txHash string) (int8, *time.Time, error) {
 	return constants.PaymentStatusConfirmed, nil, nil
 }
 

@@ -31,11 +31,11 @@ type Payment struct {
 	// 链上信息
 	TxHash string `gorm:"column:tx_hash;type:varchar(128);index"`
 
-	// 状态信息
-	Status      constants.PaymentStatus `gorm:"column:status;type:tinyint;not null;default:0"`
-	RetryCount  int8                    `gorm:"column:retry_count;type:tinyint;not null;default:0"`
-	ErrorCode   string                  `gorm:"column:error_code;type:varchar(32)"`
-	ErrorMsg    string                  `gorm:"column:error_message;type:varchar(512)"`
+	// 状态信息（使用 int8 存储）
+	Status      int8   `gorm:"column:status;type:tinyint;not null;default:0"`
+	RetryCount  int8   `gorm:"column:retry_count;type:tinyint;not null;default:0"`
+	ErrorCode   string `gorm:"column:error_code;type:varchar(32)"`
+	ErrorMsg    string `gorm:"column:error_message;type:varchar(512)"`
 
 	// 时间戳
 	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
@@ -74,10 +74,12 @@ func NewPayment(txID, agentDID, skillDID string, amountMinor int64, currency con
 
 // TransitionTo 状态转换
 // 执行状态转换并验证转换的合法性
-func (p *Payment) TransitionTo(newStatus constants.PaymentStatus) error {
-	if !p.Status.CanTransitionTo(newStatus) {
+func (p *Payment) TransitionTo(newStatus int8) error {
+	if !constants.CanTransitionTo(p.Status, newStatus) {
 		return errors.Newf(errors.INVALID_PARAMETERS,
-			"invalid status transition from %s to %s", p.Status.String(), newStatus.String())
+			"invalid status transition from %s to %s",
+			constants.PaymentStatusToString(p.Status),
+			constants.PaymentStatusToString(newStatus))
 	}
 
 	oldStatus := p.Status
@@ -145,7 +147,7 @@ func (p *Payment) IsExpired() bool {
 
 // IsTerminal 检查是否已处于终态
 func (p *Payment) IsTerminal() bool {
-	return p.Status.IsTerminal()
+	return constants.IsTerminalStatus(p.Status)
 }
 
 // GetIdempotencyKey 获取幂等性键
@@ -181,13 +183,13 @@ func (PaymentIdempotency) TableName() string {
 
 // BlockchainCallback 链上回调记录实体
 type BlockchainCallback struct {
-	ID           uint64    `gorm:"primaryKey"`
-	TxHash       string    `gorm:"column:tx_hash;type:varchar(128);not null"`
-	TxID         string    `gorm:"column:tx_id;type:varchar(64);index;not null"`
-	CallbackType string    `gorm:"column:callback_type;type:varchar(32);not null"` // confirmation/failure
-	CallbackData string    `gorm:"column:callback_data;type:json;not null"`
-	Processed    bool      `gorm:"column:processed;type:tinyint;not null;default:0;index"`
-	CreatedAt    time.Time `gorm:"column:created_at;not null"`
+	ID           uint64     `gorm:"primaryKey"`
+	TxHash       string     `gorm:"column:tx_hash;type:varchar(128);not null"`
+	TxID         string     `gorm:"column:tx_id;type:varchar(64);index;not null"`
+	CallbackType string     `gorm:"column:callback_type;type:varchar(32);not null"` // confirmation/failure
+	CallbackData string     `gorm:"column:callback_data;type:json;not null"`
+	Processed    bool       `gorm:"column:processed;type:tinyint;not null;default:0;index"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
 	ProcessedAt  *time.Time `gorm:"column:processed_at"`
 }
 

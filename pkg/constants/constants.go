@@ -1,7 +1,25 @@
 // Package constants 定义 Payment Service 的常量
 package constants
 
-import "time"
+import (
+	"time"
+
+	"github.com/stablepay/payment-service/pkg/common"
+)
+
+// 从 common 包导入的类型
+type (
+	// Currency 币种类型
+	Currency = common.Currency
+	// PaymentStatus 支付状态类型（内部扩展）
+	PaymentStatus = common.PaymentStatus
+)
+
+// 币种常量
+const (
+	CurrencyUSDC Currency = 1
+	CurrencyUSDT Currency = 2
+)
 
 const (
 	// 服务名
@@ -35,48 +53,40 @@ const (
 	NonceCacheTTL       = 10 * time.Minute
 	IdempotencyCacheTTL = 30 * time.Minute
 	TxStatusCacheTTL    = 5 * time.Minute
+
+	// 签名有效期（分钟）
+	SignatureTTLMinutes = 10
+	NonceCacheMinutes   = 10
 )
 
-// Currency 币种
-type Currency string
-
+// MQ Topic 和 Tag 定义
 const (
-	CurrencyUSDC Currency = "USDC"
-	CurrencyUSDT Currency = "USDT"
+	MQTopicPaymentEvents = "payment_events"
+
+	MQTagPaymentSucceeded = "payment_succeeded"
+	MQTagPaymentFailed    = "payment_failed"
 )
 
-// IsValid 检查币种是否有效
-func (c Currency) IsValid() bool {
-	switch c {
-	case CurrencyUSDC, CurrencyUSDT:
-		return true
-	}
-	return false
-}
+// MaxAmount 最大支付金额（1000 USDC）
+const MaxAmount = "1000.00"
 
-// Decimals 获取币种精度
-func (c Currency) Decimals() int {
-	switch c {
-	case CurrencyUSDC, CurrencyUSDT:
-		return USDCDecimals
-	}
-	return USDCDecimals
-}
-
-// PaymentStatus 支付状态
-type PaymentStatus int8
-
+// 支付状态扩展（本地定义，补充 common 包中没有的状态）
 const (
-	PaymentStatusCreated   PaymentStatus = 0
-	PaymentStatusPending   PaymentStatus = 1
-	PaymentStatusConfirmed PaymentStatus = 2
-	PaymentStatusCompleted PaymentStatus = 3
-	PaymentStatusFailed    PaymentStatus = 4
-	PaymentStatusCancelled PaymentStatus = 5
+	PaymentStatusCreated   int8 = 0
+	PaymentStatusPending   int8 = 1
+	PaymentStatusConfirmed int8 = 2
+	PaymentStatusCompleted int8 = 3
+	PaymentStatusFailed    int8 = 4
+	PaymentStatusCancelled int8 = 5
 )
+
+// PaymentStatusEx 扩展支付状态结构
+type PaymentStatusEx struct {
+	Value int8
+}
 
 // String 返回状态字符串
-func (s PaymentStatus) String() string {
+func PaymentStatusToString(s int8) string {
 	switch s {
 	case PaymentStatusCreated:
 		return "CREATED"
@@ -95,19 +105,19 @@ func (s PaymentStatus) String() string {
 }
 
 // IsTerminal 是否为终态
-func (s PaymentStatus) IsTerminal() bool {
+func IsTerminalStatus(s int8) bool {
 	return s == PaymentStatusCompleted || s == PaymentStatusCancelled
 }
 
 // CanTransitionTo 检查状态是否可以转换到目标状态
-func (s PaymentStatus) CanTransitionTo(target PaymentStatus) bool {
+func CanTransitionTo(current, target int8) bool {
 	// 终态不能再转换
-	if s.IsTerminal() {
+	if IsTerminalStatus(current) {
 		return false
 	}
 
 	// 定义允许的状态转换
-	switch s {
+	switch current {
 	case PaymentStatusCreated:
 		return target == PaymentStatusPending || target == PaymentStatusFailed
 	case PaymentStatusPending:
@@ -119,11 +129,3 @@ func (s PaymentStatus) CanTransitionTo(target PaymentStatus) bool {
 	}
 	return false
 }
-
-// MQ Topic 和 Tag 定义
-const (
-	MQTopicPaymentEvents = "payment_events"
-
-	MQTagPaymentSucceeded = "payment_succeeded"
-	MQTagPaymentFailed    = "payment_failed"
-)

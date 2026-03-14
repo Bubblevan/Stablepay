@@ -10,7 +10,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/retry"
 	"github.com/stablepay/payment-service/internal/domain/service"
 	"github.com/stablepay/payment-service/pkg/constants"
-	"github.com/stablepay/payment-service/pkg/errors"
 )
 
 // DIDServiceClient DID Service RPC 客户端
@@ -110,7 +109,7 @@ func (c *BlockchainAdapterClient) ExecuteTransfer(ctx context.Context, fromWalle
 
 // QueryTxStatus 查询交易状态
 // 调用 Blockchain Adapter 的 GetTxStatus 接口
-func (c *BlockchainAdapterClient) QueryTxStatus(ctx context.Context, txHash string) (constants.PaymentStatus, *time.Time, error) {
+func (c *BlockchainAdapterClient) QueryTxStatus(ctx context.Context, txHash string) (int8, *time.Time, error) {
 	// TODO: 使用 Kitex 生成的客户端调用
 
 	fmt.Printf("[BlockchainAdapterClient] Query tx status: %s\n", txHash)

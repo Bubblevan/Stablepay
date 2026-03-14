@@ -50,7 +50,7 @@ func (v *PaymentValidator) ValidatePaymentRequest(ctx context.Context, agentDID,
 	}
 
 	// 2. 验证签名未过期
-	if signature.IsExpired(constants.Security.SignatureTTLMinutes) {
+	if signature.IsExpired(constants.SignatureTTLMinutes) {
 		return errors.New(errors.SIGNATURE_VERIFICATION_FAILED, "signature has expired")
 	}
 
@@ -127,7 +127,7 @@ func (c *NonceChecker) CheckAndRecord(ctx context.Context, nonce string) error {
 	}
 
 	// 记录nonce
-	if err := c.checker.RecordNonce(ctx, nonce, constants.NonceCacheTTLMinutes); err != nil {
+	if err := c.checker.RecordNonce(ctx, nonce, constants.NonceCacheMinutes); err != nil {
 		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to record nonce")
 	}
 

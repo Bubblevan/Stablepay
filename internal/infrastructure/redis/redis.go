@@ -43,8 +43,8 @@ func (r *RedisClient) Close() error {
 	return r.client.Close()
 }
 
-// IsNonceDuplicate 检查 nonce 是否重复
-func (r *RedisClient) IsNonceDuplicate(ctx context.Context, nonce string) (bool, error) {
+// IsDuplicate 检查 nonce 是否重复
+func (r *RedisClient) IsDuplicate(ctx context.Context, nonce string) (bool, error) {
 	key := fmt.Sprintf("payment:nonce:%s", nonce)
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {

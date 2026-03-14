@@ -24,7 +24,7 @@ type BlockchainExecutor interface {
 	ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64,
 		currency constants.Currency) (txHash string, err error)
 	// QueryTxStatus 查询交易状态
-	QueryTxStatus(ctx context.Context, txHash string) (status constants.PaymentStatus, confirmedAt *time.Time, err error)
+	QueryTxStatus(ctx context.Context, txHash string) (status int8, confirmedAt *time.Time, err error)
 }
 
 // EventPublisher 事件发布器接口
@@ -96,7 +96,7 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		return nil, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid amount format")
 	}
 
-	currency := constants.Currency(req.Currency)
+	currency := vo.StringToCommonCurrency(req.Currency)
 
 	// 2. 构建幂等性键
 	idempotencyKey := s.idempotencyGen.Generate(req.AgentDID, req.SkillDID, req.IdempotencyKey)
@@ -217,8 +217,8 @@ func (s *PaymentApplicationService) ListPaymentHistory(ctx context.Context, req 
 			TxID:      p.TxID,
 			SkillDID:  p.SkillDID,
 			Amount:    utils.MinorUnitToString(p.AmountMinor),
-			Currency:  string(p.Currency),
-			Status:    p.Status.String(),
+			Currency:  vo.CommonCurrencyToString(p.Currency),
+			Status:    constants.PaymentStatusToString(p.Status),
 			CreatedAt: p.CreatedAt.Format(constants.TimeFormatISO8601),
 		}
 	}
@@ -320,9 +320,9 @@ func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *e
 		AgentDID:    payment.AgentDID,
 		SkillDID:    payment.SkillDID,
 		AmountMinor: payment.AmountMinor,
-		Currency:    string(payment.Currency),
+		Currency:    vo.CommonCurrencyToString(payment.Currency),
 		TxHash:      payment.TxHash,
-		Status:      payment.Status.String(),
+		Status:      constants.PaymentStatusToString(payment.Status),
 		Timestamp:   time.Now().Unix(),
 	}
 
@@ -401,7 +401,7 @@ func hashRequest(req *dto.InitiatePaymentRequest) string {
 func (s *PaymentApplicationService) toResponse(payment *entity.Payment) *dto.InitiatePaymentResponse {
 	resp := &dto.InitiatePaymentResponse{
 		TxID:      payment.TxID,
-		Status:    payment.Status.String(),
+		Status:    constants.PaymentStatusToString(payment.Status),
 		CreatedAt: payment.CreatedAt.Format(constants.TimeFormatISO8601),
 	}
 
@@ -424,7 +424,7 @@ func (s *PaymentApplicationService) toStatusResponse(payment *entity.Payment) *d
 		SkillDID:  payment.SkillDID,
 		Amount:    utils.MinorUnitToString(payment.AmountMinor),
 		Currency:  string(payment.Currency),
-		Status:    payment.Status.String(),
+		Status:    constants.PaymentStatusToString(payment.Status),
 		CreatedAt: payment.CreatedAt.Format(constants.TimeFormatISO8601),
 	}
 

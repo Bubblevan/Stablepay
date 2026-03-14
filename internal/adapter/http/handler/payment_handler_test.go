@@ -6,10 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/route"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestPaymentHandler_HealthCheck(t *testing.T) {
-	h := route.NewEngine(route.WithBasePath("/"))
+	h := route.NewEngine(config.NewOptions(nil))
 	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(http.StatusOK, map[string]string{
 			"status":  "healthy",

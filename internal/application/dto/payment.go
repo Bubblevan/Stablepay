@@ -138,7 +138,7 @@ type MQPaymentEvent struct {
 }
 
 // ToMQEventTag 转换状态为MQ Tag
-func ToMQEventTag(status constants.PaymentStatus) string {
+func ToMQEventTag(status int8) string {
 	switch status {
 	case constants.PaymentStatusConfirmed, constants.PaymentStatusCompleted:
 		return constants.MQTagPaymentSucceeded

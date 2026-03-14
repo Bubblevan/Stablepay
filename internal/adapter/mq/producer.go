@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/apache/rocketmq-client-go/v2"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/stablepay/payment-service/internal/application/dto"
-	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -52,8 +52,13 @@ func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *d
 		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to marshal event")
 	}
 
-	// 确定 Tag
-	tag := dto.ToMQEventTag(constants.PaymentStatus(event.Status))
+	// 确定 Tag - 将字符串状态转换为 int8
+	statusInt, err := strconv.ParseInt(event.Status, 10, 8)
+	if err != nil {
+		p.logger.Warn("invalid event status, skip publishing", zap.String("status", event.Status))
+		return nil
+	}
+	tag := dto.ToMQEventTag(int8(statusInt))
 	if tag == "" {
 		p.logger.Warn("unknown event status, skip publishing", zap.String("status", event.Status))
 		return nil
@@ -72,8 +77,9 @@ func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *d
 	}
 
 	if res.Status != primitive.SendOK {
-		p.logger.Error("mq send not ok", zap.String("status", res.Status.String()), zap.String("tx_id", event.TxID))
-		return errors.Newf(errors.INTERNAL_SERVER_ERROR, "mq send failed with status: %s", res.Status.String())
+		statusStr := fmt.Sprintf("%d", res.Status)
+		p.logger.Error("mq send not ok", zap.String("status", statusStr), zap.String("tx_id", event.TxID))
+		return errors.Newf(errors.INTERNAL_SERVER_ERROR, "mq send failed with status: %s", statusStr)
 	}
 
 	p.logger.Info("payment event published",

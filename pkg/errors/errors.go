@@ -3,37 +3,41 @@ package errors
 
 import (
 	"fmt"
+
+	"github.com/stablepay/payment-service/pkg/common"
 )
 
-// ErrorCode 错误码定义
-// 与 common.thrift 中的 ErrorCode 保持一致
-type ErrorCode int32
+// ErrorCode 错误码类型，从 common 包导入
+type ErrorCode = common.ErrorCode
 
+// 错误码常量（从 common 包导入）
 const (
 	// 成功
-	SUCCESS ErrorCode = 0
+	SUCCESS = common.ErrorCode_SUCCESS
 
 	// 1xxxx - 通用错误
-	INVALID_PARAMETERS           ErrorCode = 10001
-	RESOURCE_NOT_FOUND           ErrorCode = 10002
-	PERMISSION_DENIED            ErrorCode = 10003
-	SIGNATURE_VERIFICATION_FAILED ErrorCode = 10004
+	INVALID_PARAMETERS            = common.ErrorCode_INVALID_PARAMETERS
+	RESOURCE_NOT_FOUND            = common.ErrorCode_RESOURCE_NOT_FOUND
+	PERMISSION_DENIED             = common.ErrorCode_PERMISSION_DENIED
+	SIGNATURE_VERIFICATION_FAILED = common.ErrorCode_SIGNATURE_VERIFICATION_FAILED
 
 	// 2xxxx - 支付相关错误
-	INSUFFICIENT_BALANCE     ErrorCode = 20001
-	PAYMENT_ALREADY_EXISTS   ErrorCode = 20002
-	BLOCKCHAIN_NETWORK_ERROR ErrorCode = 20003
-	GAS_SUBSIDY_FAILED       ErrorCode = 20004
+	INSUFFICIENT_BALANCE     = common.ErrorCode_INSUFFICIENT_BALANCE
+	PAYMENT_ALREADY_EXISTS   = common.ErrorCode_PAYMENT_ALREADY_EXISTS
+	BLOCKCHAIN_NETWORK_ERROR = common.ErrorCode_BLOCKCHAIN_NETWORK_ERROR
+	GAS_SUBSIDY_FAILED       = common.ErrorCode_GAS_SUBSIDY_FAILED
+
+	// 扩展错误码（Payment Service 特有）
 	PAYMENT_AMOUNT_EXCEEDED  ErrorCode = 20005
 	DUPLICATE_NONCE          ErrorCode = 20006
 	IDEMPOTENCY_KEY_MISMATCH ErrorCode = 20007
 	PAYMENT_TIMEOUT          ErrorCode = 20008
 
 	// 3xxxx - 系统错误
-	INTERNAL_SERVER_ERROR    ErrorCode = 30001
-	SERVICE_UNAVAILABLE      ErrorCode = 30002
-	DATABASE_CONNECTION_ERROR ErrorCode = 30003
-	RATE_LIMIT_EXCEEDED      ErrorCode = 30004
+	INTERNAL_SERVER_ERROR     = common.ErrorCode_INTERNAL_SERVER_ERROR
+	SERVICE_UNAVAILABLE       = common.ErrorCode_SERVICE_UNAVAILABLE
+	DATABASE_CONNECTION_ERROR = common.ErrorCode_DATABASE_CONNECTION_ERROR
+	RATE_LIMIT_EXCEEDED       = common.ErrorCode_RATE_LIMIT_EXCEEDED
 )
 
 // 错误码到错误信息的映射
