@@ -33,6 +33,7 @@ logs
 Thumbs.db
 
 # Ignore notes
+/doc
 stage1_infrastructure_learning_notes.md
 stage2_blockchain_core_learning_notes.md
 stage3_data_layer_learning_notes.md
