@@ -1,0 +1,23 @@
+# DID Service 开发环境配置
+# MVP阶段使用内存存储
+
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+log:
+  level: "info"    # debug, info, warn, error
+  format: "json"   # json, console
+
+# 贾越TODO: 后续添加数据库配置
+# database:
+#   driver: "postgres"
+#   dsn: "host=localhost port=5432 user=did password=did dbname=did_service sslmode=disable"
+#   max_open_conns: 20
+#   max_idle_conns: 10
+
+# 贾越TODO: 后续添加Redis配置
+# redis:
+#   addr: "localhost:6379"
+#   password: ""
+#   db: 0
