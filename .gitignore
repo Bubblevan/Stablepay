@@ -1,0 +1,9 @@
+bin/
+dist/
+coverage.out
+*.log
+.env
+.DS_Store
+stablepayai-idl/
+.gocache/
+.gomodcache/
