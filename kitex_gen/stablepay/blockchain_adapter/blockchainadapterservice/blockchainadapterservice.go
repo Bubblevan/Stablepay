@@ -7,7 +7,7 @@ import (
 	"errors"
 	client "github.com/cloudwego/kitex/client"
 	kitex "github.com/cloudwego/kitex/pkg/serviceinfo"
-	blockchain_adapter "stablepay.blockchain_adapter/kitex_gen/stablepay/blockchain_adapter"
+	blockchain_adapter "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter"
 )
 
 var errInvalidMessageType = errors.New("invalid message type for service method handler")

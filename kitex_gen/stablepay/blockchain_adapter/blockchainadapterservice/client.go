@@ -6,7 +6,7 @@ import (
 	"context"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
-	blockchain_adapter "stablepay.blockchain_adapter/kitex_gen/stablepay/blockchain_adapter"
+	blockchain_adapter "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter"
 )
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.

@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
-	"stablepay.blockchain_adapter/kitex_gen/stablepay/common"
+	"github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/common"
 )
 
 type TxStatus int64

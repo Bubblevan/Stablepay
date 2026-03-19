@@ -3,7 +3,7 @@ package blockchainadapterservice
 
 import (
 	server "github.com/cloudwego/kitex/server"
-	blockchain_adapter "stablepay.blockchain_adapter/kitex_gen/stablepay/blockchain_adapter"
+	blockchain_adapter "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter"
 )
 
 // NewServer creates a server.Server with the given handler and options.
