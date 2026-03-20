@@ -6,13 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/stablepay/blockchain-adapter/app/service"
+	"github.com/cloudwego/kitex/server"
 	"github.com/stablepay/blockchain-adapter/adapter/rpc"
+	"github.com/stablepay/blockchain-adapter/app/service"
 	"github.com/stablepay/blockchain-adapter/infrastructure/blockchain"
 	"github.com/stablepay/blockchain-adapter/infrastructure/repository"
 	"github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter/blockchainadapterservice"
@@ -95,11 +97,12 @@ func main() {
 	setupGracefulShutdown()
 
 	// 7. 启动服务
+	addr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port))
 	log.Println("============================================================")
 	log.Printf("🚀 服务启动成功，监听 %s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Println("============================================================")
 
-	svr := blockchainadapterservice.NewServer(rpcHandler)
+	svr := blockchainadapterservice.NewServer(rpcHandler, server.WithServiceAddr(addr))
 	if err := svr.Run(); err != nil {
 		log.Fatalf("服务运行失败: %v", err)
 	}

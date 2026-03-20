@@ -1,0 +1,27 @@
+# Blockchain Adapter 本地联调配置
+# 端口: 8083
+
+server:
+  host: "0.0.0.0"
+  port: 8083
+
+solana:
+  network: "devnet"
+  rpc_endpoint: "https://api.devnet.solana.com"
+  ws_endpoint: "wss://api.devnet.solana.com"
+  hotwallet_path: "conf/hotwallet.json"
+  subsidy_ratio: 1.0
+
+  # 代币 Mint 地址配置
+  # 使用官方 USDC Devnet: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+  # 或自定义测试代币（如你的: HQx6BQtQb5cqGEyFofQw3acKz9KvL8xzPy6riE6k5uDF）
+  token_mints:
+    USDC: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    USDT: "BQcdHdAQW1hczDbBi9hiegXAR7A18QhzhCoXFBtBj9QA"
+
+mysql:
+  dsn: "root:root123@tcp(127.0.0.1:3306)/stablepay_blockchain_db?charset=utf8mb4&parseTime=True&loc=Local"
+
+log:
+  level: info
+  format: json
