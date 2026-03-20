@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"log"
-	"demo1/kitex_gen/stablepay/common"
-	"demo1/kitex_gen/stablepay/verification_service"
+	"verification-service/kitex_gen/stablepay/common"
+	"verification-service/kitex_gen/stablepay/verification_service"
 )
 
 

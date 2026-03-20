@@ -5,8 +5,8 @@ import (
 	"log"
 	"testing"
 
-	"demo1/kitex_gen/stablepay/verification_service"
-	"demo1/kitex_gen/stablepay/verification_service/verificationservice"
+	"verification-service/kitex_gen/stablepay/verification_service"
+	"verification-service/kitex_gen/stablepay/verification_service/verificationservice"
 	"github.com/cloudwego/kitex/client"
 	
 	"gorm.io/driver/sqlite"
