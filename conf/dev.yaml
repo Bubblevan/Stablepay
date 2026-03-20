@@ -1,23 +1,21 @@
 # DID Service 开发环境配置
-# MVP阶段使用内存存储
+# 服务端口: 8081
 
 server:
   host: "0.0.0.0"
   port: 8081
 
 log:
-  level: "info"    # debug, info, warn, error
-  format: "json"   # json, console
+  level: "info"
+  format: "json"
 
 # 贾越TODO: 后续添加数据库配置
 # database:
 #   driver: "postgres"
 #   dsn: "host=localhost port=5432 user=did password=did dbname=did_service sslmode=disable"
-#   max_open_conns: 20
-#   max_idle_conns: 10
 
-# 贾越TODO: 后续添加Redis配置
-# redis:
-#   addr: "localhost:6379"
-#   password: ""
-#   db: 0
+# 下游服务地址 (供后续扩展使用)
+downstream:
+  # DID服务作为基础服务，暂不依赖其他服务
+  # payment_service: "localhost:8888"
+  # blockchain_adapter: "localhost:8083"
