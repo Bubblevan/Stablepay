@@ -20,8 +20,8 @@ solana:
     USDT: "BQcdHdAQW1hczDbBi9hiegXAR7A18QhzhCoXFBtBj9QA"
 
 mysql:
-  dsn: "root:root123@tcp(127.0.0.1:3306)/stablepay_blockchain_db?charset=utf8mb4&parseTime=True&loc=Local"
-
+  dsn: "stablepay:stablepay123@tcp(127.0.0.1:3307)/stablepay_blockchain_db?charset=utf8mb4&parseTime=True&loc=Local"
+  
 log:
   level: info
   format: json
