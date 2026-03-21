@@ -9,10 +9,17 @@ log:
   level: "info"
   format: "json"
 
-# 贾越TODO: 后续添加数据库配置
-# database:
-#   driver: "postgres"
-#   dsn: "host=localhost port=5432 user=did password=did dbname=did_service sslmode=disable"
+# MySQL 数据库配置
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "password"
+  dbname: "did_service"
+  charset: "utf8mb4"
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 3600  # 单位：秒
 
 # 下游服务地址 (供后续扩展使用)
 downstream:

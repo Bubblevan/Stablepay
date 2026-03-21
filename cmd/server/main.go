@@ -38,28 +38,41 @@ func main() {
 				Level:  "info",
 				Format: "json",
 			},
+			Database: config.DatabaseConfig{
+				Host:            "127.0.0.1",
+				Port:            3306,
+				User:            "root",
+				Password:        "password",
+				DBName:          "did_service",
+				Charset:         "utf8mb4",
+				MaxOpenConns:    20,
+				MaxIdleConns:    10,
+				ConnMaxLifetime: 3600,
+			},
 		}
 	}
 
 	// 2. 初始化基础设施层
 	// repo := repository.NewMemoryDIDRepository() // 使用内存存储时取消注释
-	
-	// 构建MySQL连接DSN (Data Source Name)
-	dsn := "root:password@tcp(127.0.0.1:3306)/did_service?charset=utf8mb4&parseTime=True&loc=Local"
+
+	// 从配置构建MySQL连接DSN (Data Source Name)
+	dsn := cfg.GetMySQLDSN()
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
-	
+
 	// 设置连接池
 	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(20)
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	
+	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
+
 	// 自动迁移表结构
-	db.AutoMigrate(&repository.DidIdentityModel{})
-	
+	if err := db.AutoMigrate(&repository.DidIdentityModel{}); err != nil {
+		log.Printf("Warning: Failed to auto migrate: %v", err)
+	}
+
 	repo := repository.NewDBDIDRepository(db)
 
 	// 3. 初始化应用层
