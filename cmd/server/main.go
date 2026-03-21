@@ -10,8 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cloudwego/kitex/server"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
 	"github.com/stablepay/did-service/adapter"
 	"github.com/stablepay/did-service/app"
@@ -39,7 +42,25 @@ func main() {
 	}
 
 	// 2. 初始化基础设施层
-	repo := repository.NewMemoryDIDRepository()
+	// repo := repository.NewMemoryDIDRepository() // 使用内存存储时取消注释
+	
+	// 构建MySQL连接DSN (Data Source Name)
+	dsn := "root:password@tcp(127.0.0.1:3306)/did_service?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to MySQL: %v", err)
+	}
+	
+	// 设置连接池
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxOpenConns(20)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+	
+	// 自动迁移表结构
+	db.AutoMigrate(&repository.DidIdentityModel{})
+	
+	repo := repository.NewDBDIDRepository(db)
 
 	// 3. 初始化应用层
 	appService := app.NewDIDAppService(repo)
@@ -53,7 +74,7 @@ func main() {
 		server.WithServiceAddr(addr),
 	)
 
-	// 6. 优雅关闭
+	// 6. 关闭
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

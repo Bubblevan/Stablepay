@@ -1,6 +1,6 @@
 // Package repository 提供DID仓储的内存实现
 // COLA v5: Infrastructure Layer
-// 注意: 这是MVP内存实现，贾越后续需要替换为数据库存储
+// 注意: 这是MVP内存实现，需要替换为数据库存储
 package repository
 
 import (
