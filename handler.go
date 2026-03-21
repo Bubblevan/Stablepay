@@ -89,7 +89,7 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 		})
 	}
 
-	resp.Page = common.NewPageResult()
+	resp.Page = common.NewPageResult_()
 	resp.Page.Total = int32(total) // 赋值给最终的 response
 
 	return resp, nil
