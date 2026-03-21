@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"log"
+	"query-service/kitex_gen/stablepay/common"
 	query_service "query-service/kitex_gen/stablepay/query_service"
 )
 
@@ -25,11 +27,11 @@ func (s *QueryServiceImpl) GetBalanceSummary(ctx context.Context, req *query_ser
 	}
 
 	resp.MonthlySpentMinor = spentMinor
-	resp.Currency = common.Currency_USDC 
-	
+	resp.Currency = common.Currency_USDC
+
 	// Demo
-	resp.BalanceMinor = 10000 * 1000000 
-	resp.MonthlyLimitMinor = 50000 * 1000000 
+	resp.BalanceMinor = 10000 * 1000000
+	resp.MonthlyLimitMinor = 50000 * 1000000
 
 	return resp, nil
 }
@@ -40,13 +42,11 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 	resp = query_service.NewListTransactionsResponse()
 	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
 
-	
 	if req.Page == nil {
 		req.Page = &common.PageRequest{Limit: 10, Offset: 0}
-	}// 容错：如果前端没传分页参数，给个默认值
+	} // 容错：如果前端没传分页参数，给个默认值
 
-	
-	query := DB.Model(&TransactionRecord{})// 构造 GORM 查询器
+	query := DB.Model(&TransactionRecord{}) // 构造 GORM 查询器
 
 	// 根据查询类型来区分（如果是查支出，就匹配 agent_did；如果是查收入，就匹配 skill_did）
 	if req.Type == query_service.TransactionType_PURCHASE {
@@ -89,9 +89,8 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 		})
 	}
 
-	
-	resp.Items = items
-	resp.Page = &common.PageResult{Total: int32(total)}// 赋值给最终的 response
+	resp.Page = common.NewPageResult()
+	resp.Page.Total = int32(total) // 赋值给最终的 response
 
 	return resp, nil
 }
@@ -123,9 +122,9 @@ func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_ser
 	type TrendResult struct {
 		Date   string
 		Amount int64
-	}// 用 SUBSTR 截取 created_at 的前 10 位 (即 YYYY-MM-DD) 作为分组依据
+	} // 用 SUBSTR 截取 created_at 的前 10 位 (即 YYYY-MM-DD) 作为分组依据
 	var trends []TrendResult
-	
+
 	DB.Model(&TransactionRecord{}).
 		Select("SUBSTR(created_at, 1, 10) as date, SUM(amount_minor) as amount").
 		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
