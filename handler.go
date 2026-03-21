@@ -10,8 +10,28 @@ type QueryServiceImpl struct{}
 
 // GetBalanceSummary implements the QueryServiceImpl interface.
 func (s *QueryServiceImpl) GetBalanceSummary(ctx context.Context, req *query_service.GetBalanceSummaryRequest) (resp *query_service.GetBalanceSummaryResponse, err error) {
-	// TODO: Your code here...
-	return
+	resp = query_service.NewGetBalanceSummaryResponse()
+	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
+
+	var spentMinor int64
+	// 利用 COALESCE 防止查不到数据时 SUM 返回 NULL 导致报错
+	if err := DB.Model(&TransactionRecord{}).
+		Where("agent_did = ? AND tx_type = ?", req.AgentDid, int32(query_service.TransactionType_PURCHASE)).
+		Select("COALESCE(SUM(amount_minor), 0)").
+		Scan(&spentMinor).Error; err != nil {
+		resp.Base.Code = 30003
+		resp.Base.Message = "failed to calculate monthly spent"
+		return resp, nil
+	}
+
+	resp.MonthlySpentMinor = spentMinor
+	resp.Currency = common.Currency_USDC 
+	
+	// Demo
+	resp.BalanceMinor = 10000 * 1000000 
+	resp.MonthlyLimitMinor = 50000 * 1000000 
+
+	return resp, nil
 }
 
 // ListTransactions implements the QueryServiceImpl interface.
@@ -78,6 +98,50 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 
 // GetRevenueSummary implements the QueryServiceImpl interface.
 func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_service.GetRevenueSummaryRequest) (resp *query_service.GetRevenueSummaryResponse, err error) {
-	// TODO: Your code here...
-	return
+	resp = query_service.NewGetRevenueSummaryResponse()
+	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
+
+	var totalSales int64
+	var totalRevenue int64
+
+	// 1. 查总单量
+	DB.Model(&TransactionRecord{}).
+		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
+		Count(&totalSales)
+
+	// 2. 查总收入
+	DB.Model(&TransactionRecord{}).
+		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
+		Select("COALESCE(SUM(amount_minor), 0)").
+		Scan(&totalRevenue)
+
+	resp.TotalSales = int32(totalSales)
+	resp.TotalRevenueMinor = totalRevenue
+	resp.Currency = common.Currency_USDC
+
+	// 3. 查销售趋势 (按日期分组汇总)
+	type TrendResult struct {
+		Date   string
+		Amount int64
+	}// 用 SUBSTR 截取 created_at 的前 10 位 (即 YYYY-MM-DD) 作为分组依据
+	var trends []TrendResult
+	
+	DB.Model(&TransactionRecord{}).
+		Select("SUBSTR(created_at, 1, 10) as date, SUM(amount_minor) as amount").
+		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
+		Group("SUBSTR(created_at, 1, 10)").
+		Order("date ASC").
+		Scan(&trends)
+
+	// 组装返回体
+	var trendItems []*query_service.SalesTrendItem
+	for _, t := range trends {
+		trendItems = append(trendItems, &query_service.SalesTrendItem{
+			Date:        t.Date,
+			AmountMinor: t.Amount,
+		})
+	}
+	resp.SalesTrend = trendItems
+
+	return resp, nil
 }
