@@ -171,14 +171,3 @@ CANCELLED
 - 查询交易状态
 - 查询余额
 
-## 贡献指南
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/xxx`)
-3. 提交更改 (`git commit -am 'Add xxx'`)
-4. 推送分支 (`git push origin feature/xxx`)
-5. 创建 Pull Request
-
-## License
-
-MIT License
