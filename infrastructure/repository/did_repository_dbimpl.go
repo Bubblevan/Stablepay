@@ -23,7 +23,7 @@ type DidIdentityModel struct {
 	ID            uint64    `gorm:"column:id;primaryKey;autoIncrement"`                     // 自增主键ID，数据库自动生成
 	DID           string    `gorm:"column:did;type:varchar(255);uniqueIndex;not null"`      // DID标识符，唯一索引，不能为空
 	PublicKey     string    `gorm:"column:public_key;type:varchar(255);not null"`           // Base58编码的公钥，不能为空
-	PrivateKey    string    `gorm:"column:private_key;type:varchar(255)"`                   // Base58编码的私钥，实际生产环境需要加密存储
+	PrivateKey    string    `gorm:"column:private_key;type:varchar(255)"`                   // AES-GCM加密后的私钥（Base64编码）
 	WalletAddress string    `gorm:"column:wallet_address;type:varchar(255);index;not null"` // Solana钱包地址，普通索引便于查询
 	UserType      int8      `gorm:"column:user_type;type:tinyint;not null;default:1"`       // 用户类型：1=agent, 2=developer
 	Status        int8      `gorm:"column:status;type:tinyint;not null;default:1"`          // 状态：1=active, 2=disabled, 3=revoked
@@ -67,7 +67,7 @@ func (r *DBDIDRepository) Save(ctx context.Context, did *entity.DID) error {
 	model := DidIdentityModel{ // 创建数据库模型实例
 		DID:           did.DIDString,                        // 复制DID字符串
 		PublicKey:     did.PublicKey,                        // 复制公钥
-		PrivateKey:    did.PrivateKey,                       // 复制私钥（MVP阶段明文存储，生产环境需加密）
+		PrivateKey:    did.PrivateKey,                       // 复制加密后的私钥
 		WalletAddress: did.WalletAddress,                    // 复制钱包地址
 		UserType:      int8(mapUserTypeToInt(did.UserType)), // 将领域层UserType转换为数据库整数
 		Status:        int8(mapStatusToInt(did.Status)),     // 将领域层Status转换为数据库整数
@@ -143,7 +143,7 @@ func (r *DBDIDRepository) Update(ctx context.Context, did *entity.DID) error {
 
 	updates := map[string]interface{}{ // 构建需要更新的字段map
 		"public_key":     did.PublicKey,                  // 更新公钥
-		"private_key":    did.PrivateKey,                 // 更新私钥
+		"private_key":    did.PrivateKey,                 // 更新加密后的私钥
 		"wallet_address": did.WalletAddress,              // 更新钱包地址
 		"user_type":      mapUserTypeToInt(did.UserType), // 转换用户类型
 		"status":         mapStatusToInt(did.Status),     // 转换状态
@@ -290,7 +290,7 @@ func modelToEntity(m *DidIdentityModel) *entity.DID {
 		ID:            fmt.Sprintf("%d", m.ID),           // 将数字ID转为字符串
 		DIDString:     m.DID,                             // 复制DID
 		PublicKey:     m.PublicKey,                       // 复制公钥
-		PrivateKey:    m.PrivateKey,                      // 复制私钥
+		PrivateKey:    m.PrivateKey,                      // 复制加密后的私钥
 		WalletAddress: m.WalletAddress,                   // 复制钱包地址
 		UserType:      mapIntToUserType(int(m.UserType)), // 转换用户类型
 		Status:        mapIntToStatus(int(m.Status)),     // 转换状态

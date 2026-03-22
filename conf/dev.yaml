@@ -21,6 +21,11 @@ database:
   max_idle_conns: 10
   conn_max_lifetime: 3600  # 单位：秒
 
+# 加密配置（用于私钥加密存储）
+# 注意：生产环境应使用环境变量或密钥管理服务注入
+encryption:
+  key: "0123456789abcdef0123456789abcdef"  # AES-256密钥，32字节
+
 # 下游服务地址 (供后续扩展使用)
 downstream:
   # DID服务作为基础服务，暂不依赖其他服务

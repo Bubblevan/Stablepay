@@ -150,7 +150,7 @@ func copyDID(did *entity.DID) *entity.DID {
 		ID:            did.ID,
 		DIDString:     did.DIDString,
 		PublicKey:     did.PublicKey,
-		PrivateKey:    did.PrivateKey,
+		PrivateKey:    did.PrivateKey, // 加密后的私钥
 		WalletAddress: did.WalletAddress,
 		UserType:      did.UserType,
 		Status:        did.Status,

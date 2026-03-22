@@ -14,6 +14,7 @@ type Config struct {
 	Server     ServerConfig     `yaml:"server"`     // 服务器配置
 	Log        LogConfig        `yaml:"log"`        // 日志配置
 	Database   DatabaseConfig   `yaml:"database"`   // 数据库配置（新增）
+	Encryption EncryptionConfig `yaml:"encryption"` // 加密配置（新增）
 	Downstream DownstreamConfig `yaml:"downstream"` // 下游服务配置
 }
 
@@ -40,6 +41,11 @@ type DatabaseConfig struct {
 	MaxOpenConns    int    `yaml:"max_open_conns"`    // 最大打开连接数
 	MaxIdleConns    int    `yaml:"max_idle_conns"`    // 最大空闲连接数
 	ConnMaxLifetime int    `yaml:"conn_max_lifetime"` // 连接最大生命周期（秒）
+}
+
+// EncryptionConfig 加密配置结构体（新增）
+type EncryptionConfig struct {
+	Key string `yaml:"key"` // AES加密密钥（16/24/32字节）
 }
 
 // DownstreamConfig 下游服务配置结构体
@@ -100,6 +106,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.Database.ConnMaxLifetime == 0 { // 如果连接生命周期为0
 		c.Database.ConnMaxLifetime = 3600 // 默认3600秒（1小时）
+	}
+	if c.Encryption.Key == "" { // 如果加密密钥为空
+		c.Encryption.Key = "0123456789abcdef0123456789abcdef" // 默认32字节密钥（仅开发环境）
 	}
 }
 

@@ -49,6 +49,9 @@ func main() {
 				MaxIdleConns:    10,
 				ConnMaxLifetime: 3600,
 			},
+			Encryption: config.EncryptionConfig{
+				Key: "0123456789abcdef0123456789abcdef", // 默认32字节密钥（AES-256）
+			},
 		}
 	}
 
@@ -76,7 +79,10 @@ func main() {
 	repo := repository.NewDBDIDRepository(db)
 
 	// 3. 初始化应用层
-	appService := app.NewDIDAppService(repo)
+	appService, err := app.NewDIDAppService(repo, cfg.Encryption.Key)
+	if err != nil {
+		log.Fatalf("Failed to create app service: %v", err)
+	}
 
 	// 4. 初始化适配器层
 	handler := adapter.NewDIDHandler(appService)

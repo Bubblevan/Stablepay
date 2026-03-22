@@ -15,6 +15,7 @@ import (
 
 	"github.com/stablepay/did-service/domain/entity" // 领域实体包
 	"github.com/stablepay/did-service/domain/gateway" // 仓储接口包
+	"github.com/stablepay/did-service/infrastructure/encryption" // 加密工具包
 )
 
 // nonceEntry Nonce缓存条目结构体
@@ -28,19 +29,28 @@ type DIDAppService struct {
 	repo        gateway.DIDRepository // DID仓储接口
 	nonceCache  map[string]nonceEntry // Nonce缓存map，key为did+nonce组合
 	nonceMu     sync.RWMutex // Nonce缓存的读写锁，保证并发安全
+	encryptor   *encryption.AESEncryptor // AES加密器，用于私钥加密存储
 }
 
 // NewDIDAppService 创建应用服务实例的构造函数
 // 参数 repo: DID仓储接口实现
-// 返回: 应用服务实例指针
-func NewDIDAppService(repo gateway.DIDRepository) *DIDAppService {
+// 参数 encryptionKey: AES加密密钥（16/24/32字节）
+// 返回: 应用服务实例指针，错误信息
+func NewDIDAppService(repo gateway.DIDRepository, encryptionKey string) (*DIDAppService, error) {
+	// 创建加密器
+	encryptor, err := encryption.NewAESEncryptor(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("create encryptor failed: %w", err)
+	}
+
 	service := &DIDAppService{
 		repo:       repo, // 注入仓储依赖
 		nonceCache: make(map[string]nonceEntry), // 初始化nonce缓存map
+		encryptor:  encryptor, // 注入加密器
 	}
 	// 启动后台goroutine清理过期nonce
 	go service.cleanupExpiredNonces()
-	return service
+	return service, nil
 }
 
 // cleanupExpiredNonces 定期清理过期的nonce缓存
@@ -74,6 +84,7 @@ type CreateDIDResult struct {
 	PublicKey     string // 公钥（Base58）
 	WalletAddress string // 钱包地址（与公钥相同）
 	CreatedAt     string // 创建时间（RFC3339格式）
+	// 注意：私钥不会返回给调用方，需要安全保存在客户端
 }
 
 // UserType 用户类型定义
@@ -87,7 +98,8 @@ const (
 // CreateDID 创建DID
 // 1. 生成Ed25519密钥对
 // 2. 构造did:solana:xxx
-// 3. 持久化存储
+// 3. 使用AES-GCM加密私钥
+// 4. 持久化存储
 // 参数 ctx: 上下文
 // 参数 cmd: 创建命令
 // 返回: 创建结果，错误信息
@@ -95,12 +107,18 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 	// 1. 生成密钥对
 	account := solana.NewWallet() // 创建新的Solana钱包（自动生成密钥对）
 	publicKey := account.PublicKey().String() // 获取公钥字符串
-	privateKey := base58.Encode(account.PrivateKey) // Base58编码私钥
+	privateKeyPlain := base58.Encode(account.PrivateKey) // Base58编码私钥（明文）
 
-	// 2. 构造DID字符串
+	// 2. 使用AES-GCM加密私钥
+	privateKeyEncrypted, err := s.encryptor.EncryptString(privateKeyPlain)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt private key failed: %w", err)
+	}
+
+	// 3. 构造DID字符串
 	didString := entity.GenerateDIDString(publicKey)
 
-	// 3. 检查DID是否已存在
+	// 4. 检查DID是否已存在
 	exists, err := s.repo.Exists(ctx, didString)
 	if err != nil {
 		return nil, fmt.Errorf("check did exists failed: %w", err)
@@ -109,14 +127,14 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 		return nil, fmt.Errorf("did already exists: %s", didString)
 	}
 
-	// 4. 创建领域实体
+	// 5. 创建领域实体
 	userType := entity.UserType(cmd.UserType)
 	if userType == "" {
 		userType = entity.UserTypeAgent // 默认为Agent类型
 	}
 
 	did := entity.NewDID(didString, publicKey, publicKey, userType)
-	did.PrivateKey = privateKey // 注意: 生产环境需要加密存储
+	did.PrivateKey = privateKeyEncrypted // 存储加密后的私钥
 
 	// 复制元数据
 	if cmd.Metadata != nil {
@@ -125,7 +143,7 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 		}
 	}
 
-	// 5. 持久化
+	// 6. 持久化
 	if err := s.repo.Save(ctx, did); err != nil {
 		return nil, fmt.Errorf("save did failed: %w", err)
 	}
@@ -135,7 +153,36 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 		PublicKey:     publicKey,
 		WalletAddress: publicKey,
 		CreatedAt:     did.CreatedAt.Format(time.RFC3339),
+		// 注意：私钥不返回，应由客户端本地安全保存
 	}, nil
+}
+
+// GetPrivateKey 获取解密后的私钥（用于签名操作）
+// 参数 ctx: 上下文
+// 参数 didString: DID标识符
+// 返回: 解密后的Base58私钥，错误信息
+func (s *DIDAppService) GetPrivateKey(ctx context.Context, didString string) (string, error) {
+	// 1. 查找DID
+	did, err := s.repo.FindByDID(ctx, didString)
+	if err != nil {
+		return "", fmt.Errorf("find did failed: %w", err)
+	}
+	if did == nil {
+		return "", fmt.Errorf("did not found: %s", didString)
+	}
+
+	// 2. 检查DID状态
+	if !did.IsActive() {
+		return "", fmt.Errorf("did is not active: %s", didString)
+	}
+
+	// 3. 解密私钥
+	privateKeyPlain, err := s.encryptor.DecryptString(did.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("decrypt private key failed: %w", err)
+	}
+
+	return privateKeyPlain, nil
 }
 
 // GetDIDQuery 查询DID查询结构体
@@ -151,6 +198,7 @@ type GetDIDResult struct {
 	Status        string            // 状态
 	UserType      string            // 用户类型
 	Metadata      map[string]string // 元数据
+	// 注意：私钥字段不返回，确保安全
 }
 
 // GetDID 查询DID
@@ -177,6 +225,7 @@ func (s *DIDAppService) GetDID(ctx context.Context, query *GetDIDQuery) (*GetDID
 		Status:        string(did.Status),
 		UserType:      string(did.UserType),
 		Metadata:      did.Metadata,
+		// 注意：私钥不返回
 	}, nil
 }
 
