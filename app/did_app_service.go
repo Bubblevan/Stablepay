@@ -1,61 +1,101 @@
 // Package app 应用服务层
-// COLA v5: Application Layer
+// COLA V5: Application Layer
 // 协调领域对象完成用例
 package app
 
 import (
-	"context"
-	"fmt"
-	"time"
+	"context" // 上下文包，用于控制请求生命周期
+	"crypto/ed25519" // 标准库Ed25519加密包，用于签名验证
+	"fmt" // 格式化包
+	"sync" // 同步包，用于nonce缓存的并发安全
+	"time" // 时间包，用于时间窗口验证
 
-	"github.com/gagliardetto/solana-go"
-	"github.com/mr-tron/base58"
+	"github.com/gagliardetto/solana-go" // Solana区块链SDK
+	"github.com/mr-tron/base58" // Base58编解码库
 
-	"github.com/stablepay/did-service/domain/entity"
-	"github.com/stablepay/did-service/domain/gateway"
+	"github.com/stablepay/did-service/domain/entity" // 领域实体包
+	"github.com/stablepay/did-service/domain/gateway" // 仓储接口包
 )
 
-// DIDAppService DID应用服务
+// nonceEntry Nonce缓存条目结构体
+type nonceEntry struct {
+	nonce     string // Nonce值
+	timestamp time.Time // 缓存时间，用于过期清理
+}
+
+// DIDAppService DID应用服务结构体
 type DIDAppService struct {
-	repo gateway.DIDRepository
+	repo        gateway.DIDRepository // DID仓储接口
+	nonceCache  map[string]nonceEntry // Nonce缓存map，key为did+nonce组合
+	nonceMu     sync.RWMutex // Nonce缓存的读写锁，保证并发安全
 }
 
-// NewDIDAppService 创建应用服务
+// NewDIDAppService 创建应用服务实例的构造函数
+// 参数 repo: DID仓储接口实现
+// 返回: 应用服务实例指针
 func NewDIDAppService(repo gateway.DIDRepository) *DIDAppService {
-	return &DIDAppService{repo: repo}
+	service := &DIDAppService{
+		repo:       repo, // 注入仓储依赖
+		nonceCache: make(map[string]nonceEntry), // 初始化nonce缓存map
+	}
+	// 启动后台goroutine清理过期nonce
+	go service.cleanupExpiredNonces()
+	return service
 }
 
-// CreateDIDCmd 创建DID命令
+// cleanupExpiredNonces 定期清理过期的nonce缓存
+// 作为后台goroutine运行，每5分钟清理一次超过10分钟的nonce
+func (s *DIDAppService) cleanupExpiredNonces() {
+	ticker := time.NewTicker(5 * time.Minute) // 创建5分钟周期的ticker
+	defer ticker.Stop() // 函数退出时停止ticker
+
+	for range ticker.C { // 循环等待ticker信号
+		s.nonceMu.Lock() // 加写锁
+		now := time.Now()
+		// 遍历所有缓存条目，删除超过10分钟的
+		for key, entry := range s.nonceCache {
+			if now.Sub(entry.timestamp) > 10*time.Minute { // 超过10分钟
+				delete(s.nonceCache, key) // 从map中删除
+			}
+		}
+		s.nonceMu.Unlock() // 释放写锁
+	}
+}
+
+// CreateDIDCmd 创建DID命令结构体
 type CreateDIDCmd struct {
-	UserType UserType
-	Metadata map[string]string
+	UserType UserType // 用户类型
+	Metadata map[string]string // 元数据
 }
 
-// CreateDIDResult 创建DID结果
+// CreateDIDResult 创建DID结果结构体
 type CreateDIDResult struct {
-	DIDString     string
-	PublicKey     string
-	WalletAddress string
-	CreatedAt     string
+	DIDString     string // DID标识符
+	PublicKey     string // 公钥（Base58）
+	WalletAddress string // 钱包地址（与公钥相同）
+	CreatedAt     string // 创建时间（RFC3339格式）
 }
 
-// UserType 用户类型
+// UserType 用户类型定义
 type UserType string
 
 const (
-	UserTypeAgent     UserType = "agent"
-	UserTypeDeveloper UserType = "developer"
+	UserTypeAgent     UserType = "agent"     // Agent类型常量
+	UserTypeDeveloper UserType = "developer" // 开发者类型常量
 )
 
 // CreateDID 创建DID
 // 1. 生成Ed25519密钥对
 // 2. 构造did:solana:xxx
 // 3. 持久化存储
+// 参数 ctx: 上下文
+// 参数 cmd: 创建命令
+// 返回: 创建结果，错误信息
 func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*CreateDIDResult, error) {
 	// 1. 生成密钥对
-	account := solana.NewWallet()
-	publicKey := account.PublicKey().String()
-	privateKey := base58.Encode(account.PrivateKey)
+	account := solana.NewWallet() // 创建新的Solana钱包（自动生成密钥对）
+	publicKey := account.PublicKey().String() // 获取公钥字符串
+	privateKey := base58.Encode(account.PrivateKey) // Base58编码私钥
 
 	// 2. 构造DID字符串
 	didString := entity.GenerateDIDString(publicKey)
@@ -72,7 +112,7 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 	// 4. 创建领域实体
 	userType := entity.UserType(cmd.UserType)
 	if userType == "" {
-		userType = entity.UserTypeAgent
+		userType = entity.UserTypeAgent // 默认为Agent类型
 	}
 
 	did := entity.NewDID(didString, publicKey, publicKey, userType)
@@ -98,22 +138,25 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 	}, nil
 }
 
-// GetDIDQuery 查询DID查询
+// GetDIDQuery 查询DID查询结构体
 type GetDIDQuery struct {
-	DIDString string
+	DIDString string // DID标识符
 }
 
-// GetDIDResult 查询DID结果
+// GetDIDResult 查询DID结果结构体
 type GetDIDResult struct {
-	DIDString     string
-	PublicKey     string
-	WalletAddress string
-	Status        string
-	UserType      string
-	Metadata      map[string]string
+	DIDString     string            // DID标识符
+	PublicKey     string            // 公钥
+	WalletAddress string            // 钱包地址
+	Status        string            // 状态
+	UserType      string            // 用户类型
+	Metadata      map[string]string // 元数据
 }
 
 // GetDID 查询DID
+// 参数 ctx: 上下文
+// 参数 query: 查询条件
+// 返回: 查询结果，错误信息
 func (s *DIDAppService) GetDID(ctx context.Context, query *GetDIDQuery) (*GetDIDResult, error) {
 	if err := entity.ValidateDIDString(query.DIDString); err != nil {
 		return nil, fmt.Errorf("invalid did: %w", err)
@@ -137,22 +180,30 @@ func (s *DIDAppService) GetDID(ctx context.Context, query *GetDIDQuery) (*GetDID
 	}, nil
 }
 
-// VerifySignatureCmd 验证签名命令
+// VerifySignatureCmd 验证签名命令结构体
 type VerifySignatureCmd struct {
-	DIDString string
-	Message   string
-	Signature string
-	Timestamp string
-	Nonce     string
+	DIDString string // DID标识符
+	Message   string // 原始消息内容
+	Signature string // 签名值（Base58编码）
+	Timestamp string // 时间戳（RFC3339格式）
+	Nonce     string // 随机数，防止重放攻击
 }
 
-// VerifySignatureResult 验证签名结果
+// VerifySignatureResult 验证签名结果结构体
 type VerifySignatureResult struct {
-	Valid bool
+	Valid bool // 签名是否有效
 }
 
-// VerifySignature 验证签名
-// 使用DID对应的公钥验证签名
+// VerifySignature 验证Ed25519签名
+// 完整验证流程：
+// 1. 查找DID并验证状态
+// 2. 解析公钥和签名
+// 3. 时间窗口验证（±5分钟）
+// 4. Nonce防重放检查
+// 5. Ed25519签名验证
+// 参数 ctx: 上下文
+// 参数 cmd: 验证命令
+// 返回: 验证结果，错误信息
 func (s *DIDAppService) VerifySignature(ctx context.Context, cmd *VerifySignatureCmd) (*VerifySignatureResult, error) {
 	// 1. 查找DID
 	did, err := s.repo.FindByDID(ctx, cmd.DIDString)
@@ -168,50 +219,114 @@ func (s *DIDAppService) VerifySignature(ctx context.Context, cmd *VerifySignatur
 		return &VerifySignatureResult{Valid: false}, nil
 	}
 
-	// 3. 解析公钥
-	pubKey, err := solana.PublicKeyFromBase58(did.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid public key: %w", err)
+	// 3. 时间窗口验证（±5分钟），防止重放攻击
+	if !s.verifyTimestampWindow(cmd.Timestamp) {
+		return &VerifySignatureResult{Valid: false}, nil
 	}
 
-	// 4. 解析签名
+	// 4. Nonce防重放检查
+	if !s.verifyNonce(cmd.DIDString, cmd.Nonce) {
+		return &VerifySignatureResult{Valid: false}, nil
+	}
+
+	// 5. 解析公钥（Base58解码）
+	pubKeyBytes, err := base58.Decode(did.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode public key failed: %w", err)
+	}
+	// 验证公钥长度（Ed25519公钥必须是32字节）
+	if len(pubKeyBytes) != ed25519.PublicKeySize {
+		return &VerifySignatureResult{Valid: false}, nil
+	}
+
+	// 6. 解析签名（Base58解码）
 	sigBytes, err := base58.Decode(cmd.Signature)
 	if err != nil {
 		return &VerifySignatureResult{Valid: false}, nil
 	}
+	// 验证签名长度（Ed25519签名必须是64字节）
+	if len(sigBytes) != ed25519.SignatureSize {
+		return &VerifySignatureResult{Valid: false}, nil
+	}
 
-	// 5. 构造签名数据 (message + timestamp + nonce)
+	// 7. 构造签名数据（message + timestamp + nonce）
 	signData := fmt.Sprintf("%s%s%s", cmd.Message, cmd.Timestamp, cmd.Nonce)
 
-	// 6. 验证签名
-	// 注意: Solana签名验证需要完整的交易结构，这里简化处理
-	// 实际生产环境需要更严格的验证逻辑
-	valid := verifyEd25519Signature(pubKey.Bytes(), []byte(signData), sigBytes)
+	// 8. 执行Ed25519签名验证
+	valid := ed25519.Verify(pubKeyBytes, []byte(signData), sigBytes)
+
+	// 9. 如果验证成功，记录nonce（防止重复使用）
+	if valid {
+		s.recordNonce(cmd.DIDString, cmd.Nonce)
+	}
 
 	return &VerifySignatureResult{Valid: valid}, nil
 }
 
-// verifyEd25519Signature 验证Ed25519签名（简化实现）
-// 注意: 这是MVP简化版，生产环境需要完整的加密验证
-func verifyEd25519Signature(publicKey, message, signature []byte) bool {
-	// MVP阶段: 始终返回true（因为Solana签名验证需要完整的交易上下文）
-	// 贾越TODO: 实现完整的Ed25519签名验证
-	return len(signature) == 64
+// verifyTimestampWindow 验证时间戳是否在允许窗口内（±5分钟）
+// 参数 timestampStr: RFC3339格式的时间戳字符串
+// 返回: 是否在有效窗口内
+func (s *DIDAppService) verifyTimestampWindow(timestampStr string) bool {
+	timestamp, err := time.Parse(time.RFC3339, timestampStr) // 解析时间戳
+	if err != nil {
+		return false // 解析失败视为无效
+	}
+
+	now := time.Now() // 获取当前时间
+	diff := now.Sub(timestamp) // 计算时间差
+	if diff < 0 {
+		diff = -diff // 取绝对值
+	}
+
+	// 允许5分钟的时间窗口
+	return diff <= 5*time.Minute
 }
 
-// UpdateConfigCmd 更新配置命令
+// verifyNonce 验证nonce是否已被使用过
+// 参数 did: DID标识符
+// 参数 nonce: 随机数
+// 返回: 是否有效（未使用过返回true）
+func (s *DIDAppService) verifyNonce(did, nonce string) bool {
+	key := did + ":" + nonce // 构建复合key
+
+	s.nonceMu.RLock() // 加读锁
+	defer s.nonceMu.RUnlock() // 函数退出时释放读锁
+
+	_, exists := s.nonceCache[key] // 检查key是否存在于缓存中
+	return !exists // 不存在表示未使用过，返回true
+}
+
+// recordNonce 记录已使用的nonce
+// 参数 did: DID标识符
+// 参数 nonce: 随机数
+func (s *DIDAppService) recordNonce(did, nonce string) {
+	key := did + ":" + nonce // 构建复合key
+
+	s.nonceMu.Lock() // 加写锁
+	defer s.nonceMu.Unlock() // 函数退出时释放写锁
+
+	s.nonceCache[key] = nonceEntry{ // 写入缓存
+		nonce:     nonce,
+		timestamp: time.Now(), // 记录当前时间，用于后续过期清理
+	}
+}
+
+// UpdateConfigCmd 更新配置命令结构体
 type UpdateConfigCmd struct {
-	DIDString     string
-	ConfigVersion int64
-	ConfigKV      map[string]string
+	DIDString     string            // DID标识符
+	ConfigVersion int64             // 当前配置版本（乐观锁）
+	ConfigKV      map[string]string // 配置键值对
 }
 
-// UpdateConfigResult 更新配置结果
+// UpdateConfigResult 更新配置结果结构体
 type UpdateConfigResult struct {
-	NewConfigVersion int64
+	NewConfigVersion int64 // 新的配置版本号
 }
 
 // UpdateConfig 更新DID配置
+// 参数 ctx: 上下文
+// 参数 cmd: 更新命令
+// 返回: 更新结果，错误信息
 func (s *DIDAppService) UpdateConfig(ctx context.Context, cmd *UpdateConfigCmd) (*UpdateConfigResult, error) {
 	// 1. 查找DID
 	did, err := s.repo.FindByDID(ctx, cmd.DIDString)
