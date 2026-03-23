@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2
+	github.com/cloudwego/gopkg v0.1.8
 	github.com/cloudwego/kitex v0.16.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
@@ -18,7 +19,6 @@ require (
 	github.com/cloudwego/dynamicgo v0.8.0 // indirect
 	github.com/cloudwego/fastpb v0.0.5 // indirect
 	github.com/cloudwego/frugal v0.3.1 // indirect
-	github.com/cloudwego/gopkg v0.1.10 // indirect
 	github.com/cloudwego/localsession v0.2.1 // indirect
 	github.com/cloudwego/netpoll v0.7.2 // indirect
 	github.com/cloudwego/runtimex v0.1.1 // indirect
