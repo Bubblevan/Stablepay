@@ -29,5 +29,5 @@ encryption:
 # 下游服务地址 (供后续扩展使用)
 downstream:
   # DID服务作为基础服务，暂不依赖其他服务
-  # payment_service: "localhost:8888"
+  # payment_service: "localhost:8082"
   # blockchain_adapter: "localhost:8083"

@@ -55,28 +55,21 @@ func main() {
 		}
 	}
 
-	// 2. 初始化基础设施层
-	// repo := repository.NewMemoryDIDRepository() // 使用内存存储时取消注释
-
-	// 从配置构建MySQL连接DSN (Data Source Name)
+	// 2. 初始化基础设施层（使用MySQL存储）
 	dsn := cfg.GetMySQLDSN()
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
-
-	// 设置连接池
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
 	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
-
-	// 自动迁移表结构
 	if err := db.AutoMigrate(&repository.DidIdentityModel{}); err != nil {
 		log.Printf("Warning: Failed to auto migrate: %v", err)
 	}
-
 	repo := repository.NewDBDIDRepository(db)
+	log.Println("Using MySQL storage")
 
 	// 3. 初始化应用层
 	appService, err := app.NewDIDAppService(repo, cfg.Encryption.Key)
