@@ -12,9 +12,9 @@ log:
 # MySQL 数据库配置
 database:
   host: "127.0.0.1"
-  port: 3306
+  port: 3307
   user: "root"
-  password: "password"
+  password: "root123"
   dbname: "did_service"
   charset: "utf8mb4"
   max_open_conns: 20
