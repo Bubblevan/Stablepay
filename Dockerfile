@@ -3,6 +3,13 @@
 
 FROM golang:1.21-alpine AS builder
 
+# 使用阿里云 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 设置 Go 模块代理为阿里云
+ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+ENV GO111MODULE=on
+
 # 安装构建依赖
 RUN apk add --no-cache git
 
@@ -20,6 +27,9 @@ RUN go build -o query-service .
 
 # 运行时镜像
 FROM alpine:latest
+
+# 使用阿里云 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 安装运行时依赖（SQLite 需要）
 RUN apk add --no-cache ca-certificates
