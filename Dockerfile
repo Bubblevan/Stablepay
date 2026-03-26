@@ -23,8 +23,8 @@ RUN go mod download
 # 复制源代码
 COPY . .
 
-# 编译
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service cmd/payment-service/main.go
+# 编译（main.go 在根目录）
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service .
 
 # 运行阶段
 FROM alpine:latest
