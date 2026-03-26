@@ -1,6 +1,13 @@
 # 构建阶段
 FROM golang:1.21-alpine AS builder
 
+# 使用阿里云 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 设置 Go 模块代理为阿里云
+ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+ENV GO111MODULE=on
+
 # 安装依赖
 RUN apk add --no-cache git
 
@@ -21,6 +28,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service c
 
 # 运行阶段
 FROM alpine:latest
+
+# 使用阿里云 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 安装 CA 证书
 RUN apk --no-cache add ca-certificates
