@@ -1,13 +1,29 @@
-FROM golang:1.21 AS builder
+FROM golang:1.26.1-alpine AS builder
+
+ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+ENV GO111MODULE=on
+
 WORKDIR /workspace
+
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk add --no-cache git
+
 COPY go.mod go.sum* ./
 RUN go mod download
+
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/api-gateway ./cmd/api-gateway
 
-FROM gcr.io/distroless/static-debian12
+FROM alpine:latest
+
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk add --no-cache ca-certificates
+
 WORKDIR /app
+
 COPY --from=builder /out/api-gateway /app/api-gateway
-COPY configs/config.yaml /app/config.yaml
+COPY configs /app/configs
+
 EXPOSE 8080
-ENTRYPOINT ["/app/api-gateway","-config","/app/config.yaml"]
+
+ENTRYPOINT ["/app/api-gateway", "-config", "/app/configs/config.yaml"]
