@@ -7,12 +7,15 @@ import (
 
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/google/uuid"
+	adapterrepo "github.com/stablepay/payment-service/internal/adapter/repository"
+	"github.com/stablepay/payment-service/internal/adapter/rpc"
 	"github.com/stablepay/payment-service/internal/domain/entity"
 	"github.com/stablepay/payment-service/internal/domain/repository"
 	"github.com/stablepay/payment-service/internal/domain/service"
 	"github.com/stablepay/payment-service/internal/domain/vo"
 	"github.com/stablepay/payment-service/internal/infrastructure/config"
 	"github.com/stablepay/payment-service/internal/infrastructure/mysql"
+	infraredis "github.com/stablepay/payment-service/internal/infrastructure/redis"
 	"github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	"github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
 	"github.com/stablepay/payment-service/pkg/constants"
@@ -73,21 +76,54 @@ type PaymentEvent struct {
 	ErrorMsg    string
 }
 
+// noopEventPublisher 无操作事件发布器（MVP 占位实现）
+type noopEventPublisher struct{}
+
+func (n *noopEventPublisher) PublishPaymentEvent(_ context.Context, event *PaymentEvent) error {
+	klog.Infof("event: tx_id=%s status=%s", event.TxID, event.Status)
+	return nil
+}
+
 // NewPaymentServiceImpl 创建 PaymentServiceImpl 实例
 func NewPaymentServiceImpl() *PaymentServiceImpl {
+	// 加载配置
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		klog.Fatalf("failed to load config: %v", err)
+	}
+
 	// 初始化数据库连接
-	db, err := mysql.NewDB(config.Get().MySQL)
+	db, err := mysql.NewMySQLConnection(cfg)
 	if err != nil {
 		klog.Fatalf("failed to init database: %v", err)
 	}
 
 	// 初始化仓库
-	paymentRepo := repository.NewPaymentRepository(db)
-	idempotencyRepo := repository.NewPaymentIdempotencyRepository(db)
+	paymentRepo := adapterrepo.NewPaymentRepository(db)
+	idempotencyRepo := adapterrepo.NewPaymentIdempotencyRepository(db)
+
+	// 初始化 RPC 客户端
+	didClient := rpc.NewDIDServiceClient(
+		cfg.RpcClients.DIDService.Address,
+		cfg.RpcClients.DIDService.TimeoutMs,
+		cfg.RpcClients.DIDService.RetryCount,
+	)
+	blockchainClient := rpc.NewBlockchainAdapterClient(
+		cfg.RpcClients.BlockchainAdapter.Address,
+		cfg.RpcClients.BlockchainAdapter.TimeoutMs,
+		cfg.RpcClients.BlockchainAdapter.RetryCount,
+	)
+
+	// 初始化 Redis
+	redisClient, err := infraredis.NewRedisClient(cfg)
+	if err != nil {
+		klog.Fatalf("failed to init redis: %v", err)
+	}
 
 	// 初始化领域服务
-	paymentValidator := service.NewPaymentValidator()
-	nonceChecker := service.NewNonceChecker()
+	const maxAmountMinor int64 = 1000000000000 // 100万 USDC
+	paymentValidator := service.NewPaymentValidator(didClient, blockchainClient, maxAmountMinor)
+	nonceChecker := service.NewNonceChecker(redisClient)
 
 	return &PaymentServiceImpl{
 		paymentRepo:      paymentRepo,
@@ -95,10 +131,12 @@ func NewPaymentServiceImpl() *PaymentServiceImpl {
 		paymentValidator: paymentValidator,
 		nonceChecker:     nonceChecker,
 		idempotencyGen:   service.NewIdempotencyKeyGenerator(),
+		blockchainExec:   blockchainClient,
+		eventPublisher:   &noopEventPublisher{},
 		config: &PaymentConfig{
 			TimeoutMinutes:      30,
 			MaxRetryCount:       3,
-			MaxAmountMinor:      1000000000000, // 100万 USDC
+			MaxAmountMinor:      maxAmountMinor,
 			PollIntervalSeconds: 5,
 			MaxPollCount:        60, // 最多轮询5分钟
 		},
@@ -125,16 +163,17 @@ func (s *PaymentServiceImpl) InitiatePayment(ctx context.Context, req *payment_s
 	}
 
 	// 4. 构建值对象
-	amount, err := vo.NewAmount(req.AmountMinor, vo.ThriftCurrencyToCommon(req.Currency))
+	currency := constants.Currency(req.Currency)
+	amount, err := vo.NewAmount(req.AmountMinor, currency)
 	if err != nil {
 		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil)
 		return nil, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid amount")
 	}
 
-	var signature *vo.Signature
+	var signature vo.Signature
 	if req.Signature != nil && req.Timestamp != nil {
 		signData := vo.GetSignData(string(req.AgentDid), string(req.SkillDid), req.AmountMinor,
-			vo.ThriftCurrencyToCommon(req.Currency), 0, "") // Thrift 定义中没有 timestamp_ms 和 nonce，简化处理
+			currency, 0, "") // Thrift 定义中没有 timestamp_ms 和 nonce，简化处理
 		signature = vo.NewSignature(*req.Signature, 0, "", signData)
 	}
 
@@ -146,7 +185,7 @@ func (s *PaymentServiceImpl) InitiatePayment(ctx context.Context, req *payment_s
 
 	// 6. 检查余额（通过 Blockchain Service）
 	walletAddress := extractWalletFromDID(string(req.AgentDid))
-	if err := s.paymentValidator.CheckBalance(ctx, walletAddress, vo.ThriftCurrencyToCommon(req.Currency), req.AmountMinor); err != nil {
+	if err := s.paymentValidator.CheckBalance(ctx, walletAddress, currency, req.AmountMinor); err != nil {
 		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil)
 		return nil, err
 	}
@@ -154,7 +193,7 @@ func (s *PaymentServiceImpl) InitiatePayment(ctx context.Context, req *payment_s
 	// 7. 创建支付记录
 	txID := generateTxID()
 	payment, err := entity.NewPayment(txID, string(req.AgentDid), string(req.SkillDid), req.AmountMinor,
-		vo.ThriftCurrencyToCommon(req.Currency), "", 0, "", s.config.TimeoutMinutes)
+		currency, "", 0, "", s.config.TimeoutMinutes)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +209,7 @@ func (s *PaymentServiceImpl) InitiatePayment(ctx context.Context, req *payment_s
 
 	// 9. 执行链上交易
 	skillWallet := extractWalletFromDID(string(req.SkillDid))
-	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, req.AmountMinor,
-		vo.ThriftCurrencyToCommon(req.Currency))
+	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, req.AmountMinor, currency)
 	if err != nil {
 		_ = payment.MarkAsFailed("BLOCKCHAIN_ERROR", err.Error())
 		_ = s.paymentRepo.Update(ctx, payment)
@@ -243,15 +281,15 @@ func (s *PaymentServiceImpl) ListPaymentHistory(ctx context.Context, req *paymen
 			TxId:        p.TxID,
 			SkillDid:    p.SkillDID,
 			AmountMinor: p.AmountMinor,
-			Currency:    vo.CommonCurrencyToThrift(p.Currency),
-			Status:      vo.CommonStatusToThrift(p.Status),
+			Currency:    common.Currency(p.Currency),
+			Status:      common.PaymentStatus(p.Status),
 			CreatedAt:   p.CreatedAt.Format(constants.TimeFormatISO8601),
 		}
 	}
 
 	return &payment_service.ListPaymentHistoryResponse{
 		Base: &common.BaseResp{
-			Code:    int32(constants.ErrorCodeSuccess),
+			Code:    0,
 			Message: "success",
 		},
 		Items: items,
@@ -410,11 +448,11 @@ func (s *PaymentServiceImpl) publishEvent(ctx context.Context, payment *entity.P
 func (s *PaymentServiceImpl) toResponse(payment *entity.Payment) *payment_service.InitiatePaymentResponse {
 	resp := &payment_service.InitiatePaymentResponse{
 		Base: &common.BaseResp{
-			Code:    int32(constants.ErrorCodeSuccess),
+			Code:    0,
 			Message: "success",
 		},
 		TxId:      payment.TxID,
-		Status:    vo.CommonStatusToThrift(payment.Status),
+		Status:    common.PaymentStatus(payment.Status),
 		CreatedAt: payment.CreatedAt.Format(constants.TimeFormatISO8601),
 	}
 
@@ -434,11 +472,11 @@ func (s *PaymentServiceImpl) toResponse(payment *entity.Payment) *payment_servic
 func (s *PaymentServiceImpl) toStatusResponse(payment *entity.Payment) *payment_service.GetPaymentStatusResponse {
 	resp := &payment_service.GetPaymentStatusResponse{
 		Base: &common.BaseResp{
-			Code:    int32(constants.ErrorCodeSuccess),
+			Code:    0,
 			Message: "success",
 		},
 		TxId:   payment.TxID,
-		Status: vo.CommonStatusToThrift(payment.Status),
+		Status: common.PaymentStatus(payment.Status),
 	}
 
 	if payment.TxHash != "" {
