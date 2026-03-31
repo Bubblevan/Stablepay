@@ -1,11 +1,12 @@
-// Package mq MQ 生产者实现
+// Package mq MQ producer implementation.
 package mq
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"net"
+	"strings"
 
 	"github.com/apache/rocketmq-client-go/v2"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
@@ -15,17 +16,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// PaymentEventProducer 支付事件生产者
+// PaymentEventProducer publishes payment events to RocketMQ.
 type PaymentEventProducer struct {
-	producer   rocketmq.Producer
-	topic      string
-	logger     *zap.Logger
+	producer rocketmq.Producer
+	topic    string
+	logger   *zap.Logger
 }
 
-// NewPaymentEventProducer 创建事件生产者
 func NewPaymentEventProducer(nameServers []string, producerGroup string, topic string, logger *zap.Logger) (*PaymentEventProducer, error) {
+	resolvedNameServers := resolveNameServers(nameServers)
+
 	p, err := rocketmq.NewProducer(
-		producer.WithNameServer(nameServers),
+		producer.WithNameServer(resolvedNameServers),
 		producer.WithGroupName(producerGroup),
 		producer.WithRetry(3),
 	)
@@ -44,32 +46,22 @@ func NewPaymentEventProducer(nameServers []string, producerGroup string, topic s
 	}, nil
 }
 
-// PublishPaymentEvent 发布支付事件
 func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *dto.MQPaymentEvent) error {
-	// 序列化事件
 	data, err := json.Marshal(event)
 	if err != nil {
 		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to marshal event")
 	}
 
-	// 确定 Tag - 将字符串状态转换为 int8
-	statusInt, err := strconv.ParseInt(event.Status, 10, 8)
-	if err != nil {
-		p.logger.Warn("invalid event status, skip publishing", zap.String("status", event.Status))
-		return nil
-	}
-	tag := dto.ToMQEventTag(int8(statusInt))
+	tag := eventTagFromStatus(event.Status)
 	if tag == "" {
 		p.logger.Warn("unknown event status, skip publishing", zap.String("status", event.Status))
 		return nil
 	}
 
-	// 构建消息
 	msg := primitive.NewMessage(p.topic, data).
 		WithTag(tag).
 		WithKeys([]string{event.TxID})
 
-	// 发送消息
 	res, err := p.producer.SendSync(ctx, msg)
 	if err != nil {
 		p.logger.Error("failed to send mq message", zap.Error(err), zap.String("tx_id", event.TxID))
@@ -92,7 +84,6 @@ func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *d
 	return nil
 }
 
-// Shutdown 关闭生产者
 func (p *PaymentEventProducer) Shutdown() error {
 	if err := p.producer.Shutdown(); err != nil {
 		return fmt.Errorf("failed to shutdown mq producer: %w", err)
@@ -100,26 +91,77 @@ func (p *PaymentEventProducer) Shutdown() error {
 	return nil
 }
 
-// LocalMessageTable 本地消息表（用于事务消息）
-type LocalMessageTable struct {
-	// 用于存储待发送的消息
-	// 实际实现需要持久化到数据库
-}
+type LocalMessageTable struct{}
 
-// TransactionMessage 事务消息
 type TransactionMessage struct {
-	ID        string
-	Topic     string
-	Tag       string
-	Keys      []string
-	Body      []byte
-	Status    int // 0=pending, 1=sent, 2=failed
+	ID         string
+	Topic      string
+	Tag        string
+	Keys       []string
+	Body       []byte
+	Status     int
 	RetryCount int
-	CreatedAt int64
-	UpdatedAt int64
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
-// Ensure PaymentEventProducer 实现 EventPublisher 接口
 var _ interface {
 	PublishPaymentEvent(ctx context.Context, event *dto.MQPaymentEvent) error
 } = (*PaymentEventProducer)(nil)
+
+func eventTagFromStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "CONFIRMED", "COMPLETED":
+		return dto.ToMQEventTag(3)
+	case "FAILED", "CANCELLED":
+		return dto.ToMQEventTag(4)
+	default:
+		return ""
+	}
+}
+
+func resolveNameServers(nameServers []string) []string {
+	out := make([]string, 0, len(nameServers))
+	for _, addr := range nameServers {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		out = append(out, resolveOneNameServer(addr))
+	}
+
+	if len(out) == 0 {
+		return []string{"127.0.0.1:9876"}
+	}
+
+	return out
+}
+
+func resolveOneNameServer(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		if strings.Count(addr, ":") == 0 {
+			addr = net.JoinHostPort(addr, "9876")
+			host, port = addr, "9876"
+			if strings.Count(addr, ":") > 0 {
+				host, port, err = net.SplitHostPort(addr)
+			}
+		}
+		if err != nil {
+			return addr
+		}
+	}
+
+	ips, err := net.LookupHost(host)
+	if err != nil || len(ips) == 0 {
+		return addr
+	}
+
+	for _, ip := range ips {
+		if net.ParseIP(ip).To4() != nil {
+			return net.JoinHostPort(ip, port)
+		}
+	}
+
+	return net.JoinHostPort(ips[0], port)
+}

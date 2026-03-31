@@ -5,7 +5,7 @@ FROM golang:1.26.1-alpine AS builder
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 设置 Go 模块代理为阿里云
-ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+ENV GOPROXY=https://goproxy.cn,direct
 ENV GO111MODULE=on
 
 # 安装依赖
@@ -24,7 +24,7 @@ RUN go mod download
 COPY . .
 
 # 编译（main.go 在根目录）
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service ./cmd/payment-service
 
 # 运行阶段
 FROM alpine:latest
@@ -55,11 +55,11 @@ RUN chown -R appuser:appgroup /app
 USER appuser
 
 # 暴露端口
-EXPOSE 8080 8888
+EXPOSE 8082 8888
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1
 
 # 启动命令
 CMD ["./payment-service"]

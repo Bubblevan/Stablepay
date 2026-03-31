@@ -7,7 +7,6 @@ stablepayai-idl/
 *.so
 *.dylib
 bin/
-payment-service
 
 # Test binary, built with `go test -c`
 *.test

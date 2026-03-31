@@ -21,7 +21,7 @@ type Payment struct {
 
 	// 金额信息
 	AmountMinor int64              `gorm:"column:amount;not null"`
-	Currency    constants.Currency `gorm:"column:currency;type:varchar(10);not null;default:'USDC'"`
+	Currency    constants.Currency `gorm:"column:currency;type:tinyint;not null;default:1"`
 
 	// 签名信息
 	Signature string `gorm:"column:signature;type:varchar(512);not null"`

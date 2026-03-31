@@ -1,4 +1,4 @@
-// Package service 应用服务层
+// Package service 搴旂敤鏈嶅姟灞?
 package service
 
 import (
@@ -18,53 +18,53 @@ import (
 	"go.uber.org/zap"
 )
 
-// BlockchainExecutor 区块链执行器接口
+// BlockchainExecutor 鍖哄潡閾炬墽琛屽櫒鎺ュ彛
 type BlockchainExecutor interface {
-	// ExecuteTransfer 执行转账交易
+	// ExecuteTransfer 鎵ц杞处浜ゆ槗
 	ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64,
 		currency constants.Currency) (txHash string, err error)
-	// QueryTxStatus 查询交易状态
+	// QueryTxStatus 鏌ヨ浜ゆ槗鐘舵€?
 	QueryTxStatus(ctx context.Context, txHash string) (status int8, confirmedAt *time.Time, err error)
 }
 
-// EventPublisher 事件发布器接口
+// EventPublisher 浜嬩欢鍙戝竷鍣ㄦ帴鍙?
 type EventPublisher interface {
-	// PublishPaymentEvent 发布支付事件
+	// PublishPaymentEvent 鍙戝竷鏀粯浜嬩欢
 	PublishPaymentEvent(ctx context.Context, event *dto.MQPaymentEvent) error
 }
 
-// PaymentApplicationService 支付应用服务
+// PaymentApplicationService 鏀粯搴旂敤鏈嶅姟
 type PaymentApplicationService struct {
-	// 仓库
-	paymentRepo      repository.PaymentRepository
-	idempotencyRepo  repository.PaymentIdempotencyRepository
+	// 浠撳簱
+	paymentRepo     repository.PaymentRepository
+	idempotencyRepo repository.PaymentIdempotencyRepository
 
-	// 领域服务
-	paymentValidator  *service.PaymentValidator
-	nonceChecker      *service.NonceChecker
-	idempotencyGen    *service.IdempotencyKeyGenerator
+	// 棰嗗煙鏈嶅姟
+	paymentValidator *service.PaymentValidator
+	nonceChecker     *service.NonceChecker
+	idempotencyGen   *service.IdempotencyKeyGenerator
 
-	// 基础设施
-	blockchainExec    BlockchainExecutor
-	eventPublisher    EventPublisher
+	// 鍩虹璁炬柦
+	blockchainExec BlockchainExecutor
+	eventPublisher EventPublisher
 
-	// 配置
-	config            *PaymentConfig
+	// 閰嶇疆
+	config *PaymentConfig
 
-	// 日志
-	logger            *zap.Logger
+	// 鏃ュ織
+	logger *zap.Logger
 }
 
-// PaymentConfig 支付服务配置
+// PaymentConfig 鏀粯鏈嶅姟閰嶇疆
 type PaymentConfig struct {
-	TimeoutMinutes       int
-	MaxRetryCount        int
-	MaxAmountMinor       int64
-	PollIntervalSeconds  int
-	MaxPollCount         int
+	TimeoutMinutes      int
+	MaxRetryCount       int
+	MaxAmountMinor      int64
+	PollIntervalSeconds int
+	MaxPollCount        int
 }
 
-// NewPaymentApplicationService 创建支付应用服务
+// NewPaymentApplicationService 鍒涘缓鏀粯搴旂敤鏈嶅姟
 func NewPaymentApplicationService(
 	paymentRepo repository.PaymentRepository,
 	idempotencyRepo repository.PaymentIdempotencyRepository,
@@ -88,9 +88,9 @@ func NewPaymentApplicationService(
 	}
 }
 
-// InitiatePayment 发起支付
+// InitiatePayment 鍙戣捣鏀粯
 func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dto.InitiatePaymentRequest) (*dto.InitiatePaymentResponse, error) {
-	// 1. 金额格式转换（字符串 -> 最小单位整数）
+	// 1. 閲戦鏍煎紡杞崲锛堝瓧绗︿覆 -> 鏈€灏忓崟浣嶆暣鏁帮級
 	amountMinor, err := utils.StringToMinorUnit(req.AmountStr)
 	if err != nil {
 		return nil, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid amount format")
@@ -98,10 +98,10 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 
 	currency := vo.StringToCommonCurrency(req.Currency)
 
-	// 2. 构建幂等性键
+	// 2. 鏋勫缓骞傜瓑鎬ч敭
 	idempotencyKey := s.idempotencyGen.Generate(req.AgentDID, req.SkillDID, req.IdempotencyKey)
 
-	// 3. 检查幂等性
+	// 3. 妫€鏌ュ箓绛夋€?
 	existingResp, err := s.checkIdempotency(ctx, idempotencyKey, req)
 	if err != nil {
 		return nil, err
@@ -110,12 +110,12 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		return existingResp, nil
 	}
 
-	// 4. 防重放检查（nonce）
+	// 4. 闃查噸鏀炬鏌ワ紙nonce锛?
 	if err := s.nonceChecker.CheckAndRecord(ctx, req.Nonce); err != nil {
 		return nil, err
 	}
 
-	// 5. 构建值对象
+	// 5. 鏋勫缓鍊煎璞?
 	amount, err := vo.NewAmount(amountMinor, currency)
 	if err != nil {
 		return nil, err
@@ -124,22 +124,22 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 	signData := vo.GetSignData(req.AgentDID, req.SkillDID, amountMinor, currency, req.Timestamp, req.Nonce)
 	signature := vo.NewSignature(req.Signature, req.Timestamp, req.Nonce, signData)
 
-	// 6. 验证支付请求（签名、金额等）
+	// 6. 楠岃瘉鏀粯璇锋眰锛堢鍚嶃€侀噾棰濈瓑锛?
 	if err := s.paymentValidator.ValidatePaymentRequest(ctx, req.AgentDID, req.SkillDID, amount, signature); err != nil {
-		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil) // 记录失败
+		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil) // 璁板綍澶辫触
 		return nil, err
 	}
 
-	// 7. 检查余额
-	// 注意：这里需要获取 Agent 的钱包地址，实际通过 DID Service 查询
-	// 简化处理：假设 DID 中的公钥就是钱包地址
+	// 7. 妫€鏌ヤ綑棰?
+	// 娉ㄦ剰锛氳繖閲岄渶瑕佽幏鍙?Agent 鐨勯挶鍖呭湴鍧€锛屽疄闄呴€氳繃 DID Service 鏌ヨ
+	// 绠€鍖栧鐞嗭細鍋囪 DID 涓殑鍏挜灏辨槸閽卞寘鍦板潃
 	walletAddress := extractWalletFromDID(req.AgentDID)
 	if err := s.paymentValidator.CheckBalance(ctx, walletAddress, currency, amountMinor); err != nil {
 		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil)
 		return nil, err
 	}
 
-	// 8. 创建支付记录
+	// 8. 鍒涘缓鏀粯璁板綍
 	txID := generateTxID()
 	payment, err := entity.NewPayment(txID, req.AgentDID, req.SkillDID, amountMinor, currency,
 		req.Signature, req.Timestamp, req.Nonce, s.config.TimeoutMinutes)
@@ -151,16 +151,16 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		return nil, errors.Wrap(errors.DATABASE_CONNECTION_ERROR, err, "failed to create payment record")
 	}
 
-	// 9. 记录幂等性（进行中）
+	// 9. 璁板綍骞傜瓑鎬э紙杩涜涓級
 	if err := s.recordIdempotency(ctx, idempotencyKey, txID, 0, req, nil); err != nil {
 		s.logger.Warn("failed to record idempotency", zap.Error(err))
 	}
 
-	// 10. 执行链上交易（同步）
+	// 10. 鎵ц閾句笂浜ゆ槗锛堝悓姝ワ級
 	skillWallet := extractWalletFromDID(req.SkillDID)
 	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, amountMinor, currency)
 	if err != nil {
-		// 链上执行失败
+		// 閾句笂鎵ц澶辫触
 		_ = payment.MarkAsFailed("BLOCKCHAIN_ERROR", err.Error())
 		_ = s.paymentRepo.Update(ctx, payment)
 		s.publishEvent(ctx, payment)
@@ -168,7 +168,7 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		return nil, errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain transaction failed")
 	}
 
-	// 11. 更新为交易中状态
+	// 11. 鏇存柊涓轰氦鏄撲腑鐘舵€?
 	if err := payment.MarkAsPending(txHash); err != nil {
 		s.logger.Error("failed to transition status", zap.Error(err))
 	}
@@ -176,17 +176,17 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		s.logger.Error("failed to update payment status", zap.Error(err))
 	}
 
-	// 12. 异步轮询链上状态（后台 goroutine）
+	// 12. 寮傛杞閾句笂鐘舵€侊紙鍚庡彴 goroutine锛?
 	go s.pollTxStatus(payment.TxID, txHash)
 
-	// 13. 返回响应
+	// 13. 杩斿洖鍝嶅簲
 	resp := s.toResponse(payment)
 	s.recordIdempotency(ctx, idempotencyKey, txID, 0, req, resp)
 
 	return resp, nil
 }
 
-// GetPaymentStatus 查询支付状态
+// GetPaymentStatus 鏌ヨ鏀粯鐘舵€?
 func (s *PaymentApplicationService) GetPaymentStatus(ctx context.Context, txID string) (*dto.GetPaymentStatusResponse, error) {
 	payment, err := s.paymentRepo.GetByTxID(ctx, txID)
 	if err != nil {
@@ -196,7 +196,7 @@ func (s *PaymentApplicationService) GetPaymentStatus(ctx context.Context, txID s
 	return s.toStatusResponse(payment), nil
 }
 
-// ListPaymentHistory 查询支付历史
+// ListPaymentHistory 鏌ヨ鏀粯鍘嗗彶
 func (s *PaymentApplicationService) ListPaymentHistory(ctx context.Context, req *dto.ListPaymentHistoryRequest) (*dto.ListPaymentHistoryResponse, error) {
 	pageParam := vo.NewPageParam(req.Page, req.PageSize)
 
@@ -231,31 +231,50 @@ func (s *PaymentApplicationService) ListPaymentHistory(ctx context.Context, req 
 	}, nil
 }
 
-// GetPaymentRequirement 获取支付要求（HTTP 402）
+// GetPaymentRequirement 鑾峰彇鏀粯瑕佹眰锛圚TTP 402锛?
 func (s *PaymentApplicationService) GetPaymentRequirement(ctx context.Context, req *dto.GetPaymentRequirementRequest) (*dto.PaymentRequirementResponse, bool, error) {
-	// 如果传入了 agent_did，检查是否已购买
+	// 濡傛灉浼犲叆浜?agent_did锛屾鏌ユ槸鍚﹀凡璐拱
 	if req.AgentDID != "" {
 		count, err := s.paymentRepo.CountByAgentAndSkill(ctx, req.AgentDID, req.SkillDID)
 		if err != nil {
 			s.logger.Warn("failed to check purchase status", zap.Error(err))
 		}
 		if count > 0 {
-			// 已购买
+			// 宸茶喘涔?
 			return nil, true, nil
 		}
 	}
 
-	// 返回支付要求（HTTP 402）
+	// 杩斿洖鏀粯瑕佹眰锛圚TTP 402锛?
+	price := "1.00"
+	if req.Price != "" {
+		if _, err := utils.StringToMinorUnit(req.Price); err != nil {
+			return nil, false, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid price format")
+		}
+		price = req.Price
+	}
+
+	currency := "USDC"
+	if req.Currency != "" {
+		currency = req.Currency
+	}
+
+	message := "Payment required to access this skill"
+	if req.Message != "" {
+		message = req.Message
+	}
+
 	return &dto.PaymentRequirementResponse{
 		SkillDID:  req.SkillDID,
-		SkillName: "", // TODO: 从 Skill Registry 获取
-		Price:     "0",
-		Currency:  "USDC",
+		SkillName: req.SkillName,
+		Price:     price,
+		Currency:  currency,
+		Message:   message,
 		Endpoint:  "/api/v1/pay",
 	}, false, nil
 }
 
-// pollTxStatus 轮询交易状态
+// pollTxStatus 杞浜ゆ槗鐘舵€?
 func (s *PaymentApplicationService) pollTxStatus(txID, txHash string) {
 	ctx := context.Background()
 
@@ -276,35 +295,35 @@ func (s *PaymentApplicationService) pollTxStatus(txID, txHash string) {
 
 		switch status {
 		case constants.PaymentStatusConfirmed:
-			// 交易确认成功
+			// 浜ゆ槗纭鎴愬姛
 			_ = payment.MarkAsConfirmed()
 			if confirmedAt != nil {
 				payment.ConfirmedAt = confirmedAt
 			}
 			_ = s.paymentRepo.Update(ctx, payment)
 
-			// 标记为完成
+			// 鏍囪涓哄畬鎴?
 			_ = payment.MarkAsCompleted()
 			_ = s.paymentRepo.Update(ctx, payment)
 
-			// 发布事件
+			// 鍙戝竷浜嬩欢
 			s.publishEvent(ctx, payment)
 			return
 
 		case constants.PaymentStatusFailed:
-			// 交易失败
+			// 浜ゆ槗澶辫触
 			_ = payment.MarkAsFailed("BLOCKCHAIN_FAILED", "transaction failed on chain")
 			_ = s.paymentRepo.Update(ctx, payment)
 			s.publishEvent(ctx, payment)
 			return
 
 		case constants.PaymentStatusPending:
-			// 继续轮询
+			// 缁х画杞
 			continue
 		}
 	}
 
-	// 超过最大轮询次数，标记为超时
+	// 瓒呰繃鏈€澶ц疆璇㈡鏁帮紝鏍囪涓鸿秴鏃?
 	payment, _ := s.paymentRepo.GetByTxID(ctx, txID)
 	if payment != nil {
 		_ = payment.MarkAsFailed("POLL_TIMEOUT", "exceeded maximum poll count")
@@ -313,7 +332,7 @@ func (s *PaymentApplicationService) pollTxStatus(txID, txHash string) {
 	}
 }
 
-// publishEvent 发布支付事件
+// publishEvent 鍙戝竷鏀粯浜嬩欢
 func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *entity.Payment) {
 	event := &dto.MQPaymentEvent{
 		TxID:        payment.TxID,
@@ -336,25 +355,25 @@ func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *e
 	}
 }
 
-// checkIdempotency 检查幂等性
+// checkIdempotency 妫€鏌ュ箓绛夋€?
 func (s *PaymentApplicationService) checkIdempotency(ctx context.Context, key string, req *dto.InitiatePaymentRequest) (*dto.InitiatePaymentResponse, error) {
 	record, err := s.idempotencyRepo.Get(ctx, key)
 	if err != nil {
-		return nil, nil // 未找到，继续处理
+		return nil, nil // 鏈壘鍒帮紝缁х画澶勭悊
 	}
 
 	if record == nil {
 		return nil, nil
 	}
 
-	// 检查请求是否一致
+	// 妫€鏌ヨ姹傛槸鍚︿竴鑷?
 	requestHash := hashRequest(req)
 	if record.RequestHash != requestHash {
 		return nil, errors.New(errors.IDEMPOTENCY_KEY_MISMATCH, "idempotency key used with different request")
 	}
 
-	// 返回缓存的响应
-	if record.Status == 1 && record.TxID != nil { // 已完成
+	// 杩斿洖缂撳瓨鐨勫搷搴?
+	if record.Status == 1 && record.TxID != nil { // 宸插畬鎴?
 		payment, err := s.paymentRepo.GetByTxID(ctx, *record.TxID)
 		if err == nil && payment != nil {
 			return s.toResponse(payment), nil
@@ -364,7 +383,7 @@ func (s *PaymentApplicationService) checkIdempotency(ctx context.Context, key st
 	return nil, nil
 }
 
-// recordIdempotency 记录幂等性
+// recordIdempotency 璁板綍骞傜瓑鎬?
 func (s *PaymentApplicationService) recordIdempotency(ctx context.Context, key, txID string, status int8,
 	req *dto.InitiatePaymentRequest, resp *dto.InitiatePaymentResponse) error {
 
@@ -381,23 +400,23 @@ func (s *PaymentApplicationService) recordIdempotency(ctx context.Context, key, 
 	}
 
 	if resp != nil {
-		// TODO: 序列化响应数据
+		// TODO: 搴忓垪鍖栧搷搴旀暟鎹?
 		_ = resp
 	}
 
 	return s.idempotencyRepo.Create(ctx, record)
 }
 
-// hashRequest 生成请求哈希（简化实现）
+// hashRequest 鐢熸垚璇锋眰鍝堝笇锛堢畝鍖栧疄鐜帮級
 func hashRequest(req *dto.InitiatePaymentRequest) string {
-	// 实际应该使用更可靠的哈希算法
+	// 瀹為檯搴旇浣跨敤鏇村彲闈犵殑鍝堝笇绠楁硶
 	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%s",
 		req.AgentDID, req.SkillDID, req.AmountStr, req.Currency,
 		req.Signature, req.Timestamp, req.Nonce)
 	return data
 }
 
-// toResponse 转换为响应
+// toResponse 杞崲涓哄搷搴?
 func (s *PaymentApplicationService) toResponse(payment *entity.Payment) *dto.InitiatePaymentResponse {
 	resp := &dto.InitiatePaymentResponse{
 		TxID:      payment.TxID,
@@ -416,7 +435,7 @@ func (s *PaymentApplicationService) toResponse(payment *entity.Payment) *dto.Ini
 	return resp
 }
 
-// toStatusResponse 转换为状态响应
+// toStatusResponse 杞崲涓虹姸鎬佸搷搴?
 func (s *PaymentApplicationService) toStatusResponse(payment *entity.Payment) *dto.GetPaymentStatusResponse {
 	resp := &dto.GetPaymentStatusResponse{
 		TxID:      payment.TxID,
@@ -439,14 +458,14 @@ func (s *PaymentApplicationService) toStatusResponse(payment *entity.Payment) *d
 	return resp
 }
 
-// generateTxID 生成交易ID
+// generateTxID 鐢熸垚浜ゆ槗ID
 func generateTxID() string {
 	return uuid.New().String()
 }
 
-// extractWalletFromDID 从 DID 提取钱包地址
+// extractWalletFromDID 浠?DID 鎻愬彇閽卞寘鍦板潃
 func extractWalletFromDID(did string) string {
-	// 简化实现：假设 did:solana:{wallet_address}
+	// 绠€鍖栧疄鐜帮細鍋囪 did:solana:{wallet_address}
 	parts := make([]rune, 0, len(did))
 	count := 0
 	for _, c := range did {
@@ -463,7 +482,7 @@ func extractWalletFromDID(did string) string {
 	return string(parts)
 }
 
-// parseStatus 解析状态字符串
+// parseStatus 瑙ｆ瀽鐘舵€佸瓧绗︿覆
 func parseStatus(s string) int8 {
 	switch s {
 	case "CREATED":
