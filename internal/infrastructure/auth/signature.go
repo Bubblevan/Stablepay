@@ -11,6 +11,6 @@ func BodySHA256(rawBody []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func BuildCanonicalV01(method, path, rawQuery, bodySHA256, timestamp, nonce string) string {
-	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s", method, path, rawQuery, bodySHA256, timestamp, nonce)
+func BuildCanonicalV01(method, path, rawQuery, bodySHA256 string) string {
+	return fmt.Sprintf("%s\n%s\n%s\n%s", method, path, rawQuery, bodySHA256)
 }

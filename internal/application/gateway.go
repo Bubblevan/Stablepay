@@ -30,6 +30,8 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 	switch routeName {
 	case "did.create":
 		return s.did.CreateDID(ctx, req)
+	case "did.register":
+		return s.did.RegisterDID(ctx, req)
 	case "did.verify":
 		return s.did.VerifyDID(ctx, req)
 	case "did.get":
@@ -40,6 +42,8 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 			return nil, 400, 10001, err
 		}
 		return s.payment.Pay(ctx, req)
+	case "payment.require":
+		return s.payment.GetPaymentRequirement(ctx, req)
 	case "payment.get":
 		return s.payment.GetPayment(ctx, getString(req, "tx_id"))
 	case "payment.history":
@@ -56,6 +60,8 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 		return s.query.GetTransactions(ctx, req)
 	case "query.revenue":
 		return s.query.GetRevenue(ctx, req)
+	case "query.sales":
+		return s.query.GetSales(ctx, req)
 	case "shortcut.pay":
 		if err := normalizeBusinessAmount(req); err != nil {
 			return nil, 400, 10001, err

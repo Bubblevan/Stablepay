@@ -98,13 +98,12 @@ func AuthVerify(cfg config.Security, didClient application.DIDServiceClient) app
 				string(ctx.Path()),
 				string(ctx.URI().QueryString()),
 				bodyHash,
-				timestamp,
-				nonce,
 			)
 			canonicalReq := map[string]interface{}{
 				"did":       did,
 				"signature": signature,
 				"timestamp": timestamp,
+				"nonce":     nonce,
 				"message":   canonical,
 			}
 			valid, err := didClient.VerifySignature(c, canonicalReq)

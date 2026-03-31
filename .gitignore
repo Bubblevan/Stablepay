@@ -7,3 +7,4 @@ coverage.out
 stablepayai-idl/
 .gocache/
 .gomodcache/
+vendor/

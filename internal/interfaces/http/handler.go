@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -26,15 +27,7 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 		for _, p := range ctx.Params {
 			req[string(p.Key)] = string(p.Value)
 		}
-		for _, kv := range strings.Split(string(ctx.URI().QueryString()), "&") {
-			if kv == "" {
-				continue
-			}
-			parts := strings.SplitN(kv, "=", 2)
-			if len(parts) == 2 {
-				req[parts[0]] = parts[1]
-			}
-		}
+		mergeDecodedQuery(req, string(ctx.URI().QueryString()))
 		if len(ctx.Request.Body()) > 0 {
 			var body map[string]interface{}
 			if err := json.Unmarshal(ctx.Request.Body(), &body); err != nil {
@@ -48,10 +41,11 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 
 		req["request_id"] = getCtxString(ctx, domain.CtxRequestID)
 		req["trace_id"] = getCtxString(ctx, domain.CtxTraceID)
-		req["did"] = getCtxString(ctx, domain.CtxDID)
-		req["signature"] = getCtxString(ctx, domain.CtxSignature)
-		req["timestamp"] = getCtxString(ctx, domain.CtxTimestamp)
-		req["nonce"] = getCtxString(ctx, domain.CtxNonce)
+		setIfAbsent(req, "idempotency_key", string(ctx.GetHeader("X-Idempotency-Key")))
+		setIfAbsent(req, "did", getCtxString(ctx, domain.CtxDID))
+		setIfAbsent(req, "signature", getCtxString(ctx, domain.CtxSignature))
+		setIfAbsent(req, "timestamp", getCtxString(ctx, domain.CtxTimestamp))
+		setIfAbsent(req, "nonce", getCtxString(ctx, domain.CtxNonce))
 		if price, ok := req["price"]; ok {
 			if _, exists := req["amount"]; !exists {
 				req["amount"] = price
@@ -67,6 +61,10 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 			Success(ctx, data)
 			return
 		}
+		if httpStatus == consts.StatusPaymentRequired {
+			WriteEnvelope(ctx, httpStatus, code, "Payment Required", data)
+			return
+		}
 		failFromCode(ctx, httpStatus, code, fmt.Errorf("downstream status: %d", httpStatus))
 	}
 }
@@ -80,6 +78,37 @@ func getCtxString(ctx *app.RequestContext, key string) string {
 		return str
 	}
 	return fmt.Sprintf("%v", value)
+}
+
+func setIfAbsent(req map[string]interface{}, key, value string) {
+	if value == "" {
+		return
+	}
+	if _, exists := req[key]; exists {
+		return
+	}
+	req[key] = value
+}
+
+func mergeDecodedQuery(req map[string]interface{}, rawQuery string) {
+	for _, kv := range strings.Split(rawQuery, "&") {
+		if kv == "" {
+			continue
+		}
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key, err := url.QueryUnescape(parts[0])
+		if err != nil || key == "" {
+			continue
+		}
+		value, err := url.QueryUnescape(parts[1])
+		if err != nil {
+			continue
+		}
+		req[key] = value
+	}
 }
 
 func failFromCode(ctx *app.RequestContext, httpStatus int, code int, err error) {

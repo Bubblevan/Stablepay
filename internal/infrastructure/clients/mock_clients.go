@@ -2,6 +2,7 @@ package clients
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,25 @@ func (m *MockDIDClient) CreateDID(_ context.Context, req map[string]interface{})
 		"public_key":     "mock_public_key",
 		"wallet_address": "mock_wallet_address",
 		"user_type":      req["user_type"],
+		"created_at":     time.Now().UTC().Format(time.RFC3339),
+	}, 200, 0, nil
+}
+
+func (m *MockDIDClient) RegisterDID(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	publicKey := fmt.Sprintf("%v", req["public_key"])
+	if publicKey == "" {
+		publicKey = "mock_public_key"
+	}
+	walletAddress := fmt.Sprintf("%v", req["wallet_address"])
+	if walletAddress == "" {
+		walletAddress = publicKey
+	}
+	return map[string]interface{}{
+		"did":            "did:solana:" + publicKey,
+		"public_key":     publicKey,
+		"wallet_address": walletAddress,
+		"wallet_id":      req["wallet_id"],
+		"status":         "active",
 		"created_at":     time.Now().UTC().Format(time.RFC3339),
 	}, 200, 0, nil
 }
@@ -51,6 +71,35 @@ func (m *MockPaymentClient) Pay(_ context.Context, req map[string]interface{}) (
 		"agent_did":    req["agent_did"],
 		"skill_did":    req["skill_did"],
 	}, 200, 0, nil
+}
+
+func (m *MockPaymentClient) GetPaymentRequirement(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	message := "Payment required to access this skill"
+	if raw, ok := req["message"]; ok && raw != nil {
+		if str := fmt.Sprintf("%v", raw); str != "" {
+			message = str
+		}
+	}
+	price := "1.00"
+	if raw, ok := req["price"]; ok && raw != nil {
+		if str := fmt.Sprintf("%v", raw); str != "" {
+			price = str
+		}
+	}
+	currency := "USDC"
+	if raw, ok := req["currency"]; ok && raw != nil {
+		if str := fmt.Sprintf("%v", raw); str != "" {
+			currency = str
+		}
+	}
+	return map[string]interface{}{
+		"skill_did":        req["skill_did"],
+		"skill_name":       req["skill_name"],
+		"price":            price,
+		"currency":         currency,
+		"message":          message,
+		"payment_endpoint": "/api/v1/pay",
+	}, 402, 402, nil
 }
 
 func (m *MockPaymentClient) GetPayment(_ context.Context, txID string) (map[string]interface{}, int, int, error) {
@@ -145,6 +194,23 @@ func (m *MockQueryClient) GetRevenue(_ context.Context, req map[string]interface
 		"currency":       "USDC",
 		"sales_trend":    []map[string]interface{}{{"date": "2026-02-13", "amount": "15.00"}},
 		"report_version": "v0.1",
+	}, 200, 0, nil
+}
+
+func (m *MockQueryClient) GetSales(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{
+		"skill_did": req["skill_did"],
+		"items": []map[string]interface{}{
+			{
+				"tx_id":        "sale_" + uuid.NewString(),
+				"agent_did":    "did:solana:mock-agent",
+				"skill_did":    req["skill_did"],
+				"amount_minor": 1000000,
+				"currency":     "USDC",
+				"created_at":   time.Now().UTC().Format(time.RFC3339),
+			},
+		},
+		"total": 1,
 	}, 200, 0, nil
 }
 

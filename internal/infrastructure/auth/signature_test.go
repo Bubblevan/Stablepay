@@ -1,12 +1,20 @@
 package auth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildCanonicalV01(t *testing.T) {
-	canonical := BuildCanonicalV01("POST", "/api/v1/pay", "skill=abc&price=1", BodySHA256([]byte(`{"a":1}`)), "2026-03-11T00:00:00Z", "n-1")
-	expectedPrefix := "POST\n/api/v1/pay\nskill=abc&price=1\n"
-	if canonical[:len(expectedPrefix)] != expectedPrefix {
-		t.Fatalf("unexpected canonical prefix: %s", canonical)
+	canonical := BuildCanonicalV01("POST", "/api/v1/pay", "skill=abc&price=1", BodySHA256([]byte(`{"a":1}`)))
+	want := strings.Join([]string{
+		"POST",
+		"/api/v1/pay",
+		"skill=abc&price=1",
+		"015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+	}, "\n")
+	if canonical != want {
+		t.Fatalf("unexpected canonical, got=%q want=%q", canonical, want)
 	}
 }
 

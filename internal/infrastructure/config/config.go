@@ -47,10 +47,14 @@ type Logging struct {
 }
 
 type Downstream struct {
-	DIDService          string `mapstructure:"did_service" yaml:"did_service"`
-	PaymentService      string `mapstructure:"payment_service" yaml:"payment_service"`
-	VerificationService string `mapstructure:"verification_service" yaml:"verification_service"`
-	QueryService        string `mapstructure:"query_service" yaml:"query_service"`
+	DIDService              string `mapstructure:"did_service" yaml:"did_service"`
+	PaymentService          string `mapstructure:"payment_service" yaml:"payment_service"`
+	VerificationService     string `mapstructure:"verification_service" yaml:"verification_service"`
+	QueryService            string `mapstructure:"query_service" yaml:"query_service"`
+	DIDServiceAddr          string `mapstructure:"did_service_addr" yaml:"did_service_addr"`
+	PaymentServiceAddr      string `mapstructure:"payment_service_addr" yaml:"payment_service_addr"`
+	VerificationServiceAddr string `mapstructure:"verification_service_addr" yaml:"verification_service_addr"`
+	QueryServiceAddr        string `mapstructure:"query_service_addr" yaml:"query_service_addr"`
 }
 
 type AppConfig struct {

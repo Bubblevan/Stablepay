@@ -34,14 +34,26 @@ logging:
 
 downstream:
   did_service: "did-service"
+  did_service_addr: "stablepay-did-service:8181"
   payment_service: "payment-service"
+  payment_service_addr: "stablepay-payment-service:8082"
   verification_service: "verification-service"
+  verification_service_addr: "stablepay-verification-service:8185"
   query_service: "query-service"
+  query_service_addr: "stablepay-query-service:8184"
 
 routes:
   - name: "did.create"
     method: "POST"
     path: "/api/v1/did"
+    target: "did-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "did.register"
+    method: "POST"
+    path: "/api/v1/did/register"
     target: "did-service"
     timeout_ms: 1000
     retry: 1
@@ -72,6 +84,14 @@ routes:
     retry: 0
     auth: "did"
     rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
+  - name: "payment.require"
+    method: "GET"
+    path: "/api/v1/pay/require"
+    target: "payment-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
   - name: "payment.get"
     method: "GET"
     path: "/api/v1/pay/:tx_id"
@@ -133,6 +153,14 @@ routes:
   - name: "query.revenue"
     method: "GET"
     path: "/api/v1/revenue"
+    target: "query-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "query.sales"
+    method: "GET"
+    path: "/api/v1/sales"
     target: "query-service"
     timeout_ms: 1000
     retry: 1

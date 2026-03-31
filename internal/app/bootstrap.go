@@ -52,10 +52,10 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 		nonceStore = auth.NewMemoryNonceStore()
 	}
 
-	didClient := clients.NewMockDIDClient()
-	paymentClient := clients.NewMockPaymentClient()
-	verificationClient := clients.NewMockVerificationClient()
-	queryClient := clients.NewMockQueryClient()
+	didClient := clients.NewRealDIDClient(cfg.Downstream.DIDServiceAddr)
+	paymentClient := clients.NewRealPaymentClient(cfg.Downstream.PaymentServiceAddr)
+	verificationClient := clients.NewRealVerificationClient(cfg.Downstream.VerificationServiceAddr)
+	queryClient := clients.NewRealQueryClient(cfg.Downstream.QueryServiceAddr)
 
 	appService := application.NewService(didClient, paymentClient, verificationClient, queryClient)
 	handler := http.NewHandler(appService)
