@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
+
 	"query-service/kitex_gen/stablepay/common"
 	query_service "query-service/kitex_gen/stablepay/query_service"
 )
@@ -16,7 +19,6 @@ func (s *QueryServiceImpl) GetBalanceSummary(ctx context.Context, req *query_ser
 	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
 
 	var spentMinor int64
-	// 利用 COALESCE 防止查不到数据时 SUM 返回 NULL 导致报错
 	if err := DB.Model(&TransactionRecord{}).
 		Where("agent_did = ? AND tx_type = ?", req.AgentDid, int32(query_service.TransactionType_PURCHASE)).
 		Select("COALESCE(SUM(amount_minor), 0)").
@@ -26,45 +28,48 @@ func (s *QueryServiceImpl) GetBalanceSummary(ctx context.Context, req *query_ser
 		return resp, nil
 	}
 
+	var inflowMinor int64
+	if err := DB.Model(&TransactionRecord{}).
+		Where("agent_did = ? AND tx_type = ?", req.AgentDid, int32(query_service.TransactionType_REVENUE)).
+		Select("COALESCE(SUM(amount_minor), 0)").
+		Scan(&inflowMinor).Error; err != nil {
+		resp.Base.Code = 30003
+		resp.Base.Message = "failed to calculate balance inflow"
+		return resp, nil
+	}
+
 	resp.MonthlySpentMinor = spentMinor
 	resp.Currency = common.Currency_USDC
-
-	// Demo
-	resp.BalanceMinor = 10000 * 1000000
-	resp.MonthlyLimitMinor = 50000 * 1000000
+	resp.BalanceMinor = inflowMinor - spentMinor
+	resp.MonthlyLimitMinor = getenvInt64Default("QUERY_MONTHLY_LIMIT_MINOR", 50000*1000000)
 
 	return resp, nil
 }
 
 // ListTransactions implements the QueryServiceImpl interface.
 func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_service.ListTransactionsRequest) (resp *query_service.ListTransactionsResponse, err error) {
-	// 初始化统一的返回结构
 	resp = query_service.NewListTransactionsResponse()
 	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
 
 	if req.Page == nil {
 		req.Page = &common.PageRequest{Limit: 10, Offset: 0}
-	} // 容错：如果前端没传分页参数，给个默认值
+	}
 
-	query := DB.Model(&TransactionRecord{}) // 构造 GORM 查询器
-
-	// 根据查询类型来区分（如果是查支出，就匹配 agent_did；如果是查收入，就匹配 skill_did）
+	query := DB.Model(&TransactionRecord{})
 	if req.Type == query_service.TransactionType_PURCHASE {
 		query = query.Where("agent_did = ? AND tx_type = ?", req.Did, int32(req.Type))
 	} else if req.Type == query_service.TransactionType_REVENUE {
 		query = query.Where("skill_did = ? AND tx_type = ?", req.Did, int32(req.Type))
 	}
 
-	// 3. 第一步查询：获取符合条件的总条数 (Total)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		log.Printf("count transactions error: %v", err)
-		resp.Base.Code = 30003 // 对应你们 common 里定义的 DATABASE_CONNECTION_ERROR
+		resp.Base.Code = 30003
 		resp.Base.Message = "failed to count records"
 		return resp, nil
 	}
 
-	// 4. 第二步查询：获取当前页的具体数据 (Limit + Offset)
 	var records []TransactionRecord
 	if err := query.Order("created_at DESC").
 		Limit(int(req.Page.Limit)).
@@ -76,11 +81,14 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 		return resp, nil
 	}
 
-	// 5. 将数据库里的数据组装成 Thrift 接口定义的返回格式
 	var items []*query_service.TransactionItem
 	for _, r := range records {
+		txID := r.SourceTxId
+		if txID == "" {
+			txID = r.TxId
+		}
 		items = append(items, &query_service.TransactionItem{
-			TxId:        r.TxId,
+			TxId:        txID,
 			SkillDid:    r.SkillDid,
 			AmountMinor: r.AmountMinor,
 			Currency:    common.Currency(r.Currency),
@@ -89,8 +97,9 @@ func (s *QueryServiceImpl) ListTransactions(ctx context.Context, req *query_serv
 		})
 	}
 
+	resp.Items = items
 	resp.Page = common.NewPageResult_()
-	resp.Page.Total = int32(total) // 赋值给最终的 response
+	resp.Page.Total = int32(total)
 
 	return resp, nil
 }
@@ -103,12 +112,10 @@ func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_ser
 	var totalSales int64
 	var totalRevenue int64
 
-	// 1. 查总单量
 	DB.Model(&TransactionRecord{}).
 		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
 		Count(&totalSales)
 
-	// 2. 查总收入
 	DB.Model(&TransactionRecord{}).
 		Where("skill_did = ? AND tx_type = ?", req.SkillDid, int32(query_service.TransactionType_REVENUE)).
 		Select("COALESCE(SUM(amount_minor), 0)").
@@ -118,11 +125,10 @@ func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_ser
 	resp.TotalRevenueMinor = totalRevenue
 	resp.Currency = common.Currency_USDC
 
-	// 3. 查销售趋势 (按日期分组汇总)
 	type TrendResult struct {
 		Date   string
 		Amount int64
-	} // 用 SUBSTR 截取 created_at 的前 10 位 (即 YYYY-MM-DD) 作为分组依据
+	}
 	var trends []TrendResult
 
 	DB.Model(&TransactionRecord{}).
@@ -132,7 +138,6 @@ func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_ser
 		Order("date ASC").
 		Scan(&trends)
 
-	// 组装返回体
 	var trendItems []*query_service.SalesTrendItem
 	for _, t := range trends {
 		trendItems = append(trendItems, &query_service.SalesTrendItem{
@@ -143,4 +148,16 @@ func (s *QueryServiceImpl) GetRevenueSummary(ctx context.Context, req *query_ser
 	resp.SalesTrend = trendItems
 
 	return resp, nil
+}
+
+func getenvInt64Default(key string, def int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	i, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return def
+	}
+	return i
 }
