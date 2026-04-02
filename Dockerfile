@@ -5,7 +5,7 @@ FROM golang:1.26.1-alpine AS builder
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 设置 Go 模块代理为阿里云
-ENV GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 ENV GO111MODULE=on
 
 # 安装依赖
