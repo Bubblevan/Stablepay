@@ -1,9 +1,13 @@
+import { useState } from 'react'
+import { useLanguage } from './LanguageContext'
+import { translations } from './translations'
+
 const navItems = [
-  { label: 'Marketplace', href: '#skills' },
-  { label: 'Features', href: '#features' },
-  { label: 'How It Works', href: '#how-it-works' },
-  { label: 'Protocols', href: '#protocols' },
-  { label: 'Developers', href: '#developers' },
+  { key: 'marketplace', href: '#skills' },
+  { key: 'features', href: '#features' },
+  { key: 'howItWorks', href: '#how-it-works' },
+  { key: 'protocols', href: '#protocols' },
+  { key: 'developers', href: '#developers' },
 ]
 
 const skills = [
@@ -124,6 +128,9 @@ const faqs = [
 ]
 
 function Header() {
+  const { language, toggleLanguage } = useLanguage()
+  const t = translations[language]
+
   return (
     <header className="site-header">
       <div className="container header-inner">
@@ -137,48 +144,55 @@ function Header() {
         <nav className="nav">
           {navItems.map((item) => (
             <a key={item.href} href={item.href}>
-              {item.label}
+              {t.nav[item.key]}
             </a>
           ))}
         </nav>
+        <button
+          className="language-toggle"
+          onClick={toggleLanguage}
+          aria-label={`Switch to ${language === 'en' ? 'Chinese' : 'English'}`}
+        >
+          {language === 'en' ? '中文' : 'EN'}
+        </button>
       </div>
     </header>
   )
 }
 
 function Hero() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="hero" id="top">
       <div className="container hero-grid">
         <div>
-          <div className="eyebrow">Stablecoin checkout for the AI skill economy</div>
-          <h1>Let your Agent buy premium skills — without breaking the flow.</h1>
+          <div className="eyebrow">{t.hero.eyebrow}</div>
+          <h1>{t.hero.title}</h1>
           <p className="hero-copy">
-            StablePay gives AI agents a wallet-backed identity, a clean HTTP 402 payment flow,
-            and a developer-friendly paywall template. Inspired by the protocol storytelling of
-            MoltBay, but focused on Solana payments, skill monetization, and ClawHub/OpenClaw
-            demo scenarios.
+            {t.hero.copy}
           </p>
           <div className="hero-actions">
             <a className="button primary" href="#developers">
-              View Code Template
+              {t.hero.viewCode}
             </a>
             <a className="button secondary" href="#how-it-works">
-              See Demo Flow
+              {t.hero.seeDemo}
             </a>
           </div>
           <div className="hero-stats">
             <div>
               <strong>402</strong>
-              <span>payment-first UX</span>
+              <span>{t.hero.stats.payment}</span>
             </div>
             <div>
               <strong>Solana</strong>
-              <span>USDC / USDT focus</span>
+              <span>{t.hero.stats.solana}</span>
             </div>
             <div>
               <strong>5 min</strong>
-              <span>developer integration target</span>
+              <span>{t.hero.stats.integration}</span>
             </div>
           </div>
         </div>
@@ -211,33 +225,34 @@ balance: 47 USDC`}</pre>
 }
 
 function Audience() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="audience section">
       <div className="container two-up">
         <article className="panel audience-card">
-          <span className="pill">For Agent Users</span>
-          <h3>Buy skills in conversation</h3>
+          <span className="pill">{t.audience.forUsers}</span>
+          <h3>{t.audience.userTitle}</h3>
           <p>
-            Create a wallet, bind X, top up USDC, and let your agent auto-buy low-cost skills or
-            ask for confirmation on higher-value tasks.
+            {t.audience.userDesc}
           </p>
           <ul>
-            <li>Wallet + DID onboarding</li>
-            <li>Auto-buy threshold</li>
-            <li>Balance and transaction history</li>
+            {t.audience.userList.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
           </ul>
         </article>
         <article className="panel audience-card">
-          <span className="pill alt">For Skill Developers</span>
-          <h3>Monetize with a simple template</h3>
+          <span className="pill alt">{t.audience.forDevelopers}</span>
+          <h3>{t.audience.devTitle}</h3>
           <p>
-            Copy the payment snippet, replace your skill DID and price, and optionally verify
-            purchases on the backend before executing premium actions.
+            {t.audience.devDesc}
           </p>
           <ul>
-            <li>Copy-paste payment template</li>
-            <li>Revenue and sales placeholders</li>
-            <li>Optional verify API integration</li>
+            {t.audience.devList.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
           </ul>
         </article>
       </div>
@@ -246,19 +261,21 @@ function Audience() {
 }
 
 function Skills() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="section" id="skills">
       <div className="container">
         <div className="section-heading">
-          <div className="eyebrow">Demo marketplace</div>
-          <h2>Placeholder skills your agent could discover and buy</h2>
-          <p>
-            These cards are intentionally mock data. Keep them as placeholders for now, or replace
-            them with your real skills later.
-          </p>
+          <div>
+            <div className="eyebrow">{t.skills.eyebrow}</div>
+            <h2>{t.skills.title}</h2>
+          </div>
+          <p>{t.skills.desc}</p>
         </div>
         <div className="skills-grid">
-          {skills.map((skill) => (
+          {t.skills.items.map((skill) => (
             <article className="panel skill-card" key={skill.name}>
               <div className="skill-topline">
                 <span className="skill-icon">{skill.icon}</span>
@@ -276,7 +293,7 @@ function Skills() {
                 ))}
               </div>
               <div className="skill-footer">
-                <span>Starting at {skill.price}</span>
+                <span>{t.skills.startingAt} {skill.price}</span>
                 <span>{skill.metric}</span>
               </div>
             </article>
@@ -288,15 +305,18 @@ function Skills() {
 }
 
 function Features() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="section" id="features">
       <div className="container">
         <div className="section-heading narrow">
-          <div className="eyebrow">Core features</div>
-          <h2>Your payment layer for agent commerce</h2>
+          <div className="eyebrow">{t.features.eyebrow}</div>
+          <h2>{t.features.title}</h2>
         </div>
         <div className="features-grid">
-          {features.map((feature) => (
+          {t.features.items.map((feature) => (
             <article className="panel feature-card" key={feature.title}>
               <h3>{feature.title}</h3>
               <p>{feature.text}</p>
@@ -309,17 +329,20 @@ function Features() {
 }
 
 function HowItWorks() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="section" id="how-it-works">
       <div className="container">
-        <div className="section-heading">
-          <div className="eyebrow">How it works</div>
-          <h2>StablePay in four demo steps</h2>
+        <div className="section-heading narrow">
+          <div className="eyebrow">{t.howItWorks.eyebrow}</div>
+          <h2>{t.howItWorks.title}</h2>
         </div>
         <div className="steps-grid">
-          {steps.map((step) => (
-            <article className="panel step-card" key={step.number}>
-              <div className="step-number">{step.number}</div>
+          {t.steps.map((step, index) => (
+            <article className="panel step-card" key={step.number || index + 1}>
+              <div className="step-number">{String(index + 1).padStart(2, '0')}</div>
               <h3>{step.title}</h3>
               <p>{step.text}</p>
               <code>{step.code}</code>
@@ -332,19 +355,46 @@ function HowItWorks() {
 }
 
 function Developers() {
+  const { language } = useLanguage()
+  const t = translations[language]
+  const [copied, setCopied] = useState(false)
+
+  const copyTemplate = async () => {
+    const template = `## 💰 StablePay Payment
+
+This Skill requires {PRICE} USDC to unlock.
+
+Payment endpoint:
+https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
+
+Verify purchase:
+https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
+
+Recommended flow:
+1. Return HTTP 402 for unpaid access
+2. Let StablePay handle signing + payment
+3. Re-run the original request after purchase`
+
+    try {
+      await navigator.clipboard.writeText(template)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy template:', err)
+    }
+  }
+
   return (
     <section className="section" id="developers">
       <div className="container split-layout">
         <div>
-          <div className="eyebrow">Developer zone</div>
-          <h2>Copy the template, replace placeholders, publish a paid skill</h2>
+          <div className="eyebrow">{t.developers.eyebrow}</div>
+          <h2>{t.developers.title}</h2>
           <p>
-            This block is designed as the page anchor you can demo live. It matches your product
-            direction: no dashboard, no login wall, just a clear template developers can paste into
-            their skill docs.
+            {t.developers.desc}
           </p>
           <div className="api-list panel">
-            <h3>Placeholder API surface</h3>
+            <h3>{t.developers.apiTitle}</h3>
             <ul>
               {apiItems.map((item) => (
                 <li key={item}>{item}</li>
@@ -356,7 +406,7 @@ function Developers() {
         <div className="panel code-panel">
           <div className="code-header">
             <span>skill.md</span>
-            <button type="button">Copy Template</button>
+            <button type="button" onClick={copyTemplate}>{copied ? t.developers.copied : t.developers.copyTemplate}</button>
           </div>
           <pre>{`## 💰 StablePay Payment
 
@@ -379,33 +429,34 @@ Recommended flow:
 }
 
 function Protocols() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="section" id="protocols">
       <div className="container two-up">
         <article className="panel protocol-card">
-          <div className="eyebrow">Identity</div>
-          <h3>did:solana</h3>
+          <div className="eyebrow">{t.protocols.identity}</div>
+          <h3>{t.protocols.didSolana}</h3>
           <p>
-            Wallet-backed decentralized identifiers for users and developers, with local signing and
-            clean ownership semantics.
+            {t.protocols.identityDesc}
           </p>
           <ul>
-            <li>Wallet creation</li>
-            <li>Signature verification</li>
-            <li>X-bound trust layer</li>
+            {t.protocols.identityList.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
           </ul>
         </article>
         <article className="panel protocol-card">
-          <div className="eyebrow">Payments</div>
-          <h3>HTTP 402 + Solana</h3>
+          <div className="eyebrow">{t.protocols.payments}</div>
+          <h3>{t.protocols.http402}</h3>
           <p>
-            A machine-friendly paywall that can be triggered automatically, settled in stablecoins,
-            and optionally verified by developer backends.
+            {t.protocols.paymentsDesc}
           </p>
           <ul>
-            <li>Programmable paywalls</li>
-            <li>Instant settlement narrative</li>
-            <li>Verification API story</li>
+            {t.protocols.paymentsList.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
           </ul>
         </article>
       </div>
@@ -414,16 +465,19 @@ function Protocols() {
 }
 
 function FAQ() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <section className="section faq-section">
       <div className="container">
         <div className="section-heading narrow">
-          <div className="eyebrow">FAQ</div>
-          <h2>Demo notes</h2>
+          <div className="eyebrow">{t.faq.eyebrow}</div>
+          <h2>{t.faq.title}</h2>
         </div>
         <div className="faq-list">
-          {faqs.map((item) => (
-            <details className="panel faq-item" key={item.q}>
+          {t.faq.faqs.map((item, index) => (
+            <details className="panel faq-item" key={index}>
               <summary>{item.q}</summary>
               <p>{item.a}</p>
             </details>
@@ -435,6 +489,9 @@ function FAQ() {
 }
 
 function Footer() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
   return (
     <footer className="site-footer">
       <div className="container footer-inner">
@@ -443,18 +500,17 @@ function Footer() {
             <span className="brand-badge">S</span>
             <span>
               <strong>StablePay</strong>
-              <small>Demo landing page</small>
+              <small>{t.footer.demo}</small>
             </span>
           </div>
           <p>
-            Built for demo use. Replace placeholder copy, skills, and URLs when your backend is
-            ready.
+            {t.footer.desc}
           </p>
         </div>
         <div className="footer-links">
-          <a href="#developers">Template</a>
-          <a href="#features">Features</a>
-          <a href="#how-it-works">Flow</a>
+          <a href="#developers">{t.footer.template}</a>
+          <a href="#features">{t.footer.features}</a>
+          <a href="#how-it-works">{t.footer.flow}</a>
         </div>
       </div>
     </footer>
@@ -475,7 +531,7 @@ export default function App() {
         <Protocols />
         <FAQ />
       </main>
-      <Footer />
+      {/* <Footer /> */}
     </>
   )
 }

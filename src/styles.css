@@ -59,7 +59,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .header-inner {
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   min-height: 76px;
 }
@@ -107,6 +107,25 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 .nav a:hover,
 .footer-links a:hover {
   color: var(--text);
+}
+
+.language-toggle {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.language-toggle:hover {
+  border-color: rgba(113, 208, 255, 0.3);
+  background: rgba(113, 208, 255, 0.05);
+  color: var(--accent);
 }
 
 .hero {
