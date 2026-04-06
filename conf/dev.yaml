@@ -5,4 +5,4 @@ solana:
   hotwallet_path: "conf/hotwallet.json"
 
 mysql:
-  dsn: "user:pass@tcp(127.0.0.1:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"
+  dsn: "root:rootpassword@tcp(stablepay-mysql:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"
