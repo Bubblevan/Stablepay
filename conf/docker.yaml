@@ -1,0 +1,11 @@
+server:
+  host: "0.0.0.0"
+  port: 8083
+
+solana:
+  network: "devnet"
+  rpc_endpoint: "https://api.devnet.solana.com"
+  hotwallet_path: "/app/conf/hotwallet.json"
+
+mysql:
+  dsn: "stablepay:stablepay123@tcp(stablepay-mysql:3306)/blockchain_adapter?charset=utf8mb4&parseTime=True&loc=Local"

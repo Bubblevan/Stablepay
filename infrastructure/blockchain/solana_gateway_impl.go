@@ -4,6 +4,7 @@ package blockchain
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/stablepay/blockchain-adapter/domain/vo"
 
 	"github.com/gagliardetto/solana-go"
+	ata "github.com/gagliardetto/solana-go/programs/associated-token-account"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 )
 
@@ -182,6 +185,92 @@ func (s *SolanaGatewayImpl) WaitForConfirmation(ctx context.Context, txHash stri
 	}
 
 	return s.GetTransactionStatus(ctx, txHash)
+}
+
+// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码）
+// fromAddress 作为 fee payer 和 token 所有者（热钱包地址）
+// amount 为最小单位（e.g. 1 USDC = 1_000_000）
+func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress, toAddress, currency string, amount uint64) (string, error) {
+	isMainnet := s.network == "mainnet"
+	mintAddress := gateway.GetTokenMintByCurrency(currency, isMainnet)
+	if mintAddress == "" {
+		return "", fmt.Errorf("unsupported currency: %s", currency)
+	}
+
+	fromPubKey, err := solana.PublicKeyFromBase58(fromAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid from address: %w", err)
+	}
+	toPubKey, err := solana.PublicKeyFromBase58(toAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid to address: %w", err)
+	}
+	mintPubKey, err := solana.PublicKeyFromBase58(mintAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid mint address: %w", err)
+	}
+
+	// 计算发送方和接收方的 ATA 地址
+	fromATA, _, err := solana.FindAssociatedTokenAddress(fromPubKey, mintPubKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to find source ATA: %w", err)
+	}
+	toATA, _, err := solana.FindAssociatedTokenAddress(toPubKey, mintPubKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to find destination ATA: %w", err)
+	}
+
+	var instructions []solana.Instruction
+
+	// 检查接收方 ATA 是否存在，不存在则创建
+	accountInfo, err := s.client.GetAccountInfo(ctx, toATA)
+	if err != nil && err != rpc.ErrNotFound {
+		return "", fmt.Errorf("failed to check destination ATA: %w", err)
+	}
+	if err == rpc.ErrNotFound || accountInfo == nil || accountInfo.Value == nil {
+		createATAIx, err := ata.NewCreateInstruction(fromPubKey, toPubKey, mintPubKey).ValidateAndBuild()
+		if err != nil {
+			return "", fmt.Errorf("failed to build create ATA instruction: %w", err)
+		}
+		instructions = append(instructions, createATAIx)
+	}
+
+	// 构建 SPL Token Transfer 指令
+	transferIx, err := token.NewTransferInstruction(
+		amount,
+		fromATA,
+		toATA,
+		fromPubKey,
+		[]solana.PublicKey{},
+	).ValidateAndBuild()
+	if err != nil {
+		return "", fmt.Errorf("failed to build transfer instruction: %w", err)
+	}
+	instructions = append(instructions, transferIx)
+
+	// 获取最新 blockhash
+	blockhashResult, err := s.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+
+	// 构建交易（fromAddress 作为 fee payer）
+	tx, err := solana.NewTransaction(
+		instructions,
+		blockhashResult.Value.Blockhash,
+		solana.TransactionPayer(fromPubKey),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to build transaction: %w", err)
+	}
+
+	// 序列化为 base64（未签名）
+	txBytes, err := tx.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal transaction: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(txBytes), nil
 }
 
 // GetExplorerURL 获取浏览器链接

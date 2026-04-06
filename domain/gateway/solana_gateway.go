@@ -16,25 +16,32 @@ import (
 type SolanaGateway interface {
 	// GetNetwork 获取当前网络类型
 	GetNetwork() string
-	
+
 	// GetBalance 查询 SOL 余额
 	GetBalance(ctx context.Context, address string) (uint64, error)
-	
+
 	// GetTokenBalance 查询 Token 余额
 	GetTokenBalance(ctx context.Context, walletAddress, mintAddress string) (uint64, error)
-	
+
 	// GetRecentBlockhash 获取最新 blockhash
 	GetRecentBlockhash(ctx context.Context) (string, error)
-	
+
+	// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码）
+	// fromAddress: 发送方地址（热钱包地址，作为 fee payer 和 token owner）
+	// toAddress: 接收方地址
+	// currency: 币种字符串（"USDC" | "USDT"）
+	// amount: token 金额（最小单位，e.g. 1 USDC = 1_000_000）
+	BuildSPLTransferTx(ctx context.Context, fromAddress, toAddress, currency string, amount uint64) (string, error)
+
 	// SendTransaction 发送已签名交易
 	SendTransaction(ctx context.Context, signedTx string) (string, error)
-	
+
 	// GetTransactionStatus 查询交易状态
 	GetTransactionStatus(ctx context.Context, txHash string) (*vo.TxStatusVO, error)
-	
+
 	// WaitForConfirmation 等待交易确认
 	WaitForConfirmation(ctx context.Context, txHash string, timeout time.Duration) (*vo.TxStatusVO, error)
-	
+
 	// GetExplorerURL 获取交易浏览器链接
 	GetExplorerURL(txHash string) string
 }
