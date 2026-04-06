@@ -37,6 +37,25 @@ type SolanaGateway interface {
 	
 	// GetExplorerURL 获取交易浏览器链接
 	GetExplorerURL(txHash string) string
+	
+	// GetFeePayerAddress 获取 fee payer 地址（hot wallet 地址）
+	GetFeePayerAddress() string
+	
+	// EstimateFee 估算交易手续费
+	EstimateFee(ctx context.Context) (int64, error)
+	
+	// ValidatePartiallySignedTransaction 验证部分签名的交易
+	ValidatePartiallySignedTransaction(base64Tx string) error
+}
+
+// BuildTransactionRequest 构建交易请求
+type BuildTransactionRequest struct {
+	FromAddress     string
+	ToAddress       string
+	AmountMinor     int64
+	Currency        string
+	RecentBlockhash string
+	FeePayerAddress string
 }
 
 // TransactionBuilderGateway 交易构建网关接口
@@ -47,6 +66,9 @@ type TransactionBuilderGateway interface {
 	
 	// BuildSOLTransferTxWithFeePayer 构建带 FeePayer 的 SOL 转账
 	BuildSOLTransferTxWithFeePayer(from, to, feePayer string, amountLamports uint64, recentBlockHash string) (string, error)
+	
+	// BuildUnsignedTransaction 构建未签名的 SPL Token 转账交易
+	BuildUnsignedTransaction(req *BuildTransactionRequest) (string, error)
 	
 	// DeserializeBase64Tx 反序列化 Base64 交易
 	DeserializeBase64Tx(base64Tx string) (*entity.TransactionEntity, error)

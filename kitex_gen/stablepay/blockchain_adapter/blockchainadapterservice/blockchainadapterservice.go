@@ -34,6 +34,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"BuildUnsignedTransaction": kitex.NewMethodInfo(
+		buildUnsignedTransactionHandler,
+		newBlockchainAdapterServiceBuildUnsignedTransactionArgs,
+		newBlockchainAdapterServiceBuildUnsignedTransactionResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"SubmitSignedTransaction": kitex.NewMethodInfo(
+		submitSignedTransactionHandler,
+		newBlockchainAdapterServiceSubmitSignedTransactionArgs,
+		newBlockchainAdapterServiceSubmitSignedTransactionResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +168,42 @@ func newBlockchainAdapterServiceGetTxStatusResult() interface{} {
 	return blockchain_adapter.NewBlockchainAdapterServiceGetTxStatusResult()
 }
 
+func buildUnsignedTransactionHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*blockchain_adapter.BlockchainAdapterServiceBuildUnsignedTransactionArgs)
+	realResult := result.(*blockchain_adapter.BlockchainAdapterServiceBuildUnsignedTransactionResult)
+	success, err := handler.(blockchain_adapter.BlockchainAdapterService).BuildUnsignedTransaction(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newBlockchainAdapterServiceBuildUnsignedTransactionArgs() interface{} {
+	return blockchain_adapter.NewBlockchainAdapterServiceBuildUnsignedTransactionArgs()
+}
+
+func newBlockchainAdapterServiceBuildUnsignedTransactionResult() interface{} {
+	return blockchain_adapter.NewBlockchainAdapterServiceBuildUnsignedTransactionResult()
+}
+
+func submitSignedTransactionHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*blockchain_adapter.BlockchainAdapterServiceSubmitSignedTransactionArgs)
+	realResult := result.(*blockchain_adapter.BlockchainAdapterServiceSubmitSignedTransactionResult)
+	success, err := handler.(blockchain_adapter.BlockchainAdapterService).SubmitSignedTransaction(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newBlockchainAdapterServiceSubmitSignedTransactionArgs() interface{} {
+	return blockchain_adapter.NewBlockchainAdapterServiceSubmitSignedTransactionArgs()
+}
+
+func newBlockchainAdapterServiceSubmitSignedTransactionResult() interface{} {
+	return blockchain_adapter.NewBlockchainAdapterServiceSubmitSignedTransactionResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +239,26 @@ func (p *kClient) GetTxStatus(ctx context.Context, req *blockchain_adapter.GetTx
 	_args.Req = req
 	var _result blockchain_adapter.BlockchainAdapterServiceGetTxStatusResult
 	if err = p.c.Call(ctx, "GetTxStatus", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) BuildUnsignedTransaction(ctx context.Context, req *blockchain_adapter.BuildUnsignedTransactionRequest) (r *blockchain_adapter.BuildUnsignedTransactionResponse, err error) {
+	var _args blockchain_adapter.BlockchainAdapterServiceBuildUnsignedTransactionArgs
+	_args.Req = req
+	var _result blockchain_adapter.BlockchainAdapterServiceBuildUnsignedTransactionResult
+	if err = p.c.Call(ctx, "BuildUnsignedTransaction", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SubmitSignedTransaction(ctx context.Context, req *blockchain_adapter.SubmitSignedTransactionRequest) (r *blockchain_adapter.SubmitSignedTransactionResponse, err error) {
+	var _args blockchain_adapter.BlockchainAdapterServiceSubmitSignedTransactionArgs
+	_args.Req = req
+	var _result blockchain_adapter.BlockchainAdapterServiceSubmitSignedTransactionResult
+	if err = p.c.Call(ctx, "SubmitSignedTransaction", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
