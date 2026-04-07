@@ -510,12 +510,294 @@ var fieldIDToName_GetTxStatusResponse = map[int16]string{
 	6: "reason_message",
 }
 
+type BuildUnsignedTransactionRequest struct {
+	Base              *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	FromWalletAddress string          `thrift:"from_wallet_address,2" frugal:"2,default,string" json:"from_wallet_address"`
+	ToWalletAddress   string          `thrift:"to_wallet_address,3" frugal:"3,default,string" json:"to_wallet_address"`
+	AmountMinor       int64           `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
+	Currency          common.Currency `thrift:"currency,5" frugal:"5,default,Currency" json:"currency"`
+	TxId              *string         `thrift:"tx_id,6,optional" frugal:"6,optional,string" json:"tx_id,omitempty"`
+}
+
+func NewBuildUnsignedTransactionRequest() *BuildUnsignedTransactionRequest {
+	return &BuildUnsignedTransactionRequest{}
+}
+
+func (p *BuildUnsignedTransactionRequest) InitDefault() {
+}
+
+var BuildUnsignedTransactionRequest_Base_DEFAULT *common.BaseReq
+
+func (p *BuildUnsignedTransactionRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return BuildUnsignedTransactionRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *BuildUnsignedTransactionRequest) GetFromWalletAddress() (v string) {
+	return p.FromWalletAddress
+}
+
+func (p *BuildUnsignedTransactionRequest) GetToWalletAddress() (v string) {
+	return p.ToWalletAddress
+}
+
+func (p *BuildUnsignedTransactionRequest) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *BuildUnsignedTransactionRequest) GetCurrency() (v common.Currency) {
+	return p.Currency
+}
+
+var BuildUnsignedTransactionRequest_TxId_DEFAULT string
+
+func (p *BuildUnsignedTransactionRequest) GetTxId() (v string) {
+	if !p.IsSetTxId() {
+		return BuildUnsignedTransactionRequest_TxId_DEFAULT
+	}
+	return *p.TxId
+}
+func (p *BuildUnsignedTransactionRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *BuildUnsignedTransactionRequest) SetFromWalletAddress(val string) {
+	p.FromWalletAddress = val
+}
+func (p *BuildUnsignedTransactionRequest) SetToWalletAddress(val string) {
+	p.ToWalletAddress = val
+}
+func (p *BuildUnsignedTransactionRequest) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *BuildUnsignedTransactionRequest) SetCurrency(val common.Currency) {
+	p.Currency = val
+}
+func (p *BuildUnsignedTransactionRequest) SetTxId(val *string) {
+	p.TxId = val
+}
+
+func (p *BuildUnsignedTransactionRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *BuildUnsignedTransactionRequest) IsSetTxId() bool {
+	return p.TxId != nil
+}
+
+func (p *BuildUnsignedTransactionRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BuildUnsignedTransactionRequest(%+v)", *p)
+}
+
+var fieldIDToName_BuildUnsignedTransactionRequest = map[int16]string{
+	1: "base",
+	2: "from_wallet_address",
+	3: "to_wallet_address",
+	4: "amount_minor",
+	5: "currency",
+	6: "tx_id",
+}
+
+type BuildUnsignedTransactionResponse struct {
+	Base             *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	UnsignedTxBase64 string           `thrift:"unsigned_tx_base64,2" frugal:"2,default,string" json:"unsigned_tx_base64"`
+	RecentBlockhash  string           `thrift:"recent_blockhash,3" frugal:"3,default,string" json:"recent_blockhash"`
+	FeeEstimateMinor int64            `thrift:"fee_estimate_minor,4" frugal:"4,default,i64" json:"fee_estimate_minor"`
+}
+
+func NewBuildUnsignedTransactionResponse() *BuildUnsignedTransactionResponse {
+	return &BuildUnsignedTransactionResponse{}
+}
+
+func (p *BuildUnsignedTransactionResponse) InitDefault() {
+}
+
+var BuildUnsignedTransactionResponse_Base_DEFAULT *common.BaseResp
+
+func (p *BuildUnsignedTransactionResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return BuildUnsignedTransactionResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *BuildUnsignedTransactionResponse) GetUnsignedTxBase64() (v string) {
+	return p.UnsignedTxBase64
+}
+
+func (p *BuildUnsignedTransactionResponse) GetRecentBlockhash() (v string) {
+	return p.RecentBlockhash
+}
+
+func (p *BuildUnsignedTransactionResponse) GetFeeEstimateMinor() (v int64) {
+	return p.FeeEstimateMinor
+}
+func (p *BuildUnsignedTransactionResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *BuildUnsignedTransactionResponse) SetUnsignedTxBase64(val string) {
+	p.UnsignedTxBase64 = val
+}
+func (p *BuildUnsignedTransactionResponse) SetRecentBlockhash(val string) {
+	p.RecentBlockhash = val
+}
+func (p *BuildUnsignedTransactionResponse) SetFeeEstimateMinor(val int64) {
+	p.FeeEstimateMinor = val
+}
+
+func (p *BuildUnsignedTransactionResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *BuildUnsignedTransactionResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BuildUnsignedTransactionResponse(%+v)", *p)
+}
+
+var fieldIDToName_BuildUnsignedTransactionResponse = map[int16]string{
+	1: "base",
+	2: "unsigned_tx_base64",
+	3: "recent_blockhash",
+	4: "fee_estimate_minor",
+}
+
+type SubmitSignedTransactionRequest struct {
+	Base           *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	SignedTxBase64 string          `thrift:"signed_tx_base64,2" frugal:"2,default,string" json:"signed_tx_base64"`
+	TxId           *string         `thrift:"tx_id,3,optional" frugal:"3,optional,string" json:"tx_id,omitempty"`
+}
+
+func NewSubmitSignedTransactionRequest() *SubmitSignedTransactionRequest {
+	return &SubmitSignedTransactionRequest{}
+}
+
+func (p *SubmitSignedTransactionRequest) InitDefault() {
+}
+
+var SubmitSignedTransactionRequest_Base_DEFAULT *common.BaseReq
+
+func (p *SubmitSignedTransactionRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return SubmitSignedTransactionRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *SubmitSignedTransactionRequest) GetSignedTxBase64() (v string) {
+	return p.SignedTxBase64
+}
+
+var SubmitSignedTransactionRequest_TxId_DEFAULT string
+
+func (p *SubmitSignedTransactionRequest) GetTxId() (v string) {
+	if !p.IsSetTxId() {
+		return SubmitSignedTransactionRequest_TxId_DEFAULT
+	}
+	return *p.TxId
+}
+func (p *SubmitSignedTransactionRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *SubmitSignedTransactionRequest) SetSignedTxBase64(val string) {
+	p.SignedTxBase64 = val
+}
+func (p *SubmitSignedTransactionRequest) SetTxId(val *string) {
+	p.TxId = val
+}
+
+func (p *SubmitSignedTransactionRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *SubmitSignedTransactionRequest) IsSetTxId() bool {
+	return p.TxId != nil
+}
+
+func (p *SubmitSignedTransactionRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SubmitSignedTransactionRequest(%+v)", *p)
+}
+
+var fieldIDToName_SubmitSignedTransactionRequest = map[int16]string{
+	1: "base",
+	2: "signed_tx_base64",
+	3: "tx_id",
+}
+
+type SubmitSignedTransactionResponse struct {
+	Base   *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	TxHash common.TxHash    `thrift:"tx_hash,2" frugal:"2,default,string" json:"tx_hash"`
+	Status TxStatus         `thrift:"status,3" frugal:"3,default,TxStatus" json:"status"`
+}
+
+func NewSubmitSignedTransactionResponse() *SubmitSignedTransactionResponse {
+	return &SubmitSignedTransactionResponse{}
+}
+
+func (p *SubmitSignedTransactionResponse) InitDefault() {
+}
+
+var SubmitSignedTransactionResponse_Base_DEFAULT *common.BaseResp
+
+func (p *SubmitSignedTransactionResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return SubmitSignedTransactionResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *SubmitSignedTransactionResponse) GetTxHash() (v common.TxHash) {
+	return p.TxHash
+}
+
+func (p *SubmitSignedTransactionResponse) GetStatus() (v TxStatus) {
+	return p.Status
+}
+func (p *SubmitSignedTransactionResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *SubmitSignedTransactionResponse) SetTxHash(val common.TxHash) {
+	p.TxHash = val
+}
+func (p *SubmitSignedTransactionResponse) SetStatus(val TxStatus) {
+	p.Status = val
+}
+
+func (p *SubmitSignedTransactionResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *SubmitSignedTransactionResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SubmitSignedTransactionResponse(%+v)", *p)
+}
+
+var fieldIDToName_SubmitSignedTransactionResponse = map[int16]string{
+	1: "base",
+	2: "tx_hash",
+	3: "status",
+}
+
 type BlockchainAdapterService interface {
 	TransferStableCoin(ctx context.Context, req *TransferStableCoinRequest) (r *TransferStableCoinResponse, err error)
 
 	GetBalance(ctx context.Context, req *GetBalanceRequest) (r *GetBalanceResponse, err error)
 
 	GetTxStatus(ctx context.Context, req *GetTxStatusRequest) (r *GetTxStatusResponse, err error)
+
+	BuildUnsignedTransaction(ctx context.Context, req *BuildUnsignedTransactionRequest) (r *BuildUnsignedTransactionResponse, err error)
+
+	SubmitSignedTransaction(ctx context.Context, req *SubmitSignedTransactionRequest) (r *SubmitSignedTransactionResponse, err error)
 }
 
 type BlockchainAdapterServiceTransferStableCoinArgs struct {
@@ -743,5 +1025,157 @@ func (p *BlockchainAdapterServiceGetTxStatusResult) String() string {
 }
 
 var fieldIDToName_BlockchainAdapterServiceGetTxStatusResult = map[int16]string{
+	0: "success",
+}
+
+type BlockchainAdapterServiceBuildUnsignedTransactionArgs struct {
+	Req *BuildUnsignedTransactionRequest `thrift:"req,1" frugal:"1,default,BuildUnsignedTransactionRequest" json:"req"`
+}
+
+func NewBlockchainAdapterServiceBuildUnsignedTransactionArgs() *BlockchainAdapterServiceBuildUnsignedTransactionArgs {
+	return &BlockchainAdapterServiceBuildUnsignedTransactionArgs{}
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionArgs) InitDefault() {
+}
+
+var BlockchainAdapterServiceBuildUnsignedTransactionArgs_Req_DEFAULT *BuildUnsignedTransactionRequest
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionArgs) GetReq() (v *BuildUnsignedTransactionRequest) {
+	if !p.IsSetReq() {
+		return BlockchainAdapterServiceBuildUnsignedTransactionArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionArgs) SetReq(val *BuildUnsignedTransactionRequest) {
+	p.Req = val
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockchainAdapterServiceBuildUnsignedTransactionArgs(%+v)", *p)
+}
+
+var fieldIDToName_BlockchainAdapterServiceBuildUnsignedTransactionArgs = map[int16]string{
+	1: "req",
+}
+
+type BlockchainAdapterServiceBuildUnsignedTransactionResult struct {
+	Success *BuildUnsignedTransactionResponse `thrift:"success,0,optional" frugal:"0,optional,BuildUnsignedTransactionResponse" json:"success,omitempty"`
+}
+
+func NewBlockchainAdapterServiceBuildUnsignedTransactionResult() *BlockchainAdapterServiceBuildUnsignedTransactionResult {
+	return &BlockchainAdapterServiceBuildUnsignedTransactionResult{}
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionResult) InitDefault() {
+}
+
+var BlockchainAdapterServiceBuildUnsignedTransactionResult_Success_DEFAULT *BuildUnsignedTransactionResponse
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionResult) GetSuccess() (v *BuildUnsignedTransactionResponse) {
+	if !p.IsSetSuccess() {
+		return BlockchainAdapterServiceBuildUnsignedTransactionResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionResult) SetSuccess(x interface{}) {
+	p.Success = x.(*BuildUnsignedTransactionResponse)
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BlockchainAdapterServiceBuildUnsignedTransactionResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockchainAdapterServiceBuildUnsignedTransactionResult(%+v)", *p)
+}
+
+var fieldIDToName_BlockchainAdapterServiceBuildUnsignedTransactionResult = map[int16]string{
+	0: "success",
+}
+
+type BlockchainAdapterServiceSubmitSignedTransactionArgs struct {
+	Req *SubmitSignedTransactionRequest `thrift:"req,1" frugal:"1,default,SubmitSignedTransactionRequest" json:"req"`
+}
+
+func NewBlockchainAdapterServiceSubmitSignedTransactionArgs() *BlockchainAdapterServiceSubmitSignedTransactionArgs {
+	return &BlockchainAdapterServiceSubmitSignedTransactionArgs{}
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionArgs) InitDefault() {
+}
+
+var BlockchainAdapterServiceSubmitSignedTransactionArgs_Req_DEFAULT *SubmitSignedTransactionRequest
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionArgs) GetReq() (v *SubmitSignedTransactionRequest) {
+	if !p.IsSetReq() {
+		return BlockchainAdapterServiceSubmitSignedTransactionArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BlockchainAdapterServiceSubmitSignedTransactionArgs) SetReq(val *SubmitSignedTransactionRequest) {
+	p.Req = val
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockchainAdapterServiceSubmitSignedTransactionArgs(%+v)", *p)
+}
+
+var fieldIDToName_BlockchainAdapterServiceSubmitSignedTransactionArgs = map[int16]string{
+	1: "req",
+}
+
+type BlockchainAdapterServiceSubmitSignedTransactionResult struct {
+	Success *SubmitSignedTransactionResponse `thrift:"success,0,optional" frugal:"0,optional,SubmitSignedTransactionResponse" json:"success,omitempty"`
+}
+
+func NewBlockchainAdapterServiceSubmitSignedTransactionResult() *BlockchainAdapterServiceSubmitSignedTransactionResult {
+	return &BlockchainAdapterServiceSubmitSignedTransactionResult{}
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionResult) InitDefault() {
+}
+
+var BlockchainAdapterServiceSubmitSignedTransactionResult_Success_DEFAULT *SubmitSignedTransactionResponse
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionResult) GetSuccess() (v *SubmitSignedTransactionResponse) {
+	if !p.IsSetSuccess() {
+		return BlockchainAdapterServiceSubmitSignedTransactionResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BlockchainAdapterServiceSubmitSignedTransactionResult) SetSuccess(x interface{}) {
+	p.Success = x.(*SubmitSignedTransactionResponse)
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BlockchainAdapterServiceSubmitSignedTransactionResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockchainAdapterServiceSubmitSignedTransactionResult(%+v)", *p)
+}
+
+var fieldIDToName_BlockchainAdapterServiceSubmitSignedTransactionResult = map[int16]string{
 	0: "success",
 }

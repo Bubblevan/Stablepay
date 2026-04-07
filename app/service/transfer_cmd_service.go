@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stablepay/blockchain-adapter/domain/entity"
 	"github.com/stablepay/blockchain-adapter/domain/gateway"
 	domainService "github.com/stablepay/blockchain-adapter/domain/service"
@@ -52,23 +53,36 @@ type TransferResult struct {
 }
 
 // Execute 执行转账命令
-// 流程：反序列化 -> 验证 -> 签名 -> 创建记录 -> 发送 -> 等待确认 -> 更新记录
+// 支持两种模式：
+// 1. 传入预签名交易（cmd.SignedTxBase64 非空）：验证并由热钱包补签 fee payer 签名后发送
+// 2. 无预签名交易（cmd.SignedTxBase64 为空）：由热钱包构建 SPL Token 转账交易并签名发送
 func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*TransferResult, error) {
-	// 1. 反序列化交易（验证交易格式合法性）
-	// 使用 HotWalletGateway 提供的 DeserializeAndValidate 方法验证交易结构
-	if err := s.validateTransactionFormat(cmd.SignedTxBase64); err != nil {
-		return nil, fmt.Errorf("invalid transaction format: %w", err)
-	}
-
-	// 2. 验证交易参数
+	// 1. 验证基础参数
 	if err := s.validateTransferParams(cmd); err != nil {
 		return nil, err
 	}
 
-	// 3. 验证 FeePayer 是否为热钱包地址
-	// 这是安全关键步骤：确保热钱包是交易的实际支付方
-	if err := s.validateFeePayer(cmd.SignedTxBase64); err != nil {
-		return nil, fmt.Errorf("fee payer validation failed: %w", err)
+	// 2. 若无预签名交易，由热钱包构建 SPL Token 转账交易
+	if cmd.SignedTxBase64 == "" {
+		builtTx, err := s.solanaGateway.BuildSPLTransferTx(
+			ctx,
+			s.hotWallet.GetAddress(), // 热钱包为 fee payer 和 token owner
+			cmd.ToAddress,
+			cmd.Currency,
+			uint64(cmd.AmountMinor),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build SPL transfer transaction: %w", err)
+		}
+		cmd.SignedTxBase64 = builtTx
+	} else {
+		// 3. 预签名交易模式：验证交易格式和 fee payer
+		if err := s.validateTransactionFormat(cmd.SignedTxBase64); err != nil {
+			return nil, fmt.Errorf("invalid transaction format: %w", err)
+		}
+		if err := s.validateFeePayer(cmd.SignedTxBase64); err != nil {
+			return nil, fmt.Errorf("fee payer validation failed: %w", err)
+		}
 	}
 
 	// 4. 创建补贴领域实体
@@ -150,7 +164,7 @@ func (s *TransferCmdService) validateTransactionFormat(base64Tx string) error {
 	return nil
 }
 
-// validateTransferParams 验证转账参数
+// validateTransferParams 验证转账参数，TxID 为空时自动生成
 func (s *TransferCmdService) validateTransferParams(cmd *TransferCmd) error {
 	if cmd.ToAddress == "" {
 		return fmt.Errorf("to address is required")
@@ -159,7 +173,7 @@ func (s *TransferCmdService) validateTransferParams(cmd *TransferCmd) error {
 		return fmt.Errorf("amount must be greater than 0")
 	}
 	if cmd.TxID == "" {
-		return fmt.Errorf("tx_id is required")
+		cmd.TxID = uuid.New().String()
 	}
 	return nil
 }
