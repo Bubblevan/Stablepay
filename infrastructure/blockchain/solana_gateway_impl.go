@@ -283,3 +283,31 @@ func (s *SolanaGatewayImpl) GetExplorerURL(txHash string) string {
 	}
 	return fmt.Sprintf("%s/tx/%s", baseURL, txHash)
 }
+
+// GetFeePayerAddress 获取 fee payer 地址
+// 注意：这里返回空字符串，实际应该从 hot wallet 获取
+func (s *SolanaGatewayImpl) GetFeePayerAddress() string {
+	// TODO: 从 hot wallet 获取地址
+	return ""
+}
+
+// EstimateFee 估算交易手续费
+func (s *SolanaGatewayImpl) EstimateFee(ctx context.Context) (int64, error) {
+	// Solana Devnet 默认费用为 5000 lamports per signature
+	// 在较新的 RPC 版本中，费用计算方式有所变化
+	// 这里返回默认值
+	return 5000, nil
+}
+
+// ValidatePartiallySignedTransaction 验证部分签名的交易
+func (s *SolanaGatewayImpl) ValidatePartiallySignedTransaction(base64Tx string) error {
+	tx := &solana.Transaction{}
+	if err := tx.UnmarshalBase64(base64Tx); err != nil {
+		return fmt.Errorf("invalid transaction format: %w", err)
+	}
+	// 检查交易是否有至少一个签名
+	if len(tx.Signatures) == 0 {
+		return fmt.Errorf("transaction has no signatures")
+	}
+	return nil
+}

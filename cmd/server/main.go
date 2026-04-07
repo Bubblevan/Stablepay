@@ -77,6 +77,8 @@ func main() {
 	}
 	log.Printf("✅ 热钱包加载成功: %s", hotWallet.GetAddress())
 
+	txBuilder := blockchain.NewTransactionBuilder(cfg.Solana.Network)
+
 	subsidyRepo := repository.NewGasSubsidyRepository(db)
 	log.Println("✅ 基础设施初始化完成")
 
@@ -84,13 +86,17 @@ func main() {
 	transferService := service.NewTransferCmdService(solanaGateway, subsidyRepo, hotWallet)
 	balanceService := service.NewBalanceQueryService(solanaGateway)
 	txStatusService := service.NewTxStatusQueryService(solanaGateway, subsidyRepo)
+	buildTxService := service.NewBuildTxService(solanaGateway, txBuilder)
+	submitTxService := service.NewSubmitTxService(solanaGateway, subsidyRepo, hotWallet)
 	log.Println("✅ 应用服务初始化完成")
 
 	// 5. 初始化适配器（依赖应用服务）
 	transferAdapter := rpc.NewTransferRPCAdapter(transferService)
 	balanceAdapter := rpc.NewBalanceRPCAdapter(balanceService)
 	txStatusAdapter := rpc.NewTxStatusRPCAdapter(txStatusService)
-	rpcHandler := rpc.NewBlockchainAdapterRPC(transferAdapter, balanceAdapter, txStatusAdapter)
+	buildTxAdapter := rpc.NewBuildTxRPCAdapter(buildTxService)
+	submitTxAdapter := rpc.NewSubmitTxRPCAdapter(submitTxService)
+	rpcHandler := rpc.NewBlockchainAdapterRPC(transferAdapter, balanceAdapter, txStatusAdapter, buildTxAdapter, submitTxAdapter)
 	log.Println("✅ 适配器初始化完成")
 
 	// 6. 设置优雅关闭

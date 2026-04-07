@@ -13,6 +13,8 @@ type BlockchainAdapterRPC struct {
 	transferAdapter *TransferRPCAdapter
 	balanceAdapter  *BalanceRPCAdapter
 	txStatusAdapter *TxStatusRPCAdapter
+	buildTxAdapter  *BuildTxRPCAdapter
+	submitTxAdapter *SubmitTxRPCAdapter
 }
 
 // NewBlockchainAdapterRPC 创建聚合 RPC 适配器
@@ -20,11 +22,15 @@ func NewBlockchainAdapterRPC(
 	transferAdapter *TransferRPCAdapter,
 	balanceAdapter *BalanceRPCAdapter,
 	txStatusAdapter *TxStatusRPCAdapter,
+	buildTxAdapter *BuildTxRPCAdapter,
+	submitTxAdapter *SubmitTxRPCAdapter,
 ) *BlockchainAdapterRPC {
 	return &BlockchainAdapterRPC{
 		transferAdapter: transferAdapter,
 		balanceAdapter:  balanceAdapter,
 		txStatusAdapter: txStatusAdapter,
+		buildTxAdapter:  buildTxAdapter,
+		submitTxAdapter: submitTxAdapter,
 	}
 }
 
@@ -55,4 +61,21 @@ func (s *BlockchainAdapterRPC) GetTxStatus(
 	return s.txStatusAdapter.GetTxStatus(ctx, req)
 }
 
+// BuildUnsignedTransaction 实现构造未签名交易接口
+// 转发到 BuildTxRPCAdapter 处理
+func (s *BlockchainAdapterRPC) BuildUnsignedTransaction(
+	ctx context.Context,
+	req *blockchain_adapter.BuildUnsignedTransactionRequest,
+) (*blockchain_adapter.BuildUnsignedTransactionResponse, error) {
+	return s.buildTxAdapter.BuildUnsignedTransaction(ctx, req)
+}
+
+// SubmitSignedTransaction 实现提交已签名交易接口
+// 转发到 SubmitTxRPCAdapter 处理
+func (s *BlockchainAdapterRPC) SubmitSignedTransaction(
+	ctx context.Context,
+	req *blockchain_adapter.SubmitSignedTransactionRequest,
+) (*blockchain_adapter.SubmitSignedTransactionResponse, error) {
+	return s.submitTxAdapter.SubmitSignedTransaction(ctx, req)
+}
 
