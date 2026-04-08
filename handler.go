@@ -28,19 +28,17 @@ func (s *QueryServiceImpl) GetBalanceSummary(ctx context.Context, req *query_ser
 		return resp, nil
 	}
 
-	var inflowMinor int64
-	if err := DB.Model(&TransactionRecord{}).
-		Where("agent_did = ? AND tx_type = ?", req.AgentDid, int32(query_service.TransactionType_REVENUE)).
-		Select("COALESCE(SUM(amount_minor), 0)").
-		Scan(&inflowMinor).Error; err != nil {
+	// PRD 语义：用户侧余额应返回链上钱包余额，而非账本 inflow-spent 净额
+	onchainMinor, err := queryOnchainUSDCBalanceMinor(ctx, req.AgentDid)
+	if err != nil {
 		resp.Base.Code = 30003
-		resp.Base.Message = "failed to calculate balance inflow"
+		resp.Base.Message = "failed to query onchain balance"
 		return resp, nil
 	}
 
 	resp.MonthlySpentMinor = spentMinor
 	resp.Currency = common.Currency_USDC
-	resp.BalanceMinor = inflowMinor - spentMinor
+	resp.BalanceMinor = onchainMinor
 	resp.MonthlyLimitMinor = getenvInt64Default("QUERY_MONTHLY_LIMIT_MINOR", 50000*1000000)
 
 	return resp, nil
