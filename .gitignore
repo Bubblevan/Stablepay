@@ -1,10 +1,46 @@
-bin/
-dist/
+# Binaries / build output
+/bin/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
 coverage.out
-*.log
+*.coverprofile
+vendor/
+
+# Env
 .env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.sublime-project
+*.sublime-workspace
+
+# Logs & temp
+*.log
+logs/
+**/tmp/
+/tmp/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Monorepo 本地引用（若单仓无此目录可删）
 stablepayai-idl/
+
+# Go build cache（本地）
 .gocache/
 .gomodcache/
-vendor/
+
+.codex-tmp/
