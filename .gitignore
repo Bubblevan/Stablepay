@@ -1,55 +1,40 @@
-stablepayai-idl/
-
-# Binaries for programs and plugins
+# Binaries / build output
+/bin/
+/dist/
+/out/
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
-bin/
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool
 *.out
-coverage.html
 
-# Dependency directories
+# Go
+coverage.out
+*.coverprofile
 vendor/
 
+# Env & secrets
+.env
+.env.*
+!.env.example
+
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
-*.swo
-*~
+*.sublime-project
+*.sublime-workspace
+
+# Logs & temp
+*.log
+logs/
+**/tmp/
+/tmp/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
-
-# Environment
-.env
-.env.local
-
-# Config (保留示例配置)
-config/config.yaml
-config/config.prod.yaml
-!config/config.example.yaml
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Database
-*.db
-*.sqlite
-
-# RocketMQ
-rocketmq_logs/
+# Local scratch
+.codex-tmp/

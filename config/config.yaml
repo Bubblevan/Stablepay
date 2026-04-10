@@ -1,0 +1,86 @@
+# Payment Service 本地联调配置
+# 修复端口冲突
+
+app:
+  name: payment-service
+  version: 1.0.0
+  env: docker
+
+server:
+  http:
+    port: 8082
+    read_timeout: 30s
+    write_timeout: 30s
+  rpc:
+    port: 8888
+    timeout: 30s
+
+database:
+  mysql:
+    host: stablepay-mysql
+    port: 3306
+    username: stablepay
+    password: stablepay123
+    database: stablepay_payment_db
+    charset: utf8mb4
+    max_open_conns: 100
+    max_idle_conns: 10
+    conn_max_lifetime: 3600s
+
+redis:
+  host: stablepay-redis
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 100
+  min_idle_conns: 10
+
+rocketmq:
+  name_servers:
+    - stablepay-rocketmq-nameserver:9876
+  producer_group: payment-service-producer
+  retry_times: 3
+  send_timeout: 3000
+  topics:
+    payment_events: payment_events
+
+# 下游服务 RPC 配置 (根据联调端口分配)
+rpc_clients:
+  did_service:
+    address: stablepay-did-service:8081
+    timeout_ms: 1000
+    retry_count: 2
+  blockchain_adapter:
+    address: stablepay-blockchain-adapter:8083
+    timeout_ms: 5000
+    retry_count: 3
+
+payment:
+  timeout_minutes: 5
+  max_retry_count: 3
+  max_amount_usdc: "1000.00"
+  poll_interval_seconds: 3
+  max_poll_count: 20
+  supported_currencies:
+    - USDC
+    - USDT
+  decimals: 6
+
+security:
+  signature_ttl_minutes: 5
+  nonce_cache_minutes: 10
+  idempotency_key_ttl_minutes: 30
+
+rate_limit:
+  ip_limit_per_minute: 100
+  did_limit_per_minute: 50
+  payment_limit_per_minute: 10
+
+log:
+  level: info
+  format: json
+  output: stdout
+  file_path: ./logs/payment-service.log
+  max_size: 100
+  max_age: 7
+  max_backups: 10

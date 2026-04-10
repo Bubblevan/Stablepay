@@ -1,5 +1,5 @@
 # 构建阶段
-FROM golang:1.26.1-alpine AS builder
+FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -27,13 +27,13 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service ./cmd/payment-service
 
 # 运行阶段
-FROM alpine:latest
+FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# 安装 CA 证书
-RUN apk --no-cache add ca-certificates
+# 安装 CA 证书（wget 供 HEALTHCHECK）
+RUN apk --no-cache add ca-certificates wget
 
 # 创建非 root 用户
 RUN addgroup -g 1000 -S appgroup && \
