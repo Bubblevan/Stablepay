@@ -41,3 +41,13 @@ Thumbs.db
 /doc/
 .codex-tmp/
 stage*_*.md
+
+# Ignore notes
+/doc
+stage1_infrastructure_learning_notes.md
+stage2_blockchain_core_learning_notes.md
+stage3_data_layer_learning_notes.md
+stage4_service_layer_learning_notes.md
+stage5_handler_layer_learning_notes.md
+stage6_service_launch_learning_notes.md
+vendor/

@@ -3,15 +3,15 @@
 
 FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
 
-# 使用阿里云 Alpine 镜像源
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+# 更新 apk 索引并安装 ca-certificates (如果需要)
+RUN apk update && apk add --no-cache ca-certificates
 
 # 设置 Go 模块代理为阿里云
 ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 ENV GO111MODULE=on
 
 # 安装构建依赖
-RUN apk add --no-cache git
+# RUN apk add --no-cache git # 移除 git
 
 WORKDIR /build
 
@@ -43,7 +43,7 @@ COPY --from=builder /build/blockchain-adapter .
 RUN mkdir -p /app/conf
 
 # 复制示例配置（可选，实际配置应通过 volume 挂载）
-# COPY --from=builder /build/conf ./conf
+COPY --from=builder /build/conf ./conf
 
 # 暴露端口
 EXPOSE 8888

@@ -14,6 +14,8 @@ type Client interface {
 	TransferStableCoin(ctx context.Context, req *blockchain_adapter.TransferStableCoinRequest, callOptions ...callopt.Option) (r *blockchain_adapter.TransferStableCoinResponse, err error)
 	GetBalance(ctx context.Context, req *blockchain_adapter.GetBalanceRequest, callOptions ...callopt.Option) (r *blockchain_adapter.GetBalanceResponse, err error)
 	GetTxStatus(ctx context.Context, req *blockchain_adapter.GetTxStatusRequest, callOptions ...callopt.Option) (r *blockchain_adapter.GetTxStatusResponse, err error)
+	BuildUnsignedTransaction(ctx context.Context, req *blockchain_adapter.BuildUnsignedTransactionRequest, callOptions ...callopt.Option) (r *blockchain_adapter.BuildUnsignedTransactionResponse, err error)
+	SubmitSignedTransaction(ctx context.Context, req *blockchain_adapter.SubmitSignedTransactionRequest, callOptions ...callopt.Option) (r *blockchain_adapter.SubmitSignedTransactionResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +60,14 @@ func (p *kBlockchainAdapterServiceClient) GetBalance(ctx context.Context, req *b
 func (p *kBlockchainAdapterServiceClient) GetTxStatus(ctx context.Context, req *blockchain_adapter.GetTxStatusRequest, callOptions ...callopt.Option) (r *blockchain_adapter.GetTxStatusResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetTxStatus(ctx, req)
+}
+
+func (p *kBlockchainAdapterServiceClient) BuildUnsignedTransaction(ctx context.Context, req *blockchain_adapter.BuildUnsignedTransactionRequest, callOptions ...callopt.Option) (r *blockchain_adapter.BuildUnsignedTransactionResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.BuildUnsignedTransaction(ctx, req)
+}
+
+func (p *kBlockchainAdapterServiceClient) SubmitSignedTransaction(ctx context.Context, req *blockchain_adapter.SubmitSignedTransactionRequest, callOptions ...callopt.Option) (r *blockchain_adapter.SubmitSignedTransactionResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SubmitSignedTransaction(ctx, req)
 }
