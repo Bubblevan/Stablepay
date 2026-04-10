@@ -1,0 +1,290 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: stablepay-dev
+spec:
+  storageClassName: alicloud-disk-essd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-mysql
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-mysql
+  template:
+    metadata:
+      labels:
+        app: stablepay-mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --default-authentication-plugin=mysql_native_password
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-root-password
+            - name: MYSQL_DATABASE
+              value: stablepay_payment_db
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+          ports:
+            - containerPort: 3306
+              name: mysql
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-mysql
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: stablepay-dev
+spec:
+  storageClassName: alicloud-disk-essd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-redis
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-redis
+  template:
+    metadata:
+      labels:
+        app: stablepay-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-redis
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-rocketmq-nameserver
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-rocketmq-nameserver
+  template:
+    metadata:
+      labels:
+        app: stablepay-rocketmq-nameserver
+    spec:
+      containers:
+        - name: nameserver
+          image: apache/rocketmq:5.3.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - mqnamesrv
+          env:
+            - name: JAVA_OPT_EXT
+              value: -server -Xms512m -Xmx512m
+          ports:
+            - containerPort: 9876
+              name: namesrv
+          readinessProbe:
+            tcpSocket:
+              port: 9876
+            initialDelaySeconds: 8
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 9876
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-rocketmq-nameserver
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-rocketmq-nameserver
+  ports:
+    - name: namesrv
+      port: 9876
+      targetPort: 9876
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-rocketmq-broker
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-rocketmq-broker
+  template:
+    metadata:
+      labels:
+        app: stablepay-rocketmq-broker
+    spec:
+      containers:
+        - name: broker
+          image: apache/rocketmq:5.3.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - sleep 8 && sh /home/rocketmq/rocketmq-5.3.2/bin/mqbroker -c /home/rocketmq/rocketmq-5.3.2/conf/broker.conf
+          env:
+            - name: NAMESRV_ADDR
+              value: stablepay-rocketmq-nameserver:9876
+            - name: JAVA_OPT_EXT
+              value: -server -Xms512m -Xmx512m
+          ports:
+            - containerPort: 10909
+              name: remoting-1
+            - containerPort: 10911
+              name: remoting-2
+            - containerPort: 10912
+              name: remoting-3
+            - containerPort: 8080
+              name: admin-http
+            - containerPort: 8081
+              name: admin-http-2
+          volumeMounts:
+            - name: broker-config
+              mountPath: /home/rocketmq/rocketmq-5.3.2/conf/broker.conf
+              subPath: broker.conf
+          readinessProbe:
+            tcpSocket:
+              port: 10911
+            initialDelaySeconds: 15
+            periodSeconds: 8
+          livenessProbe:
+            tcpSocket:
+              port: 10911
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: broker-config
+          configMap:
+            name: rocketmq-broker-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-rocketmq-broker
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-rocketmq-broker
+  ports:
+    - name: remoting-1
+      port: 10909
+      targetPort: 10909
+    - name: remoting-2
+      port: 10911
+      targetPort: 10911
+    - name: remoting-3
+      port: 10912
+      targetPort: 10912
+    - name: admin-http
+      port: 8080
+      targetPort: 8080
+    - name: admin-http-2
+      port: 8081
+      targetPort: 8081
