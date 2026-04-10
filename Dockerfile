@@ -1,7 +1,7 @@
 # StablePay Query Service
 # 基于 Kitex 的微服务 - 查询服务
 
-FROM golang:1.26.1-alpine AS builder
+FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -28,7 +28,7 @@ RUN go clean -cache
 RUN CGO_ENABLED=0 go build -o query-service .
 
 # 运行时镜像
-FROM alpine:latest
+FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
