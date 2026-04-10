@@ -12,7 +12,6 @@
 # Go
 coverage.out
 *.coverprofile
-vendor/
 
 # Env
 .env
@@ -36,7 +35,7 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Monorepo 本地引用（若单仓无此目录可删）
+# Monorepo 本地引用（若单仓无此目录可删�?
 stablepayai-idl/
 
 # Go build cache（本地）
