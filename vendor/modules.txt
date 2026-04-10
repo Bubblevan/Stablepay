@@ -124,8 +124,8 @@ github.com/cloudwego/frugal
 github.com/cloudwego/frugal/internal/defs
 github.com/cloudwego/frugal/internal/opts
 github.com/cloudwego/frugal/internal/reflect
-# github.com/cloudwego/gopkg v0.1.10
-## explicit; go 1.20
+# github.com/cloudwego/gopkg v0.1.8
+## explicit; go 1.18
 github.com/cloudwego/gopkg/bufiox
 github.com/cloudwego/gopkg/concurrency/gopool
 github.com/cloudwego/gopkg/protocol/thrift
@@ -488,11 +488,6 @@ github.com/spf13/viper/internal/encoding/json
 github.com/spf13/viper/internal/encoding/toml
 github.com/spf13/viper/internal/encoding/yaml
 github.com/spf13/viper/internal/features
-# github.com/stablepay/did-service v0.0.0-00010101000000-000000000000 => ../did-service
-## explicit; go 1.25.0
-github.com/stablepay/did-service/kitex_gen/stablepay/common
-github.com/stablepay/did-service/kitex_gen/stablepay/did_service
-github.com/stablepay/did-service/kitex_gen/stablepay/did_service/didservice
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
@@ -596,16 +591,15 @@ golang.org/x/arch/x86/x86asm
 ## explicit; go 1.18
 golang.org/x/exp/constraints
 golang.org/x/exp/slices
-# golang.org/x/net v0.48.0
-## explicit; go 1.24.0
+# golang.org/x/net v0.33.0
+## explicit; go 1.18
 golang.org/x/net/context
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
-golang.org/x/net/internal/httpcommon
-# golang.org/x/sync v0.20.0
-## explicit; go 1.25.0
+# golang.org/x/sync v0.10.0
+## explicit; go 1.18
 golang.org/x/sync/singleflight
 # golang.org/x/sys v0.41.0
 ## explicit; go 1.24.0
@@ -613,8 +607,8 @@ golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/text v0.35.0
-## explicit; go 1.25.0
+# golang.org/x/text v0.21.0
+## explicit; go 1.18
 golang.org/x/text/encoding
 golang.org/x/text/encoding/internal
 golang.org/x/text/encoding/internal/identifier
@@ -634,8 +628,8 @@ google.golang.org/genproto/protobuf/source_context
 # google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8
 ## explicit; go 1.21
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/protobuf v1.36.10
-## explicit; go 1.23
+# google.golang.org/protobuf v1.36.1
+## explicit; go 1.21
 google.golang.org/protobuf/encoding/protojson
 google.golang.org/protobuf/encoding/prototext
 google.golang.org/protobuf/encoding/protowire
@@ -686,17 +680,4 @@ gopkg.in/natefinch/lumberjack.v2
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
-# query-service v0.0.0-00010101000000-000000000000 => ../query-service
-## explicit; go 1.26.1
-query-service/kitex_gen/stablepay/common
-query-service/kitex_gen/stablepay/query_service
-query-service/kitex_gen/stablepay/query_service/queryservice
-# verification-service v0.0.0-00010101000000-000000000000 => ../verification-service
-## explicit; go 1.26.1
-verification-service/kitex_gen/stablepay/common
-verification-service/kitex_gen/stablepay/verification_service
-verification-service/kitex_gen/stablepay/verification_service/verificationservice
 # github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.6.7
-# github.com/stablepay/did-service => ../did-service
-# query-service => ../query-service
-# verification-service => ../verification-service
