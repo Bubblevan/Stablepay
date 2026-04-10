@@ -1,3 +1,42 @@
+# Binaries / build output
+/bin/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
 coverage.out
-.rpc-test.go
+*.coverprofile
+vendor/
+
+# Local / sensitive config（仓库内保留示例，勿提交本地密钥）
 conf/dev.yaml
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.sublime-project
+*.sublime-workspace
+
+# Logs & temp
+*.log
+logs/
+**/tmp/
+/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local scratch
+.codex-tmp/
+.rpc-test.go
