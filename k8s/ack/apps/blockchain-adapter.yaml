@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-blockchain-adapter
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-blockchain-adapter
+  template:
+    metadata:
+      labels:
+        app: stablepay-blockchain-adapter
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: blockchain-adapter
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/blockchain-adapter:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - ./blockchain-adapter
+            - -config
+            - conf/docker.yaml
+          ports:
+            - containerPort: 8083
+              name: rpc
+          volumeMounts:
+            - name: blockchain-config
+              mountPath: /app/conf/docker.yaml
+              subPath: docker.yaml
+            - name: hotwallet-secret
+              mountPath: /app/conf/hotwallet.json
+              subPath: hotwallet.json
+      volumes:
+        - name: blockchain-config
+          configMap:
+            name: blockchain-adapter-config
+        - name: hotwallet-secret
+          secret:
+            secretName: stablepay-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-blockchain-adapter
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-blockchain-adapter
+  ports:
+    - name: rpc
+      port: 8083
+      targetPort: 8083

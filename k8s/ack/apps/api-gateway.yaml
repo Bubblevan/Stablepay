@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-api-gateway
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-api-gateway
+  template:
+    metadata:
+      labels:
+        app: stablepay-api-gateway
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: api-gateway
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-api-gateway
+  namespace: stablepay-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: stablepay-api-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

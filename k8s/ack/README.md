@@ -1,29 +1,35 @@
-# ACK 部署说明（基于 kustomize）
+# ACK 发布目录（非 Kustomize）
 
-## 你需要先准备
+此目录可直接用于云效 `KubectlApply`（`kubectl apply -f`），按职责拆分：
 
-- ACK 集群访问权限（可用 `kubectl get nodes`）
-- ACR 推送与拉取权限
-- 命名空间与本目录一致：`stablepay-dev`
-- 已创建镜像拉取密钥：`acr-secret`
+- `infra/all.yaml`：命名空间、密钥、配置、MySQL/Redis/RocketMQ、DB 初始化 Job
+- `apps/did-service.yaml`
+- `apps/payment-service.yaml`
+- `apps/blockchain-adapter.yaml`
+- `apps/verification-service.yaml`
+- `apps/query-service.yaml`
+- `apps/api-gateway.yaml`
+- `platform/ingress.yaml`：ACK ALB Ingress
 
-## 本目录做了什么
+## 推荐流水线拆分
 
-- `patch-imagepullsecrets.yaml`：所有业务 Deployment 注入 `acr-secret`
-- `patch-storageclass.yaml`：MySQL/Redis PVC 指定 `alicloud-disk-essd`
-- `patch-gateway-service-clusterip.yaml`：将网关 Service 改为 `ClusterIP`
-- `ingress.yaml`：通过 ALB Ingress 暴露网关服务
+1. **infra 流水线**
+   - `yamlPath`: `k8s/ack/infra`
+   - 触发：手工或 `k8s/ack/infra/**` 变更
 
-## 部署
+2. **服务流水线（6条）**
+   - did: `yamlPath = k8s/ack/apps/did-service.yaml`
+   - payment: `yamlPath = k8s/ack/apps/payment-service.yaml`
+   - blockchain-adapter: `yamlPath = k8s/ack/apps/blockchain-adapter.yaml`
+   - verification: `yamlPath = k8s/ack/apps/verification-service.yaml`
+   - query: `yamlPath = k8s/ack/apps/query-service.yaml`
+   - api-gateway: `yamlPath = k8s/ack/apps/api-gateway.yaml`
 
-```bash
-kubectl apply -k ./k8s/ack
-kubectl -n stablepay-dev get pods
-kubectl -n stablepay-dev get ingress
-```
+3. **platform 流水线**
+   - `yamlPath`: `k8s/ack/platform`
+   - 触发：域名、证书或网关策略变更
 
-## 上线前必须修改
+## 注意
 
-- `ingress.yaml` 的 `host` 改为真实域名
-- `patch-storageclass.yaml` 按实际规格调整磁盘类型和容量
-- 所有业务镜像 tag 建议改为版本号，不要长期使用 `latest`
+- `infra/all.yaml` 含敏感信息，建议改为云效密文变量或外部 Secret。
+- 执行顺序建议：`infra -> 各服务 -> platform`。

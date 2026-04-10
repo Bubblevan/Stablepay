@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-did-service
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-did-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-did-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: did-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/did-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: conf/docker.yaml
+            - name: CONFIG
+              value: conf/docker.yaml
+          ports:
+            - containerPort: 8081
+              name: rpc
+            - containerPort: 8181
+              name: http
+          volumeMounts:
+            - name: did-config
+              mountPath: /app/conf/docker.yaml
+              subPath: docker.yaml
+      volumes:
+        - name: did-config
+          configMap:
+            name: did-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-did-service
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-did-service
+  ports:
+    - name: rpc
+      port: 8081
+      targetPort: 8081
+    - name: http
+      port: 8181
+      targetPort: 8181

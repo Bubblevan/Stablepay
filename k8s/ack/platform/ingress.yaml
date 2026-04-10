@@ -7,7 +7,6 @@ metadata:
     alb.ingress.kubernetes.io/albconfig.name: "alb"
     alb.ingress.kubernetes.io/backend-protocol: "HTTP"
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80},{"HTTPS": 443}]'
-
     alb.ingress.kubernetes.io/healthcheck-enabled: "true"
     alb.ingress.kubernetes.io/healthcheck-path: "/health"
     alb.ingress.kubernetes.io/healthcheck-protocol: "HTTP"
