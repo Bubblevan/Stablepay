@@ -8,12 +8,18 @@ WORKDIR /workspace
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
     apk add --no-cache git ca-certificates
 
-COPY go.mod go.sum* ./
-RUN go mod download
+# 复制 go.mod 和 go.sum（包含 replace 后的版本）
+COPY go.mod go.sum ./
+# 不需要运行 go mod download，因为 replace 指向本地目录
+# 但为了确保依赖解析，可以运行 go mod tidy（可选）
+
+# 复制所有源代码（包括 common 子目录）
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -o /out/api-gateway ./cmd/api-gateway
+# 构建
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/api-gateway ./cmd/api-gateway
 
+# 运行时镜像保持不变
 FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
