@@ -31,5 +31,7 @@
 
 ## 注意
 
+- **Kubernetes 命名空间**：本目录资源统一为 `zheda-agent`。云效 `KubectlApply` 的 **NAMESPACE** 也必须填 `zheda-agent`，与 YAML 里 `metadata.namespace` 一致。  
+  （这与 **ACK 集群名称** 无关；集群由 kubeconfig 选择。镜像地址里的 `stablepay-dev` 是 **ACR 仓库命名空间**，不要改成 `zheda-agent`。）
 - `infra/all.yaml` 含敏感信息，建议改为云效密文变量或外部 Secret。
 - 执行顺序建议：`infra -> 各服务 -> platform`。

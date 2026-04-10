@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: stablepay-ingress
-  namespace: stablepay-dev
+  namespace: zheda-agent
   annotations:
     alb.ingress.kubernetes.io/albconfig.name: "alb"
     alb.ingress.kubernetes.io/backend-protocol: "HTTP"

@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: stablepay-dev
+  name: zheda-agent
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: stablepay-secrets
-  namespace: stablepay-dev
+  namespace: zheda-agent
 type: Opaque
 stringData:
   mysql-root-password: "root123"
@@ -28,7 +28,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: did-config
-  namespace: stablepay-dev
+  namespace: zheda-agent
 data:
   docker.yaml: |
     server:
@@ -54,7 +54,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: payment-config
-  namespace: stablepay-dev
+  namespace: zheda-agent
 data:
   docker.yaml: |
     app:
@@ -135,7 +135,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: blockchain-adapter-config
-  namespace: stablepay-dev
+  namespace: zheda-agent
 data:
   docker.yaml: |
     server:
@@ -153,7 +153,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: rocketmq-broker-config
-  namespace: stablepay-dev
+  namespace: zheda-agent
 data:
   broker.conf: |
     brokerClusterName = DefaultCluster
@@ -170,7 +170,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-data
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   storageClassName: alicloud-disk-essd
   accessModes:
@@ -183,7 +183,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: stablepay-mysql
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   replicas: 1
   selector:
@@ -233,7 +233,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stablepay-mysql
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   selector:
     app: stablepay-mysql
@@ -246,7 +246,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: redis-data
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   storageClassName: alicloud-disk-essd
   accessModes:
@@ -259,7 +259,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: stablepay-redis
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   replicas: 1
   selector:
@@ -293,7 +293,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stablepay-redis
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   selector:
     app: stablepay-redis
@@ -306,7 +306,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: stablepay-rocketmq-nameserver
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   replicas: 1
   selector:
@@ -335,7 +335,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stablepay-rocketmq-nameserver
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   selector:
     app: stablepay-rocketmq-nameserver
@@ -348,7 +348,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: stablepay-rocketmq-broker
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   replicas: 1
   selector:
@@ -396,7 +396,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stablepay-rocketmq-broker
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   selector:
     app: stablepay-rocketmq-broker
@@ -421,7 +421,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: stablepay-mysql-init
-  namespace: stablepay-dev
+  namespace: zheda-agent
 spec:
   backoffLimit: 3
   template:
