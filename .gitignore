@@ -1,25 +1,46 @@
-# Binaries
+# Binaries / build output
 /bin/
 /dist/
+/out/
 *.exe
+*.dll
+*.so
+*.dylib
+*.test
 *.out
+
+# Go
+coverage.out
+*.coverprofile
+vendor/
+
+# Local DB / generated run artifacts
+test.db
+output/
+
+# Kitex 生成代码若仅本地生成可忽略；若仓库需提交请删除下一行
+kitex_gen/
+
+# Env
+.env
+.env.*
+!.env.example
 
 # IDE
 .vscode/
 .idea/
 *.swp
+*.sublime-project
+*.sublime-workspace
 
-# Env
-.env
-.env.*
+# Logs & temp
+*.log
+logs/
+**/tmp/
+/tmp/
 
 # OS
 .DS_Store
+Thumbs.db
 
-# Go
-**/tmp/
-
-# verification
-test.db
-output/
-kitex_gen/
+.codex-tmp/
