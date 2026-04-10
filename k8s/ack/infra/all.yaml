@@ -163,7 +163,7 @@ data:
     flushDiskType = ASYNC_FLUSH
     deleteWhen = 04
     fileReservedTime = 48
-    namesrvAddr = rocketmq-nameserver:9876
+    namesrvAddr = stablepay-rocketmq-nameserver:9876
     autoCreateTopicEnable = true
 ---
 apiVersion: v1
@@ -194,9 +194,11 @@ spec:
       labels:
         app: stablepay-mysql
     spec:
+      imagePullSecrets:
+        - name: acr-secret
       containers:
         - name: mysql
-          image: mysql:8.0
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/mysql:8.0
           imagePullPolicy: IfNotPresent
           args:
             - --default-authentication-plugin=mysql_native_password
@@ -270,9 +272,11 @@ spec:
       labels:
         app: stablepay-redis
     spec:
+      imagePullSecrets:
+        - name: acr-secret
       containers:
         - name: redis
-          image: redis:7-alpine
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/redis:7-alpine
           imagePullPolicy: IfNotPresent
           args:
             - redis-server
@@ -317,9 +321,11 @@ spec:
       labels:
         app: stablepay-rocketmq-nameserver
     spec:
+      imagePullSecrets:
+        - name: acr-secret
       containers:
         - name: nameserver
-          image: apache/rocketmq:5.3.2
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/rocketmq:5.3.2
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -359,9 +365,11 @@ spec:
       labels:
         app: stablepay-rocketmq-broker
     spec:
+      imagePullSecrets:
+        - name: acr-secret
       containers:
         - name: broker
-          image: apache/rocketmq:5.3.2
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/rocketmq:5.3.2
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -427,9 +435,11 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: acr-secret
       containers:
         - name: mysql-init
-          image: mysql:8.0
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/mysql:8.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_ROOT_PASSWORD
