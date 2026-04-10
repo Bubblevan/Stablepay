@@ -18,8 +18,7 @@ vendor/
 test.db
 output/
 
-# Kitex 生成代码若仅本地生成可忽略；若仓库需提交请删除下一行
-kitex_gen/
+# 注意：kitex_gen 为 Kitex 自 Thrift 生成代码，云效/ Docker 构建必须随仓库提交，勿忽略
 
 # Env
 .env
