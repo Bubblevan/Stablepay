@@ -1,5 +1,6 @@
 # StablePay Verification Service
-# 基于 Kitex 的微服务 - 购买验证服务
+# 基于 Kitex：handler/main 依赖 kitex_gen（须提交到 Git；勿在 .gitignore 中排除）
+# 本地生成：kitex -module verification-service -service verification_service <path>/verification-service.thrift
 
 FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
 
