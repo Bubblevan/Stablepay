@@ -24,7 +24,7 @@ RUN go mod download
 COPY . .
 
 # 构建可执行文件
-RUN go build -o blockchain-adapter ./cmd/server/main.go
+RUN go build -mod=mod -o blockchain-adapter ./cmd/server/main.go
 
 # 运行时镜像
 FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
