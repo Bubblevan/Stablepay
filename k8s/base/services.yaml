@@ -1,0 +1,374 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-did-service
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-did-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-did-service
+    spec:
+      containers:
+        - name: did-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/did-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: conf/docker.yaml
+            - name: CONFIG
+              value: conf/docker.yaml
+          ports:
+            - containerPort: 8081
+              name: rpc
+            - containerPort: 8181
+              name: http
+          volumeMounts:
+            - name: did-config
+              mountPath: /app/conf/docker.yaml
+              subPath: docker.yaml
+          readinessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: did-config
+          configMap:
+            name: did-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-did-service
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-did-service
+  ports:
+    - name: rpc
+      port: 8081
+      targetPort: 8081
+    - name: http
+      port: 8181
+      targetPort: 8181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-payment-service
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-payment-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/payment-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: config/docker.yaml
+          ports:
+            - containerPort: 8082
+              name: http
+            - containerPort: 8888
+              name: rpc
+          volumeMounts:
+            - name: payment-config
+              mountPath: /app/config/docker.yaml
+              subPath: docker.yaml
+          readinessProbe:
+            tcpSocket:
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8082
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: payment-config
+          configMap:
+            name: payment-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-payment-service
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-payment-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+    - name: rpc
+      port: 8888
+      targetPort: 8888
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-blockchain-adapter
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-blockchain-adapter
+  template:
+    metadata:
+      labels:
+        app: stablepay-blockchain-adapter
+    spec:
+      containers:
+        - name: blockchain-adapter
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/blockchain-adapter:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - ./blockchain-adapter
+            - -config
+            - conf/docker.yaml
+          ports:
+            - containerPort: 8083
+              name: rpc
+          volumeMounts:
+            - name: blockchain-config
+              mountPath: /app/conf/docker.yaml
+              subPath: docker.yaml
+            - name: hotwallet-secret
+              mountPath: /app/conf/hotwallet.json
+              subPath: hotwallet.json
+          readinessProbe:
+            tcpSocket:
+              port: 8083
+            initialDelaySeconds: 12
+            periodSeconds: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8083
+            initialDelaySeconds: 25
+            periodSeconds: 10
+      volumes:
+        - name: blockchain-config
+          configMap:
+            name: blockchain-adapter-config
+        - name: hotwallet-secret
+          secret:
+            secretName: stablepay-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-blockchain-adapter
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-blockchain-adapter
+  ports:
+    - name: rpc
+      port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-verification-service
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-verification-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-verification-service
+    spec:
+      containers:
+        - name: verification-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/verification-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ROCKETMQ_NAMESERVER
+              value: stablepay-rocketmq-nameserver:9876
+            - name: MYSQL_HOST
+              value: stablepay-mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+            - name: MYSQL_DBNAME
+              value: stablepay_verification_db
+          ports:
+            - containerPort: 8085
+              name: rpc
+            - containerPort: 8185
+              name: http
+          readinessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 12
+            periodSeconds: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 25
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-verification-service
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-verification-service
+  ports:
+    - name: rpc
+      port: 8085
+      targetPort: 8085
+    - name: http
+      port: 8185
+      targetPort: 8185
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-query-service
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-query-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-query-service
+    spec:
+      containers:
+        - name: query-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/query-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_HOST
+              value: stablepay-mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+            - name: MYSQL_DBNAME
+              value: stablepay_query_db
+          ports:
+            - containerPort: 8084
+              name: rpc
+            - containerPort: 8184
+              name: http
+          readinessProbe:
+            tcpSocket:
+              port: 8084
+            initialDelaySeconds: 12
+            periodSeconds: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8084
+            initialDelaySeconds: 25
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-query-service
+  namespace: stablepay-dev
+spec:
+  selector:
+    app: stablepay-query-service
+  ports:
+    - name: rpc
+      port: 8084
+      targetPort: 8084
+    - name: http
+      port: 8184
+      targetPort: 8184
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-api-gateway
+  namespace: stablepay-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-api-gateway
+  template:
+    metadata:
+      labels:
+        app: stablepay-api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-api-gateway
+  namespace: stablepay-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: stablepay-api-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
