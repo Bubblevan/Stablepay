@@ -21,7 +21,7 @@ type Config struct {
 // ServerConfig 服务配置结构体
 type ServerConfig struct {
 	Host string `yaml:"host"` // 监听地址，如 "0.0.0.0"
-	Port int    `yaml:"port"` // 监听端口，如 8081
+	Port int    `yaml:"port"` // Kitex RPC 端口，如 8081
 }
 
 // LogConfig 日志配置结构体

@@ -7,6 +7,7 @@ import (
 	"context" // 上下文包，用于控制请求生命周期
 	"crypto/ed25519" // 标准库Ed25519加密包，用于签名验证
 	"fmt" // 格式化包
+	"strings"
 	"sync" // 同步包，用于nonce缓存的并发安全
 	"time" // 时间包，用于时间窗口验证
 
@@ -157,6 +158,87 @@ func (s *DIDAppService) CreateDID(ctx context.Context, cmd *CreateDIDCmd) (*Crea
 	}, nil
 }
 
+// RegisterDIDCmd 绑定客户端已有 Solana 公钥（OWS 等），服务端不生成、不存储私钥。
+type RegisterDIDCmd struct {
+	UserType      UserType
+	PublicKey     string
+	WalletAddress string
+	WalletID      string
+	WalletName    string
+	Metadata      map[string]string
+}
+
+// RegisterDIDResult 与 CreateDIDResult 对外字段一致，便于网关统一封装。
+type RegisterDIDResult = CreateDIDResult
+
+// RegisterDID 登记 did:solana:{canonical_pubkey}，验签仅依赖入库的公钥，与客户端本地私钥一致。
+func (s *DIDAppService) RegisterDID(ctx context.Context, cmd *RegisterDIDCmd) (*RegisterDIDResult, error) {
+	if cmd == nil {
+		return nil, fmt.Errorf("command is nil")
+	}
+	pubIn := strings.TrimSpace(cmd.PublicKey)
+	if pubIn == "" {
+		return nil, fmt.Errorf("public_key is required")
+	}
+	pk, err := solana.PublicKeyFromBase58(pubIn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid public_key: %w", err)
+	}
+	canonical := pk.String()
+	walIn := strings.TrimSpace(cmd.WalletAddress)
+	if walIn == "" {
+		walIn = canonical
+	}
+	if walIn != canonical {
+		return nil, fmt.Errorf("wallet_address must match canonical Solana public key")
+	}
+
+	didString := entity.GenerateDIDString(canonical)
+	exists, err := s.repo.Exists(ctx, didString)
+	if err != nil {
+		return nil, fmt.Errorf("check did exists failed: %w", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("did already exists: %s", didString)
+	}
+
+	userType := entity.UserType(cmd.UserType)
+	if userType == "" {
+		userType = entity.UserTypeAgent
+	}
+
+	did := entity.NewDID(didString, canonical, canonical, userType)
+	// 客户端持有私钥；服务端不落库加密私钥（空串表示 client-held）
+	did.PrivateKey = ""
+
+	meta := make(map[string]string)
+	if cmd.Metadata != nil {
+		for k, v := range cmd.Metadata {
+			meta[k] = v
+		}
+	}
+	if wid := strings.TrimSpace(cmd.WalletID); wid != "" {
+		meta["wallet_id"] = wid
+	}
+	if wn := strings.TrimSpace(cmd.WalletName); wn != "" {
+		meta["wallet_name"] = wn
+	}
+	for k, v := range meta {
+		did.Metadata[k] = v
+	}
+
+	if err := s.repo.Save(ctx, did); err != nil {
+		return nil, fmt.Errorf("save did failed: %w", err)
+	}
+
+	return &RegisterDIDResult{
+		DIDString:     didString,
+		PublicKey:     canonical,
+		WalletAddress: canonical,
+		CreatedAt:     did.CreatedAt.Format(time.RFC3339),
+	}, nil
+}
+
 // GetPrivateKey 获取解密后的私钥（用于签名操作）
 // 参数 ctx: 上下文
 // 参数 didString: DID标识符
@@ -174,6 +256,10 @@ func (s *DIDAppService) GetPrivateKey(ctx context.Context, didString string) (st
 	// 2. 检查DID状态
 	if !did.IsActive() {
 		return "", fmt.Errorf("did is not active: %s", didString)
+	}
+
+	if strings.TrimSpace(did.PrivateKey) == "" {
+		return "", fmt.Errorf("private key is not stored on server (client-held wallet)")
 	}
 
 	// 3. 解密私钥

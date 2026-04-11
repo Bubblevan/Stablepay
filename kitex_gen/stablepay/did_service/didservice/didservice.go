@@ -20,6 +20,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"RegisterDID": kitex.NewMethodInfo(
+		registerDIDHandler,
+		newDIDServiceRegisterDIDArgs,
+		newDIDServiceRegisterDIDResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"GetDID": kitex.NewMethodInfo(
 		getDIDHandler,
 		newDIDServiceGetDIDArgs,
@@ -125,6 +132,24 @@ func newDIDServiceCreateDIDResult() interface{} {
 	return did_service.NewDIDServiceCreateDIDResult()
 }
 
+func registerDIDHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*did_service.DIDServiceRegisterDIDArgs)
+	realResult := result.(*did_service.DIDServiceRegisterDIDResult)
+	success, err := handler.(did_service.DIDService).RegisterDID(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newDIDServiceRegisterDIDArgs() interface{} {
+	return did_service.NewDIDServiceRegisterDIDArgs()
+}
+
+func newDIDServiceRegisterDIDResult() interface{} {
+	return did_service.NewDIDServiceRegisterDIDResult()
+}
+
 func getDIDHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*did_service.DIDServiceGetDIDArgs)
 	realResult := result.(*did_service.DIDServiceGetDIDResult)
@@ -194,6 +219,16 @@ func (p *kClient) CreateDID(ctx context.Context, req *did_service.CreateDIDReque
 	_args.Req = req
 	var _result did_service.DIDServiceCreateDIDResult
 	if err = p.c.Call(ctx, "CreateDID", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) RegisterDID(ctx context.Context, req *did_service.RegisterDIDRequest) (r *did_service.RegisterDIDResponse, err error) {
+	var _args did_service.DIDServiceRegisterDIDArgs
+	_args.Req = req
+	var _result did_service.DIDServiceRegisterDIDResult
+	if err = p.c.Call(ctx, "RegisterDID", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

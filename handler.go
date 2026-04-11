@@ -31,3 +31,9 @@ func (s *DIDServiceImpl) UpdateDIDConfig(ctx context.Context, req *did_service.U
 	// TODO: Your code here...
 	return
 }
+
+// RegisterDID implements the DIDServiceImpl interface.
+func (s *DIDServiceImpl) RegisterDID(ctx context.Context, req *did_service.RegisterDIDRequest) (resp *did_service.RegisterDIDResponse, err error) {
+	// TODO: Your code here...
+	return
+}

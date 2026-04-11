@@ -5,6 +5,7 @@ package adapter
 
 import (
 	"context"
+	"strings"
 
 	"github.com/stablepay/did-service/app"
 	"github.com/stablepay/did-service/kitex_gen/stablepay/common"
@@ -62,6 +63,61 @@ func (h *DIDHandlerImpl) CreateDID(ctx context.Context, req *did_service.CreateD
 		WalletAddress: result.WalletAddress,
 		CreatedAt:     result.CreatedAt,
 	}, nil
+}
+
+// RegisterDID 绑定客户端已有钱包（不生成私钥）。
+func (h *DIDHandlerImpl) RegisterDID(ctx context.Context, req *did_service.RegisterDIDRequest) (*did_service.RegisterDIDResponse, error) {
+	if req == nil {
+		return &did_service.RegisterDIDResponse{
+			Base: h.buildBaseResp(10001, "request is nil"),
+		}, nil
+	}
+
+	var userType app.UserType
+	switch req.UserType {
+	case did_service.UserType_AGENT:
+		userType = app.UserTypeAgent
+	case did_service.UserType_DEVELOPER:
+		userType = app.UserTypeDeveloper
+	default:
+		userType = app.UserTypeAgent
+	}
+
+	cmd := &app.RegisterDIDCmd{
+		UserType:      userType,
+		PublicKey:     req.PublicKey,
+		WalletAddress: req.WalletAddress,
+		WalletID:      req.WalletId,
+		WalletName:    req.WalletName,
+		Metadata:      req.Metadata,
+	}
+
+	result, err := h.appService.RegisterDID(ctx, cmd)
+	if err != nil {
+		return &did_service.RegisterDIDResponse{
+			Base: h.buildBaseResp(registerDIDErrorCode(err.Error()), err.Error()),
+		}, nil
+	}
+
+	return &did_service.RegisterDIDResponse{
+		Base:          h.buildBaseResp(0, "success"),
+		Did:           result.DIDString,
+		PublicKey:     result.PublicKey,
+		WalletAddress: result.WalletAddress,
+		CreatedAt:     result.CreatedAt,
+	}, nil
+}
+
+func registerDIDErrorCode(msg string) int32 {
+	switch {
+	case strings.Contains(msg, "public_key is required"),
+		strings.Contains(msg, "invalid public_key"),
+		strings.Contains(msg, "wallet_address must match"),
+		strings.Contains(msg, "command is nil"):
+		return 10001
+	default:
+		return 10002
+	}
 }
 
 // GetDID 查询DID

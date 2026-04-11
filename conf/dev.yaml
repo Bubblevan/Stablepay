@@ -11,15 +11,15 @@ log:
 
 # MySQL 数据库配置
 database:
-  host: "127.0.0.1"
-  port: 3307
-  user: "root"
-  password: "root123"
-  dbname: "did_service"
-  charset: "utf8mb4"
+  host: stablepay-mysql
+  port: 3306
+  user: stablepay
+  password: stablepay123
+  dbname: stablepay_did_db
+  charset: utf8mb4
   max_open_conns: 20
   max_idle_conns: 10
-  conn_max_lifetime: 3600  # 单位：秒
+  conn_max_lifetime: 3600
 
 # 加密配置（用于私钥加密存储）
 # 注意：生产环境应使用环境变量或密钥管理服务注入

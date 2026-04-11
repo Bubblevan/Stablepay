@@ -191,6 +191,181 @@ var fieldIDToName_CreateDIDResponse = map[int16]string{
 	5: "created_at",
 }
 
+type RegisterDIDRequest struct {
+	Base          *common.BaseReq   `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	UserType      UserType          `thrift:"user_type,2" frugal:"2,default,UserType" json:"user_type"`
+	PublicKey     string            `thrift:"public_key,3" frugal:"3,default,string" json:"public_key"`
+	WalletAddress string            `thrift:"wallet_address,4" frugal:"4,default,string" json:"wallet_address"`
+	WalletId      string            `thrift:"wallet_id,5" frugal:"5,default,string" json:"wallet_id"`
+	WalletName    string            `thrift:"wallet_name,6" frugal:"6,default,string" json:"wallet_name"`
+	Metadata      map[string]string `thrift:"metadata,7,optional" frugal:"7,optional,map<string:string>" json:"metadata,omitempty"`
+}
+
+func NewRegisterDIDRequest() *RegisterDIDRequest {
+	return &RegisterDIDRequest{}
+}
+
+func (p *RegisterDIDRequest) InitDefault() {
+}
+
+var RegisterDIDRequest_Base_DEFAULT *common.BaseReq
+
+func (p *RegisterDIDRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return RegisterDIDRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *RegisterDIDRequest) GetUserType() (v UserType) {
+	return p.UserType
+}
+
+func (p *RegisterDIDRequest) GetPublicKey() (v string) {
+	return p.PublicKey
+}
+
+func (p *RegisterDIDRequest) GetWalletAddress() (v string) {
+	return p.WalletAddress
+}
+
+func (p *RegisterDIDRequest) GetWalletId() (v string) {
+	return p.WalletId
+}
+
+func (p *RegisterDIDRequest) GetWalletName() (v string) {
+	return p.WalletName
+}
+
+var RegisterDIDRequest_Metadata_DEFAULT map[string]string
+
+func (p *RegisterDIDRequest) GetMetadata() (v map[string]string) {
+	if !p.IsSetMetadata() {
+		return RegisterDIDRequest_Metadata_DEFAULT
+	}
+	return p.Metadata
+}
+func (p *RegisterDIDRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *RegisterDIDRequest) SetUserType(val UserType) {
+	p.UserType = val
+}
+func (p *RegisterDIDRequest) SetPublicKey(val string) {
+	p.PublicKey = val
+}
+func (p *RegisterDIDRequest) SetWalletAddress(val string) {
+	p.WalletAddress = val
+}
+func (p *RegisterDIDRequest) SetWalletId(val string) {
+	p.WalletId = val
+}
+func (p *RegisterDIDRequest) SetWalletName(val string) {
+	p.WalletName = val
+}
+func (p *RegisterDIDRequest) SetMetadata(val map[string]string) {
+	p.Metadata = val
+}
+
+func (p *RegisterDIDRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *RegisterDIDRequest) IsSetMetadata() bool {
+	return p.Metadata != nil
+}
+
+func (p *RegisterDIDRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RegisterDIDRequest(%+v)", *p)
+}
+
+var fieldIDToName_RegisterDIDRequest = map[int16]string{
+	1: "base",
+	2: "user_type",
+	3: "public_key",
+	4: "wallet_address",
+	5: "wallet_id",
+	6: "wallet_name",
+	7: "metadata",
+}
+
+type RegisterDIDResponse struct {
+	Base          *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Did           common.DID       `thrift:"did,2" frugal:"2,default,string" json:"did"`
+	PublicKey     string           `thrift:"public_key,3" frugal:"3,default,string" json:"public_key"`
+	WalletAddress string           `thrift:"wallet_address,4" frugal:"4,default,string" json:"wallet_address"`
+	CreatedAt     string           `thrift:"created_at,5" frugal:"5,default,string" json:"created_at"`
+}
+
+func NewRegisterDIDResponse() *RegisterDIDResponse {
+	return &RegisterDIDResponse{}
+}
+
+func (p *RegisterDIDResponse) InitDefault() {
+}
+
+var RegisterDIDResponse_Base_DEFAULT *common.BaseResp
+
+func (p *RegisterDIDResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return RegisterDIDResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *RegisterDIDResponse) GetDid() (v common.DID) {
+	return p.Did
+}
+
+func (p *RegisterDIDResponse) GetPublicKey() (v string) {
+	return p.PublicKey
+}
+
+func (p *RegisterDIDResponse) GetWalletAddress() (v string) {
+	return p.WalletAddress
+}
+
+func (p *RegisterDIDResponse) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+func (p *RegisterDIDResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *RegisterDIDResponse) SetDid(val common.DID) {
+	p.Did = val
+}
+func (p *RegisterDIDResponse) SetPublicKey(val string) {
+	p.PublicKey = val
+}
+func (p *RegisterDIDResponse) SetWalletAddress(val string) {
+	p.WalletAddress = val
+}
+func (p *RegisterDIDResponse) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+
+func (p *RegisterDIDResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *RegisterDIDResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RegisterDIDResponse(%+v)", *p)
+}
+
+var fieldIDToName_RegisterDIDResponse = map[int16]string{
+	1: "base",
+	2: "did",
+	3: "public_key",
+	4: "wallet_address",
+	5: "created_at",
+}
+
 type GetDIDRequest struct {
 	Base *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
 	Did  common.DID      `thrift:"did,2" frugal:"2,default,string" json:"did"`
@@ -575,6 +750,8 @@ var fieldIDToName_UpdateDIDConfigResponse = map[int16]string{
 type DIDService interface {
 	CreateDID(ctx context.Context, req *CreateDIDRequest) (r *CreateDIDResponse, err error)
 
+	RegisterDID(ctx context.Context, req *RegisterDIDRequest) (r *RegisterDIDResponse, err error)
+
 	GetDID(ctx context.Context, req *GetDIDRequest) (r *GetDIDResponse, err error)
 
 	VerifySignature(ctx context.Context, req *VerifySignatureRequest) (r *VerifySignatureResponse, err error)
@@ -655,6 +832,82 @@ func (p *DIDServiceCreateDIDResult) String() string {
 }
 
 var fieldIDToName_DIDServiceCreateDIDResult = map[int16]string{
+	0: "success",
+}
+
+type DIDServiceRegisterDIDArgs struct {
+	Req *RegisterDIDRequest `thrift:"req,1" frugal:"1,default,RegisterDIDRequest" json:"req"`
+}
+
+func NewDIDServiceRegisterDIDArgs() *DIDServiceRegisterDIDArgs {
+	return &DIDServiceRegisterDIDArgs{}
+}
+
+func (p *DIDServiceRegisterDIDArgs) InitDefault() {
+}
+
+var DIDServiceRegisterDIDArgs_Req_DEFAULT *RegisterDIDRequest
+
+func (p *DIDServiceRegisterDIDArgs) GetReq() (v *RegisterDIDRequest) {
+	if !p.IsSetReq() {
+		return DIDServiceRegisterDIDArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *DIDServiceRegisterDIDArgs) SetReq(val *RegisterDIDRequest) {
+	p.Req = val
+}
+
+func (p *DIDServiceRegisterDIDArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *DIDServiceRegisterDIDArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DIDServiceRegisterDIDArgs(%+v)", *p)
+}
+
+var fieldIDToName_DIDServiceRegisterDIDArgs = map[int16]string{
+	1: "req",
+}
+
+type DIDServiceRegisterDIDResult struct {
+	Success *RegisterDIDResponse `thrift:"success,0,optional" frugal:"0,optional,RegisterDIDResponse" json:"success,omitempty"`
+}
+
+func NewDIDServiceRegisterDIDResult() *DIDServiceRegisterDIDResult {
+	return &DIDServiceRegisterDIDResult{}
+}
+
+func (p *DIDServiceRegisterDIDResult) InitDefault() {
+}
+
+var DIDServiceRegisterDIDResult_Success_DEFAULT *RegisterDIDResponse
+
+func (p *DIDServiceRegisterDIDResult) GetSuccess() (v *RegisterDIDResponse) {
+	if !p.IsSetSuccess() {
+		return DIDServiceRegisterDIDResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *DIDServiceRegisterDIDResult) SetSuccess(x interface{}) {
+	p.Success = x.(*RegisterDIDResponse)
+}
+
+func (p *DIDServiceRegisterDIDResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *DIDServiceRegisterDIDResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DIDServiceRegisterDIDResult(%+v)", *p)
+}
+
+var fieldIDToName_DIDServiceRegisterDIDResult = map[int16]string{
 	0: "success",
 }
 

@@ -35,7 +35,7 @@ type DID struct {
 	ID            string            // 数据库ID
 	DIDString     string            // did:solana:xxx
 	PublicKey     string            // Base58公钥
-	PrivateKey    string            // Base58私钥(AES-GCM加密存储)
+	PrivateKey    string            // 服务端托管时：AES-GCM 加密后的 Base58 私钥；客户端自持钱包时为空
 	WalletAddress string            // Solana钱包地址
 	UserType      UserType          // 用户类型
 	Status        DIDStatus         // 状态
