@@ -5,7 +5,7 @@ server:
 solana:
   network: "devnet"
   rpc_endpoint: "https://api.devnet.solana.com"
-  hotwallet_path: "/conf/hotwallet.json"
+  hotwallet_path: "/app/conf/hotwallet.json"
   ws_endpoint: "wss://api.devnet.solana.com"
 
 mysql:
