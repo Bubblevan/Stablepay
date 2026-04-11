@@ -12,6 +12,7 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	CreateDID(ctx context.Context, req *did_service.CreateDIDRequest, callOptions ...callopt.Option) (r *did_service.CreateDIDResponse, err error)
+	RegisterDID(ctx context.Context, req *did_service.RegisterDIDRequest, callOptions ...callopt.Option) (r *did_service.RegisterDIDResponse, err error)
 	GetDID(ctx context.Context, req *did_service.GetDIDRequest, callOptions ...callopt.Option) (r *did_service.GetDIDResponse, err error)
 	VerifySignature(ctx context.Context, req *did_service.VerifySignatureRequest, callOptions ...callopt.Option) (r *did_service.VerifySignatureResponse, err error)
 	UpdateDIDConfig(ctx context.Context, req *did_service.UpdateDIDConfigRequest, callOptions ...callopt.Option) (r *did_service.UpdateDIDConfigResponse, err error)
@@ -49,6 +50,11 @@ type kDIDServiceClient struct {
 func (p *kDIDServiceClient) CreateDID(ctx context.Context, req *did_service.CreateDIDRequest, callOptions ...callopt.Option) (r *did_service.CreateDIDResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.CreateDID(ctx, req)
+}
+
+func (p *kDIDServiceClient) RegisterDID(ctx context.Context, req *did_service.RegisterDIDRequest, callOptions ...callopt.Option) (r *did_service.RegisterDIDResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.RegisterDID(ctx, req)
 }
 
 func (p *kDIDServiceClient) GetDID(ctx context.Context, req *did_service.GetDIDRequest, callOptions ...callopt.Option) (r *did_service.GetDIDResponse, err error) {

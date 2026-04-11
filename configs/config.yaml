@@ -34,13 +34,13 @@ logging:
 
 downstream:
   did_service: "did-service"
-  did_service_addr: "stablepay-did-service:8181"
+  did_service_addr: "stablepay-did-service:8081"
   payment_service: "payment-service"
   payment_service_addr: "stablepay-payment-service:8082"
   verification_service: "verification-service"
-  verification_service_addr: "stablepay-verification-service:8185"
+  verification_service_addr: "stablepay-verification-service:8085"
   query_service: "query-service"
-  query_service_addr: "stablepay-query-service:8184"
+  query_service_addr: "stablepay-query-service:8084"
 
 routes:
   - name: "did.create"

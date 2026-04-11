@@ -63,6 +63,10 @@ func (n *noopDIDClient) CreateDID(context.Context, map[string]interface{}) (map[
 	return map[string]interface{}{}, http.StatusOK, 0, nil
 }
 
+func (n *noopDIDClient) RegisterDID(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+
 func (n *noopDIDClient) VerifyDID(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
 	return map[string]interface{}{}, http.StatusOK, 0, nil
 }
@@ -124,6 +128,10 @@ func (n *noopQueryClient) GetTransactions(context.Context, map[string]interface{
 }
 
 func (n *noopQueryClient) GetRevenue(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+
+func (n *noopQueryClient) GetSales(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
 	return map[string]interface{}{}, http.StatusOK, 0, nil
 }
 

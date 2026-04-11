@@ -14,6 +14,7 @@ type Client interface {
 	GetBalanceSummary(ctx context.Context, req *query_service.GetBalanceSummaryRequest, callOptions ...callopt.Option) (r *query_service.GetBalanceSummaryResponse, err error)
 	ListTransactions(ctx context.Context, req *query_service.ListTransactionsRequest, callOptions ...callopt.Option) (r *query_service.ListTransactionsResponse, err error)
 	GetRevenueSummary(ctx context.Context, req *query_service.GetRevenueSummaryRequest, callOptions ...callopt.Option) (r *query_service.GetRevenueSummaryResponse, err error)
+	ListSales(ctx context.Context, req *query_service.ListSalesRequest, callOptions ...callopt.Option) (r *query_service.ListSalesResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +59,9 @@ func (p *kQueryServiceClient) ListTransactions(ctx context.Context, req *query_s
 func (p *kQueryServiceClient) GetRevenueSummary(ctx context.Context, req *query_service.GetRevenueSummaryRequest, callOptions ...callopt.Option) (r *query_service.GetRevenueSummaryResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetRevenueSummary(ctx, req)
+}
+
+func (p *kQueryServiceClient) ListSales(ctx context.Context, req *query_service.ListSalesRequest, callOptions ...callopt.Option) (r *query_service.ListSalesResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ListSales(ctx, req)
 }

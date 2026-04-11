@@ -52,10 +52,34 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 		nonceStore = auth.NewMemoryNonceStore()
 	}
 
-	didClient := clients.NewRealDIDClient(cfg.Downstream.DIDServiceAddr)
+	didClient, err := clients.NewKitexDIDClient(
+		cfg.Downstream.DIDService,
+		cfg.Downstream.DIDServiceAddr,
+		cfg.Resilience.DefaultTimeoutMS,
+		cfg.Resilience.DefaultRetry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("did client: %w", err)
+	}
 	paymentClient := clients.NewRealPaymentClient(cfg.Downstream.PaymentServiceAddr)
-	verificationClient := clients.NewRealVerificationClient(cfg.Downstream.VerificationServiceAddr)
-	queryClient := clients.NewRealQueryClient(cfg.Downstream.QueryServiceAddr)
+	verificationClient, err := clients.NewKitexVerificationClient(
+		cfg.Downstream.VerificationService,
+		cfg.Downstream.VerificationServiceAddr,
+		cfg.Resilience.DefaultTimeoutMS,
+		cfg.Resilience.DefaultRetry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("verification client: %w", err)
+	}
+	queryClient, err := clients.NewKitexQueryClient(
+		cfg.Downstream.QueryService,
+		cfg.Downstream.QueryServiceAddr,
+		cfg.Resilience.DefaultTimeoutMS,
+		cfg.Resilience.DefaultRetry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query client: %w", err)
+	}
 
 	appService := application.NewService(didClient, paymentClient, verificationClient, queryClient)
 	handler := http.NewHandler(appService)

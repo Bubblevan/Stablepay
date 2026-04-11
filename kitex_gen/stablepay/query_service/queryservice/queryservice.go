@@ -34,6 +34,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"ListSales": kitex.NewMethodInfo(
+		listSalesHandler,
+		newQueryServiceListSalesArgs,
+		newQueryServiceListSalesResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +161,24 @@ func newQueryServiceGetRevenueSummaryResult() interface{} {
 	return query_service.NewQueryServiceGetRevenueSummaryResult()
 }
 
+func listSalesHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*query_service.QueryServiceListSalesArgs)
+	realResult := result.(*query_service.QueryServiceListSalesResult)
+	success, err := handler.(query_service.QueryService).ListSales(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newQueryServiceListSalesArgs() interface{} {
+	return query_service.NewQueryServiceListSalesArgs()
+}
+
+func newQueryServiceListSalesResult() interface{} {
+	return query_service.NewQueryServiceListSalesResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +214,16 @@ func (p *kClient) GetRevenueSummary(ctx context.Context, req *query_service.GetR
 	_args.Req = req
 	var _result query_service.QueryServiceGetRevenueSummaryResult
 	if err = p.c.Call(ctx, "GetRevenueSummary", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ListSales(ctx context.Context, req *query_service.ListSalesRequest) (r *query_service.ListSalesResponse, err error) {
+	var _args query_service.QueryServiceListSalesArgs
+	_args.Req = req
+	var _result query_service.QueryServiceListSalesResult
+	if err = p.c.Call(ctx, "ListSales", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

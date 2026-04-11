@@ -545,12 +545,254 @@ var fieldIDToName_GetRevenueSummaryResponse = map[int16]string{
 	5: "sales_trend",
 }
 
+type SaleRecordItem struct {
+	TxId        common.TxId  `thrift:"tx_id,1" frugal:"1,default,string" json:"tx_id"`
+	SourceTxId  *common.TxId `thrift:"source_tx_id,2,optional" frugal:"2,optional,string" json:"source_tx_id,omitempty"`
+	AgentDid    common.DID   `thrift:"agent_did,3" frugal:"3,default,string" json:"agent_did"`
+	SkillDid    common.DID   `thrift:"skill_did,4" frugal:"4,default,string" json:"skill_did"`
+	AmountMinor int64        `thrift:"amount_minor,5" frugal:"5,default,i64" json:"amount_minor"`
+	Currency    string       `thrift:"currency,6" frugal:"6,default,string" json:"currency"`
+	CreatedAt   string       `thrift:"created_at,7" frugal:"7,default,string" json:"created_at"`
+}
+
+func NewSaleRecordItem() *SaleRecordItem {
+	return &SaleRecordItem{}
+}
+
+func (p *SaleRecordItem) InitDefault() {
+}
+
+func (p *SaleRecordItem) GetTxId() (v common.TxId) {
+	return p.TxId
+}
+
+var SaleRecordItem_SourceTxId_DEFAULT common.TxId
+
+func (p *SaleRecordItem) GetSourceTxId() (v common.TxId) {
+	if !p.IsSetSourceTxId() {
+		return SaleRecordItem_SourceTxId_DEFAULT
+	}
+	return *p.SourceTxId
+}
+
+func (p *SaleRecordItem) GetAgentDid() (v common.DID) {
+	return p.AgentDid
+}
+
+func (p *SaleRecordItem) GetSkillDid() (v common.DID) {
+	return p.SkillDid
+}
+
+func (p *SaleRecordItem) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *SaleRecordItem) GetCurrency() (v string) {
+	return p.Currency
+}
+
+func (p *SaleRecordItem) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+func (p *SaleRecordItem) SetTxId(val common.TxId) {
+	p.TxId = val
+}
+func (p *SaleRecordItem) SetSourceTxId(val *common.TxId) {
+	p.SourceTxId = val
+}
+func (p *SaleRecordItem) SetAgentDid(val common.DID) {
+	p.AgentDid = val
+}
+func (p *SaleRecordItem) SetSkillDid(val common.DID) {
+	p.SkillDid = val
+}
+func (p *SaleRecordItem) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *SaleRecordItem) SetCurrency(val string) {
+	p.Currency = val
+}
+func (p *SaleRecordItem) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+
+func (p *SaleRecordItem) IsSetSourceTxId() bool {
+	return p.SourceTxId != nil
+}
+
+func (p *SaleRecordItem) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SaleRecordItem(%+v)", *p)
+}
+
+var fieldIDToName_SaleRecordItem = map[int16]string{
+	1: "tx_id",
+	2: "source_tx_id",
+	3: "agent_did",
+	4: "skill_did",
+	5: "amount_minor",
+	6: "currency",
+	7: "created_at",
+}
+
+type ListSalesRequest struct {
+	Base     *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	SkillDid common.DID      `thrift:"skill_did,2" frugal:"2,default,string" json:"skill_did"`
+	Limit    int32           `thrift:"limit,3" frugal:"3,default,i32" json:"limit"`
+	Offset   int32           `thrift:"offset,4" frugal:"4,default,i32" json:"offset"`
+}
+
+func NewListSalesRequest() *ListSalesRequest {
+	return &ListSalesRequest{}
+}
+
+func (p *ListSalesRequest) InitDefault() {
+}
+
+var ListSalesRequest_Base_DEFAULT *common.BaseReq
+
+func (p *ListSalesRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return ListSalesRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *ListSalesRequest) GetSkillDid() (v common.DID) {
+	return p.SkillDid
+}
+
+func (p *ListSalesRequest) GetLimit() (v int32) {
+	return p.Limit
+}
+
+func (p *ListSalesRequest) GetOffset() (v int32) {
+	return p.Offset
+}
+func (p *ListSalesRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *ListSalesRequest) SetSkillDid(val common.DID) {
+	p.SkillDid = val
+}
+func (p *ListSalesRequest) SetLimit(val int32) {
+	p.Limit = val
+}
+func (p *ListSalesRequest) SetOffset(val int32) {
+	p.Offset = val
+}
+
+func (p *ListSalesRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *ListSalesRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListSalesRequest(%+v)", *p)
+}
+
+var fieldIDToName_ListSalesRequest = map[int16]string{
+	1: "base",
+	2: "skill_did",
+	3: "limit",
+	4: "offset",
+}
+
+type ListSalesResponse struct {
+	Base     *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	SkillDid common.DID        `thrift:"skill_did,2" frugal:"2,default,string" json:"skill_did"`
+	Items    []*SaleRecordItem `thrift:"items,3" frugal:"3,default,list<SaleRecordItem>" json:"items"`
+	Total    int64             `thrift:"total,4" frugal:"4,default,i64" json:"total"`
+	Limit    int32             `thrift:"limit,5" frugal:"5,default,i32" json:"limit"`
+	Offset   int32             `thrift:"offset,6" frugal:"6,default,i32" json:"offset"`
+}
+
+func NewListSalesResponse() *ListSalesResponse {
+	return &ListSalesResponse{}
+}
+
+func (p *ListSalesResponse) InitDefault() {
+}
+
+var ListSalesResponse_Base_DEFAULT *common.BaseResp
+
+func (p *ListSalesResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return ListSalesResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *ListSalesResponse) GetSkillDid() (v common.DID) {
+	return p.SkillDid
+}
+
+func (p *ListSalesResponse) GetItems() (v []*SaleRecordItem) {
+	return p.Items
+}
+
+func (p *ListSalesResponse) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *ListSalesResponse) GetLimit() (v int32) {
+	return p.Limit
+}
+
+func (p *ListSalesResponse) GetOffset() (v int32) {
+	return p.Offset
+}
+func (p *ListSalesResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *ListSalesResponse) SetSkillDid(val common.DID) {
+	p.SkillDid = val
+}
+func (p *ListSalesResponse) SetItems(val []*SaleRecordItem) {
+	p.Items = val
+}
+func (p *ListSalesResponse) SetTotal(val int64) {
+	p.Total = val
+}
+func (p *ListSalesResponse) SetLimit(val int32) {
+	p.Limit = val
+}
+func (p *ListSalesResponse) SetOffset(val int32) {
+	p.Offset = val
+}
+
+func (p *ListSalesResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *ListSalesResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListSalesResponse(%+v)", *p)
+}
+
+var fieldIDToName_ListSalesResponse = map[int16]string{
+	1: "base",
+	2: "skill_did",
+	3: "items",
+	4: "total",
+	5: "limit",
+	6: "offset",
+}
+
 type QueryService interface {
 	GetBalanceSummary(ctx context.Context, req *GetBalanceSummaryRequest) (r *GetBalanceSummaryResponse, err error)
 
 	ListTransactions(ctx context.Context, req *ListTransactionsRequest) (r *ListTransactionsResponse, err error)
 
 	GetRevenueSummary(ctx context.Context, req *GetRevenueSummaryRequest) (r *GetRevenueSummaryResponse, err error)
+
+	ListSales(ctx context.Context, req *ListSalesRequest) (r *ListSalesResponse, err error)
 }
 
 type QueryServiceGetBalanceSummaryArgs struct {
@@ -778,5 +1020,81 @@ func (p *QueryServiceGetRevenueSummaryResult) String() string {
 }
 
 var fieldIDToName_QueryServiceGetRevenueSummaryResult = map[int16]string{
+	0: "success",
+}
+
+type QueryServiceListSalesArgs struct {
+	Req *ListSalesRequest `thrift:"req,1" frugal:"1,default,ListSalesRequest" json:"req"`
+}
+
+func NewQueryServiceListSalesArgs() *QueryServiceListSalesArgs {
+	return &QueryServiceListSalesArgs{}
+}
+
+func (p *QueryServiceListSalesArgs) InitDefault() {
+}
+
+var QueryServiceListSalesArgs_Req_DEFAULT *ListSalesRequest
+
+func (p *QueryServiceListSalesArgs) GetReq() (v *ListSalesRequest) {
+	if !p.IsSetReq() {
+		return QueryServiceListSalesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *QueryServiceListSalesArgs) SetReq(val *ListSalesRequest) {
+	p.Req = val
+}
+
+func (p *QueryServiceListSalesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *QueryServiceListSalesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("QueryServiceListSalesArgs(%+v)", *p)
+}
+
+var fieldIDToName_QueryServiceListSalesArgs = map[int16]string{
+	1: "req",
+}
+
+type QueryServiceListSalesResult struct {
+	Success *ListSalesResponse `thrift:"success,0,optional" frugal:"0,optional,ListSalesResponse" json:"success,omitempty"`
+}
+
+func NewQueryServiceListSalesResult() *QueryServiceListSalesResult {
+	return &QueryServiceListSalesResult{}
+}
+
+func (p *QueryServiceListSalesResult) InitDefault() {
+}
+
+var QueryServiceListSalesResult_Success_DEFAULT *ListSalesResponse
+
+func (p *QueryServiceListSalesResult) GetSuccess() (v *ListSalesResponse) {
+	if !p.IsSetSuccess() {
+		return QueryServiceListSalesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *QueryServiceListSalesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListSalesResponse)
+}
+
+func (p *QueryServiceListSalesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *QueryServiceListSalesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("QueryServiceListSalesResult(%+v)", *p)
+}
+
+var fieldIDToName_QueryServiceListSalesResult = map[int16]string{
 	0: "success",
 }

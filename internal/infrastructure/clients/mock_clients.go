@@ -37,6 +37,7 @@ func (m *MockDIDClient) RegisterDID(_ context.Context, req map[string]interface{
 		"public_key":     publicKey,
 		"wallet_address": walletAddress,
 		"wallet_id":      req["wallet_id"],
+		"wallet_name":    req["wallet_name"],
 		"status":         "active",
 		"created_at":     time.Now().UTC().Format(time.RFC3339),
 	}, 200, 0, nil
