@@ -15,28 +15,29 @@ type SaleItem struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-func listSalesRecords(skillDID string, limit, offset int) (map[string]any, error) {
+// listSalesData 与 HTTP /internal、sales 及 RPC ListSales 共用查询逻辑。
+func listSalesData(skillDID string, limit, offset int) (items []SaleItem, total int64, lim, off int, err error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	if offset < 0 {
 		offset = 0
 	}
+	lim, off = limit, offset
 
 	query := DB.Model(&TransactionRecord{}).
 		Where("skill_did = ? AND tx_type = ?", skillDID, int32(query_service.TransactionType_REVENUE))
 
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, err
+	if err = query.Count(&total).Error; err != nil {
+		return nil, 0, lim, off, err
 	}
 
 	var records []TransactionRecord
-	if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
-		return nil, err
+	if err = query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
+		return nil, 0, lim, off, err
 	}
 
-	items := make([]SaleItem, 0, len(records))
+	items = make([]SaleItem, 0, len(records))
 	for _, r := range records {
 		txID := r.SourceTxId
 		if txID == "" {
@@ -52,7 +53,14 @@ func listSalesRecords(skillDID string, limit, offset int) (map[string]any, error
 			CreatedAt:   r.CreatedAt,
 		})
 	}
+	return items, total, lim, off, nil
+}
 
+func listSalesRecords(skillDID string, limit, offset int) (map[string]any, error) {
+	items, total, lim, off, err := listSalesData(skillDID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"base": map[string]any{
 			"code":    0,
@@ -61,8 +69,8 @@ func listSalesRecords(skillDID string, limit, offset int) (map[string]any, error
 		"skill_did": skillDID,
 		"items":     items,
 		"total":     total,
-		"limit":     limit,
-		"offset":    offset,
+		"limit":     lim,
+		"offset":    off,
 	}, nil
 }
 

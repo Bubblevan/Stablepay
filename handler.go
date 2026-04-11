@@ -159,3 +159,38 @@ func getenvInt64Default(key string, def int64) int64 {
 	}
 	return i
 }
+
+// ListSales implements the QueryServiceImpl interface（与 HTTP /internal/sales 数据一致）。
+func (s *QueryServiceImpl) ListSales(ctx context.Context, req *query_service.ListSalesRequest) (resp *query_service.ListSalesResponse, err error) {
+	_ = ctx
+	resp = query_service.NewListSalesResponse()
+	items, total, lim, off, err := listSalesData(string(req.SkillDid), int(req.Limit), int(req.Offset))
+	if err != nil {
+		log.Printf("list sales error: %v", err)
+		resp.Base = &common.BaseResp{Code: 30003, Message: "failed to fetch sales records"}
+		return resp, nil
+	}
+	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
+	resp.SkillDid = req.SkillDid
+	resp.Total = total
+	resp.Limit = int32(lim)
+	resp.Offset = int32(off)
+	out := make([]*query_service.SaleRecordItem, 0, len(items))
+	for _, it := range items {
+		row := &query_service.SaleRecordItem{
+			TxId:        common.TxId(it.TxID),
+			AgentDid:    common.DID(it.AgentDID),
+			SkillDid:    common.DID(it.SkillDID),
+			AmountMinor: it.AmountMinor,
+			Currency:    it.Currency,
+			CreatedAt:   it.CreatedAt,
+		}
+		if it.SourceTxID != "" {
+			st := common.TxId(it.SourceTxID)
+			row.SourceTxId = &st
+		}
+		out = append(out, row)
+	}
+	resp.Items = out
+	return resp, nil
+}
