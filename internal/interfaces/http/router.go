@@ -23,6 +23,9 @@ func RegisterRoutes(
 	h.GET("/healthz", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(consts.StatusOK, map[string]any{"status": "ok"})
 	})
+	h.HEAD("/healthz", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, map[string]any{"status": "ok"})
+	})
 	h.GET("/readyz", func(ctx context.Context, c *app.RequestContext) {
 		if !readyState.IsReady() {
 			c.JSON(consts.StatusServiceUnavailable, map[string]any{"status": "not_ready"})
