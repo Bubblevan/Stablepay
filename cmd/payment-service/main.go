@@ -78,11 +78,14 @@ func main() {
 		cfg.RpcClients.DIDService.TimeoutMs,
 		cfg.RpcClients.DIDService.RetryCount,
 	)
-	blockchainClient := rpc.NewBlockchainAdapterClient(
+	blockchainClient, err := rpc.NewBlockchainAdapterClient(
 		cfg.RpcClients.BlockchainAdapter.Address,
 		cfg.RpcClients.BlockchainAdapter.TimeoutMs,
 		cfg.RpcClients.BlockchainAdapter.RetryCount,
 	)
+	if err != nil {
+		logger.Fatal("Failed to init blockchain-adapter Kitex client", zap.Error(err))
+	}
 
 	maxAmountMinor, _ := utils.StringToMinorUnit(cfg.Payment.MaxAmountUsdc)
 	paymentValidator := service.NewPaymentValidator(didClient, blockchainClient, maxAmountMinor)

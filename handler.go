@@ -108,11 +108,14 @@ func NewPaymentServiceImpl() *PaymentServiceImpl {
 		cfg.RpcClients.DIDService.TimeoutMs,
 		cfg.RpcClients.DIDService.RetryCount,
 	)
-	blockchainClient := rpc.NewBlockchainAdapterClient(
+	blockchainClient, err := rpc.NewBlockchainAdapterClient(
 		cfg.RpcClients.BlockchainAdapter.Address,
 		cfg.RpcClients.BlockchainAdapter.TimeoutMs,
 		cfg.RpcClients.BlockchainAdapter.RetryCount,
 	)
+	if err != nil {
+		klog.Fatalf("blockchain-adapter client: %v", err)
+	}
 
 	// 初始化 Redis
 	redisClient, err := infraredis.NewRedisClient(cfg)

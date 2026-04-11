@@ -8,16 +8,18 @@ import (
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/retry"
+	bchain "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter"
+	bchainsvc "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter/blockchainadapterservice"
+	bcommon "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/common"
 	"github.com/stablepay/payment-service/internal/domain/service"
 	"github.com/stablepay/payment-service/pkg/constants"
+	"github.com/stablepay/payment-service/pkg/errors"
 )
 
 // DIDServiceClient DID Service RPC 客户端
 type DIDServiceClient struct {
-	// 实际使用 Kitex 生成的客户端
-	// client DIDService.Client
-	address string
-	timeout time.Duration
+	address    string
+	timeout    time.Duration
 	retryCount int
 }
 
@@ -31,136 +33,120 @@ func NewDIDServiceClient(address string, timeoutMs int, retryCount int) *DIDServ
 }
 
 // ValidateSignature 验证签名
-// 调用 DID Service 的 VerifySignature 接口
 func (c *DIDServiceClient) Validate(ctx context.Context, did string, message string, signature string, timestamp string, nonce string) (bool, error) {
-	// TODO: 使用 Kitex 生成的客户端调用
-	// 这里提供骨架实现，待 IDL 最终确定后替换
-
-	// 模拟实现
-	fmt.Printf("[DIDServiceClient] Validate signature for DID: %s\n", did)
-
-	// 实际调用示例：
-	// req := &did_service.VerifySignatureRequest{
-	//     Base: &common.BaseReq{...},
-	//     Did: did,
-	//     Message: message,
-	//     Signature: signature,
-	//     Timestamp: timestamp,
-	//     Nonce: nonce,
-	// }
-	// resp, err := client.VerifySignature(ctx, req)
-	// if err != nil {
-	//     return false, errors.Wrap(errors.SERVICE_UNAVAILABLE, err, "did service call failed")
-	// }
-	// return resp.Valid, nil
-
-	// 临时返回成功
+	_ = ctx
+	_ = did
+	_ = message
+	_ = signature
+	_ = timestamp
+	_ = nonce
+	// TODO: Kitex 调用 did-service
 	return true, nil
 }
 
-// Ensure DIDServiceClient 实现 SignatureValidator 接口
 var _ service.SignatureValidator = (*DIDServiceClient)(nil)
 
-// BlockchainAdapterClient Blockchain Adapter RPC 客户端
+// BlockchainAdapterClient Blockchain Adapter RPC 客户端（TCP + Kitex）
 type BlockchainAdapterClient struct {
-	address string
-	timeout time.Duration
-	retryCount int
+	cli bchainsvc.Client
 }
 
-// NewBlockchainAdapterClient 创建 Blockchain Adapter 客户端
-func NewBlockchainAdapterClient(address string, timeoutMs int, retryCount int) *BlockchainAdapterClient {
-	return &BlockchainAdapterClient{
-		address:    address,
-		timeout:    time.Duration(timeoutMs) * time.Millisecond,
-		retryCount: retryCount,
+// NewBlockchainAdapterClient 创建客户端。address 须为 TCP host:port（如 stablepay-blockchain-adapter:8083）。
+// 必须使用 client.WithHostPorts，否则 Kitex 会把整串当作 Unix 套接字路径，出现 dial unix ... connect: no such file or directory。
+func NewBlockchainAdapterClient(address string, timeoutMs int, retryCount int) (*BlockchainAdapterClient, error) {
+	opts := []client.Option{
+		client.WithHostPorts(address),
 	}
+	if timeoutMs > 0 {
+		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))
+	}
+	if retryCount > 0 {
+		opts = append(opts, client.WithFailureRetry(retry.NewFailurePolicy()))
+	}
+	cli, err := bchainsvc.NewClient("blockchain-adapter", opts...)
+	if err != nil {
+		return nil, fmt.Errorf("kitex blockchain-adapter client: %w", err)
+	}
+	return &BlockchainAdapterClient{cli: cli}, nil
+}
+
+func toBCurrency(c constants.Currency) bcommon.Currency {
+	return bcommon.Currency(c)
 }
 
 // ExecuteTransfer 执行转账交易
-// 调用 Blockchain Adapter 的 TransferStableCoin 接口
 func (c *BlockchainAdapterClient) ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64, currency constants.Currency) (string, error) {
-	// TODO: 使用 Kitex 生成的客户端调用
-	// 这里提供骨架实现，待 IDL 最终确定后替换
+	req := bchain.NewTransferStableCoinRequest()
+	req.Base = bcommon.NewBaseReq()
+	req.FromWalletAddress = &fromWallet
+	req.ToWalletAddress = toWallet
+	req.AmountMinor = amountMinor
+	req.Currency = toBCurrency(currency)
 
-	fmt.Printf("[BlockchainAdapterClient] Execute transfer: %s -> %s, amount: %d %s\n",
-		fromWallet, toWallet, amountMinor, currency)
-
-	// 实际调用示例：
-	// req := &blockchain_adapter.TransferStableCoinRequest{
-	//     Base: &common.BaseReq{...},
-	//     FromWalletAddress: fromWallet,
-	//     ToWalletAddress: toWallet,
-	//     AmountMinor: amountMinor,
-	//     Currency: convertCurrency(currency),
-	// }
-	// resp, err := client.TransferStableCoin(ctx, req)
-	// if err != nil {
-	//     return "", errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain adapter call failed")
-	// }
-	// if resp.Base.Code != 0 {
-	//     return "", errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.Base.Message)
-	// }
-	// return resp.TxHash, nil
-
-	// 临时返回模拟 txHash
-	return fmt.Sprintf("simulated_tx_hash_%d", time.Now().UnixNano()), nil
+	resp, err := c.cli.TransferStableCoin(ctx, req)
+	if err != nil {
+		return "", errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain adapter TransferStableCoin")
+	}
+	if resp.GetBase() != nil && resp.GetBase().GetCode() != 0 {
+		return "", errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.GetBase().GetMessage())
+	}
+	return string(resp.GetTxHash()), nil
 }
 
 // QueryTxStatus 查询交易状态
-// 调用 Blockchain Adapter 的 GetTxStatus 接口
 func (c *BlockchainAdapterClient) QueryTxStatus(ctx context.Context, txHash string) (int8, *time.Time, error) {
-	// TODO: 使用 Kitex 生成的客户端调用
+	req := bchain.NewGetTxStatusRequest()
+	req.Base = bcommon.NewBaseReq()
+	req.TxHash = txHash
 
-	fmt.Printf("[BlockchainAdapterClient] Query tx status: %s\n", txHash)
-
-	// 实际调用示例：
-	// req := &blockchain_adapter.GetTxStatusRequest{
-	//     Base: &common.BaseReq{...},
-	//     TxHash: txHash,
-	// }
-	// resp, err := client.GetTxStatus(ctx, req)
-	// ...
-
-	// 临时返回模拟结果
-	return constants.PaymentStatusConfirmed, nil, nil
+	resp, err := c.cli.GetTxStatus(ctx, req)
+	if err != nil {
+		return 0, nil, errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain adapter GetTxStatus")
+	}
+	if resp.GetBase() != nil && resp.GetBase().GetCode() != 0 {
+		return 0, nil, errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.GetBase().GetMessage())
+	}
+	st := int8(resp.GetStatus())
+	var confirmedAt *time.Time
+	if resp.IsSetConfirmedAt() {
+		s := resp.GetConfirmedAt()
+		if s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err == nil {
+				confirmedAt = &t
+			}
+		}
+	}
+	return st, confirmedAt, nil
 }
 
 // CheckBalance 检查余额
-// 调用 Blockchain Adapter 的 GetBalance 接口
 func (c *BlockchainAdapterClient) CheckBalance(ctx context.Context, walletAddress string, currency constants.Currency, requiredAmount int64) (bool, int64, error) {
-	// TODO: 使用 Kitex 生成的客户端调用
+	req := bchain.NewGetBalanceRequest()
+	req.Base = bcommon.NewBaseReq()
+	req.WalletAddress = walletAddress
+	req.Currency = toBCurrency(currency)
 
-	fmt.Printf("[BlockchainAdapterClient] Check balance: %s, required: %d %s\n",
-		walletAddress, requiredAmount, currency)
-
-	// 实际调用示例：
-	// req := &blockchain_adapter.GetBalanceRequest{
-	//     Base: &common.BaseReq{...},
-	//     WalletAddress: walletAddress,
-	//     Currency: convertCurrency(currency),
-	// }
-	// resp, err := client.GetBalance(ctx, req)
-	// ...
-
-	// 临时返回模拟结果（余额充足）
-	return true, requiredAmount * 2, nil
+	resp, err := c.cli.GetBalance(ctx, req)
+	if err != nil {
+		return false, 0, errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain adapter GetBalance")
+	}
+	if resp.GetBase() != nil && resp.GetBase().GetCode() != 0 {
+		return false, 0, errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.GetBase().GetMessage())
+	}
+	bal := resp.GetBalanceMinor()
+	return bal >= requiredAmount, bal, nil
 }
 
-// Ensure BlockchainAdapterClient 实现所需接口
 var _ service.BalanceChecker = (*BlockchainAdapterClient)(nil)
 
-// KitexClientConfig 返回 Kitex 客户端配置
+// KitexClientConfig 返回 Kitex 客户端配置（供其它 RPC 复用）
 func KitexClientConfig(timeout time.Duration, retryCount int) []client.Option {
 	opts := []client.Option{
 		client.WithRPCTimeout(timeout),
 	}
-
 	if retryCount > 0 {
-		opts = append(opts, client.WithFailureRetry(
-			retry.NewFailurePolicy(),
-		))
+		opts = append(opts, client.WithFailureRetry(retry.NewFailurePolicy()))
 	}
-
 	return opts
 }
