@@ -27,6 +27,25 @@ struct CreateDIDResponse {
   5: string created_at,
 }
 
+/** 绑定客户端/OWS 已有钱包（服务端不生成、不存私钥）；did 固定为 did:solana:{canonical_public_key} */
+struct RegisterDIDRequest {
+  1: common.BaseReq base,
+  2: UserType user_type,
+  3: string public_key,
+  4: string wallet_address,
+  5: string wallet_id,
+  6: string wallet_name,
+  7: optional map<string, string> metadata,
+}
+
+struct RegisterDIDResponse {
+  1: common.BaseResp base,
+  2: common.DID did,
+  3: string public_key,
+  4: string wallet_address,
+  5: string created_at,
+}
+
 struct GetDIDRequest {
   1: common.BaseReq base,
   2: common.DID did,
@@ -71,6 +90,7 @@ struct UpdateDIDConfigResponse {
 
 service DIDService {
   CreateDIDResponse CreateDID(1: CreateDIDRequest req),
+  RegisterDIDResponse RegisterDID(1: RegisterDIDRequest req),
   GetDIDResponse GetDID(1: GetDIDRequest req),
   VerifySignatureResponse VerifySignature(1: VerifySignatureRequest req),
   UpdateDIDConfigResponse UpdateDIDConfig(1: UpdateDIDConfigRequest req),

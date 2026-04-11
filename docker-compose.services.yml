@@ -15,7 +15,8 @@ services:
 
   payment-service:
     build:
-      context: ../payment-service
+      context: ..
+      dockerfile: payment-service/Dockerfile
     image: stablepay-payment-service:latest
     container_name: stablepay-payment-service
     environment:
@@ -83,11 +84,11 @@ services:
     build:
       context: ../api-gateway
       args:
-        GITTOKEN: ${GITTOKEN}
+        GITTOKEN: ${GITTOKEN:-}
     image: stablepay-api-gateway:latest
     container_name: stablepay-api-gateway
     ports:
-      - "8080:8080"
+      - "28080:8080"
     depends_on:
       - did-service
       - payment-service
