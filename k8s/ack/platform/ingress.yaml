@@ -6,22 +6,61 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/albconfig.name: "alb"
     alb.ingress.kubernetes.io/backend-protocol: "HTTP"
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80},{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'   # 已包含 HTTPS
     alb.ingress.kubernetes.io/healthcheck-enabled: "true"
-    alb.ingress.kubernetes.io/healthcheck-path: "/health"
+    alb.ingress.kubernetes.io/healthcheck-path: "/healthz"
     alb.ingress.kubernetes.io/healthcheck-protocol: "HTTP"
     alb.ingress.kubernetes.io/cors-allow-origin: "*"
     alb.ingress.kubernetes.io/cors-allow-methods: "GET,POST,PUT,DELETE,OPTIONS"
+    # ========== 新增 SSL 证书配置 ==========
+    alb.ingress.kubernetes.io/certificate-id: "21374537-cn-hangzhou"   # 你的证书 ID
+    # 可选：强制重定向 HTTP -> HTTPS（建议加上）
+    alb.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: alb
   rules:
     - host: ai.wenfu.cn
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: stablepay-api-gateway
                 port:
                   number: 8080
+          - path: /pay
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-api-gateway
+                port:
+                  number: 8080
+          - path: /verify
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-api-gateway
+                port:
+                  number: 8080
+          - path: /readyz
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-api-gateway
+                port:
+                  number: 8080
+          - path: /healthz
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-api-gateway
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-frontend
+                port:
+                  number: 80

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-frontend
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-frontend
+  template:
+    metadata:
+      labels:
+        app: stablepay-frontend
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: frontend
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/stablepay-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-frontend
+  namespace: zheda-agent
+spec:
+  type: ClusterIP
+  selector:
+    app: stablepay-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
