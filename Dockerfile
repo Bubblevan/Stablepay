@@ -40,7 +40,8 @@ USER appuser
 
 EXPOSE 8082 8888
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1
+# 勿用 wget --spider：会发 HEAD；Hertz 仅注册了 GET /health，HEAD 常返回 405 → 容器一直 unhealthy
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:8082/health || exit 1
 
 CMD ["./payment-service"]
