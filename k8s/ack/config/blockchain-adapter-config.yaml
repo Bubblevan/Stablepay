@@ -1,0 +1,22 @@
+# 与 apps/blockchain-adapter.yaml 中 volume 名称一致：blockchain-adapter-config
+# apply: kubectl apply -f blockchain-adapter-config.yaml
+# 若已在 Deployment 里设置 SOLANA_RPC_ENDPOINT，会覆盖本文件中的 rpc_endpoint（见 blockchain-adapter 启动逻辑）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blockchain-adapter-config
+  namespace: zheda-agent
+data:
+  docker.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: 8083
+
+    solana:
+      network: "devnet"
+      rpc_endpoint: "https://proxy.stablepay.co/https://api.devnet.solana.com"
+      hotwallet_path: "/app/conf/hotwallet.json"
+      ws_endpoint: "wss://api.devnet.solana.com"
+
+    mysql:
+      dsn: "stablepay:stablepay123@tcp(stablepay-mysql:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"
