@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -130,6 +131,11 @@ func loadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+
+	// K8s/ACK 等环境可用环境变量覆盖 RPC（例如国内经香港代理访问 devnet）
+	if v := strings.TrimSpace(os.Getenv("SOLANA_RPC_ENDPOINT")); v != "" {
+		cfg.Solana.RPCEndpoint = v
 	}
 
 	// 验证必需配置
