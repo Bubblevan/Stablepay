@@ -1,12 +1,13 @@
-# 构建在云效/本机执行；若拉取失败可将 node / nginx 基础镜像同步到 ACR 后改 FROM
-FROM node:20-alpine AS builder
+FROM stablepay-registry-vpc.cn-shanghai.cr.aliyuncs.com/stablepay-dev/node:20-alpine AS builder
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+FROM stablepay-registry-vpc.cn-shanghai.cr.aliyuncs.com/stablepay-dev/nginx:1.27-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
+
 EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
