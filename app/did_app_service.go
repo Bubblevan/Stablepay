@@ -199,7 +199,23 @@ func (s *DIDAppService) RegisterDID(ctx context.Context, cmd *RegisterDIDCmd) (*
 		return nil, fmt.Errorf("check did exists failed: %w", err)
 	}
 	if exists {
-		return nil, fmt.Errorf("did already exists: %s", didString)
+		// 幂等：同一公钥重复登记视为成功，便于客户端重放初始化而不清空本地 state。
+		existing, err := s.repo.FindByDID(ctx, didString)
+		if err != nil {
+			return nil, fmt.Errorf("did already exists: %s (reload failed: %w)", didString, err)
+		}
+		if existing.PublicKey != canonical || existing.WalletAddress != canonical {
+			return nil, fmt.Errorf("did already exists with mismatched wallet keys: %s", didString)
+		}
+		if !existing.IsActive() {
+			return nil, fmt.Errorf("did already exists but is not active: %s", didString)
+		}
+		return &RegisterDIDResult{
+			DIDString:     existing.DIDString,
+			PublicKey:     existing.PublicKey,
+			WalletAddress: existing.WalletAddress,
+			CreatedAt:     existing.CreatedAt.Format(time.RFC3339),
+		}, nil
 	}
 
 	userType := entity.UserType(cmd.UserType)
