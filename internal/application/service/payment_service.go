@@ -402,11 +402,31 @@ func (s *PaymentApplicationService) checkIdempotency(ctx context.Context, key st
 func (s *PaymentApplicationService) recordIdempotency(ctx context.Context, key, txID string, status int8,
 	req *dto.InitiatePaymentRequest, resp *dto.InitiatePaymentResponse) error {
 
+	reqHash := hashRequest(req)
+	expires := time.Now().Add(30 * time.Minute)
+
+	existing, err := s.idempotencyRepo.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		existing.RequestHash = reqHash
+		existing.Status = status
+		existing.ExpiresAt = expires
+		if txID != "" {
+			existing.TxID = &txID
+		}
+		if resp != nil {
+			_ = resp
+		}
+		return s.idempotencyRepo.Update(ctx, existing)
+	}
+
 	record := &entity.PaymentIdempotency{
 		IdempotencyKey: key,
-		RequestHash:    hashRequest(req),
+		RequestHash:    reqHash,
 		Status:         status,
-		ExpiresAt:      time.Now().Add(30 * time.Minute),
+		ExpiresAt:      expires,
 		CreatedAt:      time.Now(),
 	}
 

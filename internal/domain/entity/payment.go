@@ -3,10 +3,25 @@ package entity
 
 import (
 	"time"
+	"unicode/utf8"
 
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 )
+
+// 与 GORM payment_transactions.error_message varchar(512) 对齐；链上 RPC 错误可能极长
+const maxPaymentErrorMsgRunes = 480
+
+func truncateForDB512(s string) string {
+	if utf8.RuneCountInString(s) <= maxPaymentErrorMsgRunes {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxPaymentErrorMsgRunes {
+		return s
+	}
+	return string(runes[:maxPaymentErrorMsgRunes-1]) + "…"
+}
 
 // Payment 支付聚合根
 // 代表一次完整的支付交易生命周期
@@ -117,7 +132,7 @@ func (p *Payment) MarkAsCompleted() error {
 // MarkAsFailed 标记为失败
 func (p *Payment) MarkAsFailed(errCode, errMsg string) error {
 	p.ErrorCode = errCode
-	p.ErrorMsg = errMsg
+	p.ErrorMsg = truncateForDB512(errMsg)
 	return p.TransitionTo(constants.PaymentStatusFailed)
 }
 
