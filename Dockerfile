@@ -32,7 +32,7 @@ FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# 安装运行时依赖（SQLite 需要）
+# 安装运行时依赖
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
@@ -40,14 +40,8 @@ WORKDIR /app
 # 从构建阶段复制可执行文件
 COPY --from=builder /build/verification-service .
 
-# 创建数据目录
-RUN mkdir -p /data
-
 # 暴露端口
 EXPOSE 8085
-
-# 数据卷（用于持久化 SQLite 数据库）
-VOLUME ["/data"]
 
 # 启动命令
 CMD ["./verification-service"]

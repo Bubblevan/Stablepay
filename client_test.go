@@ -3,19 +3,25 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"testing"
 
 	"verification-service/kitex_gen/stablepay/verification_service"
 	"verification-service/kitex_gen/stablepay/verification_service/verificationservice"
 	"github.com/cloudwego/kitex/client"
-	
-	"gorm.io/driver/sqlite"
+
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"	// 数据库依赖包
 )
 
 func TestVerifyPurchase(t *testing.T) {
+	dsn := os.Getenv("VERIFICATION_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("skip integration test: VERIFICATION_TEST_MYSQL_DSN not set")
+	}
+
 	// 模拟 RocketMQ 消费者：
-	db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("连不上数据库:", err)
 	}
