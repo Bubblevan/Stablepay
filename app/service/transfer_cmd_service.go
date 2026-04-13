@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,11 +63,19 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 		return nil, err
 	}
 
-	// 2. 若无预签名交易，由热钱包构建 SPL Token 转账交易
+	// 2. 若无预签名交易，仅允许「热钱包自持代币」的托管路径：由热钱包同时作为 fee payer 与 SPL authority构建交易。
+	//    若 from 为买家/代理等非热钱包地址，必须由客户端提交 signed_tx_base64（买家已签 + 热钱包作 fee payer），否则会错误地从热钱包 ATA 扣款。
 	if cmd.SignedTxBase64 == "" {
+		hot := s.hotWallet.GetAddress()
+		if cmd.FromAddress != "" && cmd.FromAddress != hot {
+			return nil, fmt.Errorf("signed_tx_base64 is required when from_wallet (%s) is not the custodial hot wallet (%s); refusing server-built tx to avoid debiting wrong token account",
+				cmd.FromAddress, hot)
+		}
+		log.Printf("[transfer] mode=server_built_spl hot_wallet_token_owner=%s to=%s amount_minor=%d currency=%s",
+			hot, cmd.ToAddress, cmd.AmountMinor, cmd.Currency)
 		builtTx, err := s.solanaGateway.BuildSPLTransferTx(
 			ctx,
-			s.hotWallet.GetAddress(), // 热钱包为 fee payer 和 token owner
+			hot,
 			cmd.ToAddress,
 			cmd.Currency,
 			uint64(cmd.AmountMinor),
@@ -75,7 +84,10 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 			return nil, fmt.Errorf("failed to build SPL transfer transaction: %w", err)
 		}
 		cmd.SignedTxBase64 = builtTx
+		LogBase64TxAudit("after_server_build_unsigned", cmd.SignedTxBase64)
 	} else {
+		log.Printf("[transfer] mode=client_partial_signed from=%s to=%s amount_minor=%d", cmd.FromAddress, cmd.ToAddress, cmd.AmountMinor)
+		LogBase64TxAudit("incoming_client_partial_signed", cmd.SignedTxBase64)
 		// 3. 预签名交易模式：验证交易格式和 fee payer
 		if err := s.validateTransactionFormat(cmd.SignedTxBase64); err != nil {
 			return nil, fmt.Errorf("invalid transaction format: %w", err)
@@ -94,21 +106,26 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 
 	// 5. 保存记录（Pending）
 	if err := s.subsidyRepo.Save(ctx, subsidyEntity); err != nil {
+		log.Printf("[transfer] subsidy Save pending failed: %v | tx_id=%s", err, cmd.TxID)
 		return nil, fmt.Errorf("failed to create subsidy record: %w", err)
 	}
 
 	// 6. 使用热钱包签名交易（添加 fee payer 签名）
 	signedTxBase64, err := s.hotWallet.SignBase64Transaction(cmd.SignedTxBase64)
 	if err != nil {
+		log.Printf("[transfer] hot wallet SignBase64Transaction failed: %v | tx_id=%s from=%s", err, cmd.TxID, cmd.FromAddress)
 		// 签名失败，更新记录为失败状态
 		subsidyEntity.MarkFailed()
 		_ = s.subsidyRepo.Update(ctx, subsidyEntity)
 		return nil, fmt.Errorf("failed to sign transaction with hot wallet: %w", err)
 	}
 
+	LogBase64TxAudit("after_hot_wallet_fee_payer_sign", signedTxBase64)
+
 	// 7. 发送已签名交易到 Solana 网络
 	txHash, err := s.solanaGateway.SendTransaction(ctx, signedTxBase64)
 	if err != nil {
+		log.Printf("[transfer] SendTransaction failed: %v | tx_id=%s from=%s to=%s", err, cmd.TxID, cmd.FromAddress, cmd.ToAddress)
 		// 发送失败，更新记录为失败状态
 		subsidyEntity.MarkFailed()
 		_ = s.subsidyRepo.Update(ctx, subsidyEntity)

@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/stablepay/blockchain-adapter/domain/gateway"
@@ -109,12 +111,44 @@ func (s *SolanaGatewayImpl) SendTransaction(ctx context.Context, signedTx string
 		return "", fmt.Errorf("failed to unmarshal transaction: %w", err)
 	}
 
-	sig, err := s.client.SendTransaction(ctx, tx)
+	bh := tx.Message.RecentBlockhash
+	log.Printf("[solana] SendTransaction: recent_blockhash=%s network=%s rpc=%s", bh.String(), s.network, s.endpoint)
+
+	var hashValid *bool
+	if valid, err := s.client.IsBlockhashValid(ctx, bh, rpc.CommitmentProcessed); err != nil {
+		log.Printf("[solana] IsBlockhashValid: %v (RPC may not support the method; continuing)", err)
+	} else if valid != nil {
+		hashValid = &valid.Value
+		if !valid.Value {
+			return "", fmt.Errorf("recent blockhash %s is not valid on this RPC (expired or different cluster than client); rebuild partial tx on the same cluster as blockchain-adapter (rpc_endpoint=%s)",
+				bh.String(), s.endpoint)
+		}
+	}
+
+	sendOpts := rpc.TransactionOpts{
+		SkipPreflight:       false,
+		PreflightCommitment: rpc.CommitmentProcessed,
+	}
+	sig, err := s.client.SendTransactionWithOpts(ctx, tx, sendOpts)
+	if err != nil && sendPreflightFailedBlockhash(err) && (hashValid == nil || *hashValid) {
+		log.Printf("[solana] preflight reported blockhash issue; retrying with skipPreflight=true (recent_blockhash=%s)", bh.String())
+		sendOpts.SkipPreflight = true
+		sendOpts.PreflightCommitment = ""
+		sig, err = s.client.SendTransactionWithOpts(ctx, tx, sendOpts)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to send transaction: %w", err)
 	}
 
 	return sig.String(), nil
+}
+
+func sendPreflightFailedBlockhash(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "blockhash not found") || strings.Contains(msg, "blockhashnotfound")
 }
 
 // GetTransactionStatus 查询交易状态

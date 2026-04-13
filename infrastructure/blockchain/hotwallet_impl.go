@@ -99,10 +99,9 @@ func (h *HotWalletImpl) SignBase64Transaction(base64Tx string) (string, error) {
 			hotWalletPubKey.String(), feePayer.String())
 	}
 
-	// 4. 签名交易
-	// 注意：solana-go 的 Transaction.Sign 方法需要签名者私钥
-	// 如果交易已经有用户签名，我们需要追加签名而不是替换
-	signatures, err := tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+	// 4. 仅补签 fee payer（热钱包）；买家等已签槽位保留。
+	// Transaction.Sign 要求为全部 signer 提供私钥；PartialSign 只对 getter 非 nil 的密钥签名。
+	signatures, err := tx.PartialSign(func(key solana.PublicKey) *solana.PrivateKey {
 		if key.Equals(hotWalletPubKey) {
 			return &privKey
 		}

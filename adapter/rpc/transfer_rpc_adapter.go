@@ -5,6 +5,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/stablepay/blockchain-adapter/app/service"
@@ -25,6 +26,13 @@ func NewTransferRPCAdapter(transferService *service.TransferCmdService) *Transfe
 	}
 }
 
+func signedTxBase64Len(req *blockchain_adapter.TransferStableCoinRequest) int {
+	if req == nil || !req.IsSetSignedTxBase64() {
+		return 0
+	}
+	return len(req.GetSignedTxBase64())
+}
+
 // TransferStableCoin 实现RPC接口
 func (a *TransferRPCAdapter) TransferStableCoin(
 	ctx context.Context,
@@ -41,7 +49,10 @@ func (a *TransferRPCAdapter) TransferStableCoin(
 	// 3. 调用应用服务
 	result, err := a.transferService.Execute(ctx, cmd)
 	if err != nil {
-		return a.buildErrorResponse(a.mapErrorCode(err), err.Error(), req.Base), nil
+		mapped := a.mapErrorCode(err)
+		log.Printf("[TransferStableCoin] Execute failed: %v | mapped_code=%d from=%v to=%s amount_minor=%d signed_tx_len=%d",
+			err, mapped, req.FromWalletAddress, req.ToWalletAddress, req.AmountMinor, signedTxBase64Len(req))
+		return a.buildErrorResponse(mapped, err.Error(), req.Base), nil
 	}
 
 	// 4. Assembler转换响应
