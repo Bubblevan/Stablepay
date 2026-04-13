@@ -38,13 +38,18 @@ func (a *TransferRPCAdapter) TransferStableCoin(
 	ctx context.Context,
 	req *blockchain_adapter.TransferStableCoinRequest,
 ) (*blockchain_adapter.TransferStableCoinResponse, error) {
+	log.Printf("[TransferStableCoin] received: from=%v to=%s amount=%d signed_tx_len=%d",
+		req.FromWalletAddress, req.ToWalletAddress, req.AmountMinor, signedTxBase64Len(req))
+
 	// 1. 参数校验
 	if err := a.validateRequest(req); err != nil {
+		log.Printf("[TransferStableCoin] validation failed: %v", err)
 		return a.buildErrorResponse(common.ErrorCode_INVALID_PARAMETERS, err.Error(), req.Base), nil
 	}
 
 	// 2. Assembler转换请求
 	cmd := assembler.ToTransferCmd(req)
+	log.Printf("[TransferStableCoin] cmd prepared: signed_tx_len=%d", len(cmd.SignedTxBase64))
 
 	// 3. 调用应用服务
 	result, err := a.transferService.Execute(ctx, cmd)
