@@ -18,10 +18,12 @@ type RealPaymentClient struct {
 	hc      *http.Client
 }
 
+// Payment may wait on Solana RPC + blockchain-adapter; 10s was too tight and produced
+// gateway 500 + ~10000ms latency while payment-service was still working.
 func NewRealPaymentClient(addr string) application.PaymentServiceClient {
 	return &RealPaymentClient{
 		baseURL: "http://" + addr,
-		hc:      &http.Client{Timeout: 10 * time.Second},
+		hc:      &http.Client{Timeout: 90 * time.Second},
 	}
 }
 

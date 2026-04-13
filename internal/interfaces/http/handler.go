@@ -65,7 +65,14 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 			WriteEnvelope(ctx, httpStatus, code, "Payment Required", data)
 			return
 		}
-		failFromCode(ctx, httpStatus, code, fmt.Errorf("downstream status: %d", httpStatus))
+		// payment-service 等业务错误会把可读信息放在 JSON body的 message 里；不要只报「downstream status:400」
+		detailErr := fmt.Errorf("downstream http %d", httpStatus)
+		if data != nil {
+			if msg, ok := data["message"].(string); ok && msg != "" {
+				detailErr = fmt.Errorf("%s (downstream http %d)", msg, httpStatus)
+			}
+		}
+		failFromCode(ctx, httpStatus, code, detailErr)
 	}
 }
 

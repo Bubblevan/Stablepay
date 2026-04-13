@@ -1,7 +1,8 @@
 server:
   address: ":8080"
-  read_timeout_ms: 5000
-  write_timeout_ms: 5000
+  # Allow long-running POST /api/v1/pay (chain submission) without cutting the connection.
+  read_timeout_ms: 120000
+  write_timeout_ms: 120000
   enable_access_log: true
   graceful_stop_secs: 10
 
@@ -80,7 +81,7 @@ routes:
     method: "POST"
     path: "/api/v1/pay"
     target: "payment-service"
-    timeout_ms: 1500
+    timeout_ms: 90000
     retry: 0
     auth: "did"
     rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
