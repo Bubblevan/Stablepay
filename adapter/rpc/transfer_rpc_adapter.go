@@ -82,27 +82,53 @@ func (a *TransferRPCAdapter) mapErrorCode(err error) common.ErrorCode {
 
 	errMsg := strings.ToLower(err.Error())
 
-	// 参数错误
+	// 1) 明确的本地校验 / 客户端交易格式问题 → INVALID_PARAMETERS（勿用宽泛的 "invalid" 子串）
 	switch {
-	case strings.Contains(errMsg, "invalid") || strings.Contains(errMsg, "required"):
+	case strings.Contains(errMsg, "request is nil"),
+		strings.Contains(errMsg, "to_wallet_address is required"),
+		strings.Contains(errMsg, "amount must be greater than 0"),
+		strings.Contains(errMsg, "transaction is empty"),
+		strings.Contains(errMsg, "invalid transaction format"),
+		strings.Contains(errMsg, "failed to unmarshal transaction"),
+		strings.Contains(errMsg, "fee payer validation failed"),
+		strings.Contains(errMsg, "hot wallet is not the fee payer"),
+		strings.Contains(errMsg, "signed_tx_base64 is required when"):
 		return common.ErrorCode_INVALID_PARAMETERS
-
-	// 余额不足
-	case strings.Contains(errMsg, "insufficient"):
-		return common.ErrorCode_INSUFFICIENT_BALANCE
-
-	// 网络超时或区块链网络错误
-	case strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "network"):
-		return common.ErrorCode_BLOCKCHAIN_NETWORK_ERROR
-
-	// 未找到
-	case strings.Contains(errMsg, "not found"):
-		return common.ErrorCode_RESOURCE_NOT_FOUND
-
-	// 默认内部错误
-	default:
-		return common.ErrorCode_INTERNAL_SERVER_ERROR
 	}
+
+	// 2) Solana JSON-RPC / 模拟 / 广播（含 "invalid account" 等，避免误判为 10001 → payment HTTP 400）
+	if strings.Contains(errMsg, "jsonrpc") ||
+		strings.Contains(errMsg, "-32002") ||
+		strings.Contains(errMsg, "simulation") ||
+		strings.Contains(errMsg, "sendtransaction") ||
+		strings.Contains(errMsg, "failed to send transaction") ||
+		strings.Contains(errMsg, "blockhash") ||
+		strings.Contains(errMsg, "program error") ||
+		strings.Contains(errMsg, "instruction") {
+		return common.ErrorCode_BLOCKCHAIN_NETWORK_ERROR
+	}
+
+	// 3) 余额
+	if strings.Contains(errMsg, "insufficient") {
+		return common.ErrorCode_INSUFFICIENT_BALANCE
+	}
+
+	// 4) 网络 / 超时
+	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "network") {
+		return common.ErrorCode_BLOCKCHAIN_NETWORK_ERROR
+	}
+
+	// 5) 其它 not found（如仓储）；BlockhashNotFound 通常含 blockhash 已在上面覆盖
+	if strings.Contains(errMsg, "not found") {
+		return common.ErrorCode_RESOURCE_NOT_FOUND
+	}
+
+	// 6) 其余含 invalid/required 的视为参数问题
+	if strings.Contains(errMsg, "invalid") || strings.Contains(errMsg, "required") {
+		return common.ErrorCode_INVALID_PARAMETERS
+	}
+
+	return common.ErrorCode_INTERNAL_SERVER_ERROR
 }
 
 // buildErrorResponse 构建错误响应
