@@ -4,6 +4,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cloudwego/kitex/client"
@@ -75,20 +76,36 @@ func toBCurrency(c constants.Currency) bcommon.Currency {
 }
 
 // ExecuteTransfer 执行转账交易
-func (c *BlockchainAdapterClient) ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64, currency constants.Currency) (string, error) {
+func (c *BlockchainAdapterClient) ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64, currency constants.Currency, signedTxBase64 string) (string, error) {
 	req := bchain.NewTransferStableCoinRequest()
 	req.Base = bcommon.NewBaseReq()
 	req.FromWalletAddress = &fromWallet
 	req.ToWalletAddress = toWallet
 	req.AmountMinor = amountMinor
 	req.Currency = toBCurrency(currency)
+	if signedTxBase64 != "" {
+		req.SignedTxBase64 = &signedTxBase64
+	}
 
 	resp, err := c.cli.TransferStableCoin(ctx, req)
 	if err != nil {
+		log.Printf("[blockchain-adapter] TransferStableCoin transport error: %v | from=%s to=%s amount_minor=%d signed_tx_len=%d",
+			err, fromWallet, toWallet, amountMinor, len(signedTxBase64))
 		return "", errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "blockchain adapter TransferStableCoin")
 	}
 	if resp.GetBase() != nil && resp.GetBase().GetCode() != 0 {
-		return "", errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.GetBase().GetMessage())
+		bc := resp.GetBase().GetCode()
+		msg := resp.GetBase().GetMessage()
+		log.Printf("[blockchain-adapter] TransferStableCoin logical error: adapter_code=%d adapter_message=%q | from=%s to=%s signed_tx_len=%d",
+			bc, msg, fromWallet, toWallet, len(signedTxBase64))
+		switch bc {
+		case int32(bcommon.ErrorCode_INVALID_PARAMETERS):
+			return "", errors.New(errors.INVALID_PARAMETERS, msg)
+		case int32(bcommon.ErrorCode_INSUFFICIENT_BALANCE):
+			return "", errors.New(errors.INSUFFICIENT_BALANCE, msg)
+		default:
+			return "", errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, msg)
+		}
 	}
 	return string(resp.GetTxHash()), nil
 }

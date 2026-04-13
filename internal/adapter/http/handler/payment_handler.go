@@ -3,6 +3,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -42,6 +44,26 @@ func (h *PaymentHandler) InitiatePayment(ctx context.Context, c *app.RequestCont
 	if req.IdempotencyKey == "" {
 		h.respondError(c, errors.New(errors.INVALID_PARAMETERS, "missing X-Idempotency-Key header"))
 		return
+	}
+
+	if req.SignedTxBase64 != "" {
+		sum := sha256.Sum256([]byte(req.SignedTxBase64))
+		prefix := req.SignedTxBase64
+		if len(prefix) > 80 {
+			prefix = prefix[:80]
+		}
+		h.logger.Info("POST /api/v1/pay signed_tx audit",
+			zap.String("agent_did", req.AgentDID),
+			zap.String("skill_did", req.SkillDID),
+			zap.Int("signed_tx_base64_len", len(req.SignedTxBase64)),
+			zap.String("signed_tx_base64_sha256_utf8", hex.EncodeToString(sum[:])),
+			zap.String("signed_tx_base64_prefix", prefix),
+		)
+	} else {
+		h.logger.Warn("POST /api/v1/pay without signed_tx_base64 (blockchain-adapter will reject if from wallet is not hot wallet)",
+			zap.String("agent_did", req.AgentDID),
+			zap.String("skill_did", req.SkillDID),
+		)
 	}
 
 	resp, err := h.paymentService.InitiatePayment(ctx, &req)
@@ -191,7 +213,7 @@ func (h *PaymentHandler) respondError(c *app.RequestContext, err error) {
 	code := errors.GetErrorCode(err)
 	message := err.Error()
 
-	// 映射 HTTP 状态码
+	// 映射 HTTP 状态码（链上/适配器错误用 503，避免 api-gateway 把业务 code=20003 与 http=400 混在一起只显示 downstream status: 400）
 	httpStatus := http.StatusBadRequest
 	switch code {
 	case errors.INTERNAL_SERVER_ERROR:
@@ -203,6 +225,8 @@ func (h *PaymentHandler) respondError(c *app.RequestContext, err error) {
 	case errors.RATE_LIMIT_EXCEEDED:
 		httpStatus = http.StatusTooManyRequests
 	case errors.SERVICE_UNAVAILABLE:
+		httpStatus = http.StatusServiceUnavailable
+	case errors.BLOCKCHAIN_NETWORK_ERROR, errors.GAS_SUBSIDY_FAILED:
 		httpStatus = http.StatusServiceUnavailable
 	}
 

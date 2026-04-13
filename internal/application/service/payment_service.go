@@ -3,6 +3,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -22,7 +24,7 @@ import (
 type BlockchainExecutor interface {
 	// ExecuteTransfer 鎵ц杞处浜ゆ槗
 	ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64,
-		currency constants.Currency) (txHash string, err error)
+		currency constants.Currency, signedTxBase64 string) (txHash string, err error)
 	// QueryTxStatus 鏌ヨ浜ゆ槗鐘舵€?
 	QueryTxStatus(ctx context.Context, txHash string) (status int8, confirmedAt *time.Time, err error)
 }
@@ -121,7 +123,7 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 		return nil, err
 	}
 
-	signData := vo.GetSignData(req.AgentDID, req.SkillDID, amountMinor, currency, req.Timestamp, req.Nonce)
+	signData := vo.PaymentBusinessSignPayload(req.AgentDID, req.SkillDID, amountMinor, currency, req.SignedTxBase64, req.Timestamp, req.Nonce)
 	signature := vo.NewSignature(req.Signature, req.Timestamp, req.Nonce, signData)
 
 	// 6. 楠岃瘉鏀粯璇锋眰锛堢鍚嶃€侀噾棰濈瓑锛?
@@ -158,8 +160,21 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 
 	// 10. 鎵ц閾句笂浜ゆ槗锛堝悓姝ワ級
 	skillWallet := extractWalletFromDID(req.SkillDID)
-	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, amountMinor, currency)
+	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, amountMinor, currency, req.SignedTxBase64)
 	if err != nil {
+		signedLen := 0
+		if req.SignedTxBase64 != "" {
+			signedLen = len(req.SignedTxBase64)
+		}
+		s.logger.Error("blockchain ExecuteTransfer failed",
+			zap.String("tx_id", txID),
+			zap.String("from_wallet", walletAddress),
+			zap.String("to_wallet", skillWallet),
+			zap.Int64("amount_minor", amountMinor),
+			zap.String("currency", string(currency)),
+			zap.Int("signed_tx_base64_len", signedLen),
+			zap.Error(err),
+		)
 		// 閾句笂鎵ц澶辫触
 		_ = payment.MarkAsFailed("BLOCKCHAIN_ERROR", err.Error())
 		_ = s.paymentRepo.Update(ctx, payment)
@@ -410,10 +425,11 @@ func (s *PaymentApplicationService) recordIdempotency(ctx context.Context, key, 
 // hashRequest 鐢熸垚璇锋眰鍝堝笇锛堢畝鍖栧疄鐜帮級
 func hashRequest(req *dto.InitiatePaymentRequest) string {
 	// 瀹為檯搴旇浣跨敤鏇村彲闈犵殑鍝堝笇绠楁硶
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%s",
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%s|%s",
 		req.AgentDID, req.SkillDID, req.AmountStr, req.Currency,
-		req.Signature, req.Timestamp, req.Nonce)
-	return data
+		req.Signature, req.Timestamp, req.Nonce, req.SignedTxBase64)
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }
 
 // toResponse 杞崲涓哄搷搴?

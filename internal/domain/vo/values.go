@@ -2,6 +2,8 @@
 package vo
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -187,12 +189,23 @@ func (s Signature) IsExpired(ttlMinutes int) bool {
 	return time.Now().After(expireTime)
 }
 
-// GetSignData 获取待签名数据
+// GetSignData 获取待签名数据（旧格式，仅兼容非 openclaw 路径）
 // 根据 agent_did, skill_did, amount, currency, timestamp, nonce 构造
 func GetSignData(agentDID, skillDID string, amountMinor int64, currency constants.Currency,
 	timestamp int64, nonce string) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%d|%s",
 		agentDID, skillDID, amountMinor, currency, timestamp, nonce)
+}
+
+// PaymentBusinessSignPayload 与 stablepay-openclaw-plugin/src/pay_settlement.ts 一致：
+// bizSignPayload = bizMessageCore + bizTs + bizNonce（timestamp 与 nonce 紧跟在 hash 后，无额外分隔符）
+// bizMessageCore = agentDid|skill_did|amountMinor|ccy|sha256_hex_utf8(signed_tx_base64)
+func PaymentBusinessSignPayload(agentDID, skillDID string, amountMinor int64, currency constants.Currency,
+	signedTxBase64 string, timestamp int64, nonce string) string {
+	sum := sha256.Sum256([]byte(signedTxBase64))
+	hashHex := hex.EncodeToString(sum[:])
+	return fmt.Sprintf("%s|%s|%d|%d|%s%d%s",
+		agentDID, skillDID, amountMinor, int64(currency), hashHex, timestamp, nonce)
 }
 
 // PageParam 分页参数值对象

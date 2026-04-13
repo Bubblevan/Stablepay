@@ -126,7 +126,7 @@ type MockBlockchainExecutor struct {
 	delay      time.Duration
 }
 
-func (m *MockBlockchainExecutor) ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64, currency constants.Currency) (string, error) {
+func (m *MockBlockchainExecutor) ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64, currency constants.Currency, _ string) (string, error) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
 	}

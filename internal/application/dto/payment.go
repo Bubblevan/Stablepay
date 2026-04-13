@@ -11,6 +11,8 @@ type InitiatePaymentRequest struct {
 	Signature      string `json:"signature" binding:"required"`
 	Timestamp      int64  `json:"timestamp" binding:"required"`
 	Nonce          string `json:"nonce" binding:"required"`
+	// Partially-signed SPL tx (base64); hot wallet only adds fee-payer signature. Required for agent/OWS flows.
+	SignedTxBase64 string `json:"signed_tx_base64"`
 }
 
 type InitiatePaymentResponse struct {

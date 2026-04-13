@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -53,7 +55,7 @@ type PaymentConfig struct {
 // BlockchainExecutor 区块链执行器接口
 type BlockchainExecutor interface {
 	ExecuteTransfer(ctx context.Context, fromWallet, toWallet string, amountMinor int64,
-		currency constants.Currency) (txHash string, err error)
+		currency constants.Currency, signedTxBase64 string) (txHash string, err error)
 	QueryTxStatus(ctx context.Context, txHash string) (status int8, confirmedAt *time.Time, err error)
 }
 
@@ -212,7 +214,7 @@ func (s *PaymentServiceImpl) InitiatePayment(ctx context.Context, req *payment_s
 
 	// 9. 执行链上交易
 	skillWallet := extractWalletFromDID(string(req.SkillDid))
-	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, req.AmountMinor, currency)
+	txHash, err := s.blockchainExec.ExecuteTransfer(ctx, walletAddress, skillWallet, req.AmountMinor, currency, "")
 	if err != nil {
 		_ = payment.MarkAsFailed("BLOCKCHAIN_ERROR", err.Error())
 		_ = s.paymentRepo.Update(ctx, payment)
@@ -366,11 +368,20 @@ func (s *PaymentServiceImpl) recordIdempotency(ctx context.Context, key, txID st
 	return s.idempotencyRepo.Create(ctx, record)
 }
 
-// hashRequest 生成请求哈希（简化实现）
+// hashRequest Kitex 请求指纹，SHA256 十六进制，与 DB request_hash varchar(64) 一致。
 func hashRequest(req *payment_service.InitiatePaymentRequest) string {
-	data := fmt.Sprintf("%s|%s|%d|%d",
-		req.AgentDid, req.SkillDid, req.AmountMinor, req.Currency)
-	return data
+	sig := ""
+	if req.IsSetSignature() {
+		sig = req.GetSignature()
+	}
+	ts := ""
+	if req.IsSetTimestamp() {
+		ts = req.GetTimestamp()
+	}
+	data := fmt.Sprintf("%s|%s|%d|%d|%s|%s",
+		string(req.AgentDid), string(req.SkillDid), req.AmountMinor, int32(req.Currency), sig, ts)
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }
 
 // pollTxStatus 轮询交易状态

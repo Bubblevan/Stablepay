@@ -3,6 +3,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/stablepay/payment-service/internal/domain/vo"
@@ -142,8 +144,10 @@ func NewIdempotencyKeyGenerator() *IdempotencyKeyGenerator {
 	return &IdempotencyKeyGenerator{}
 }
 
-// Generate 生成幂等性键
-// 格式: agent_did:skill_did:client_idempotency_key
+// Generate 生成幂等性键（SHA256 十六进制，固定 64 字符，避免两条 did:solana:… 与客户端 key 拼接后超过 DB varchar(128)）
+// 语义等价于对 agent_did:skill_did:client_idempotency_key 做确定性哈希。
 func (g *IdempotencyKeyGenerator) Generate(agentDID, skillDID, clientKey string) string {
-	return fmt.Sprintf("%s:%s:%s", agentDID, skillDID, clientKey)
+	raw := fmt.Sprintf("%s:%s:%s", agentDID, skillDID, clientKey)
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
