@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/stablepay/blockchain-adapter/domain/entity"
 	"github.com/stablepay/blockchain-adapter/domain/gateway"
@@ -88,6 +89,14 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 	} else {
 		log.Printf("[transfer] mode=client_partial_signed from=%s to=%s amount_minor=%d", cmd.FromAddress, cmd.ToAddress, cmd.AmountMinor)
 		LogBase64TxAudit("incoming_client_partial_signed", cmd.SignedTxBase64)
+		// 解码并打印客户端传来的 blockhash
+		txIn := &solana.Transaction{}
+		if err := txIn.UnmarshalBase64(cmd.SignedTxBase64); err == nil {
+			log.Printf("[transfer] incoming_client_tx: recent_blockhash=%s fee_payer=%s",
+				txIn.Message.RecentBlockhash.String(),
+				txIn.Message.AccountKeys[0].String(),
+			)
+		}
 		// 3. 预签名交易模式：验证交易格式和 fee payer
 		if err := s.validateTransactionFormat(cmd.SignedTxBase64); err != nil {
 			return nil, fmt.Errorf("invalid transaction format: %w", err)
@@ -122,7 +131,19 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 
 	LogBase64TxAudit("after_hot_wallet_fee_payer_sign", signedTxBase64)
 
-	// 7. 发送已签名交易到 Solana 网络
+	// 7. 解码并打印交易信息（用于调试 Blockhash 问题）
+	txDebug := &solana.Transaction{}
+	if err := txDebug.UnmarshalBase64(signedTxBase64); err == nil {
+		log.Printf("[transfer] before_send: recent_blockhash=%s fee_payer=%s num_signatures=%d",
+			txDebug.Message.RecentBlockhash.String(),
+			txDebug.Message.AccountKeys[0].String(),
+			len(txDebug.Signatures),
+		)
+	} else {
+		log.Printf("[transfer] before_send: failed to decode tx for debug: %v", err)
+	}
+
+	// 8. 发送已签名交易到 Solana 网络
 	txHash, err := s.solanaGateway.SendTransaction(ctx, signedTxBase64)
 	if err != nil {
 		log.Printf("[transfer] SendTransaction failed: %v | tx_id=%s from=%s to=%s", err, cmd.TxID, cmd.FromAddress, cmd.ToAddress)
