@@ -47,7 +47,8 @@ func (c *RealPaymentClient) Pay(ctx context.Context, req map[string]interface{})
 
 func (c *RealPaymentClient) GetPaymentRequirement(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
 	values := url.Values{}
-	for _, key := range []string{"skill_did", "agent_did", "skill_name", "price", "currency", "message"} {
+	// 优先传递 amount，如果不存在则传递 price（向后兼容）
+	for _, key := range []string{"skill_did", "agent_did", "skill_name", "amount", "price", "currency", "message"} {
 		if value, ok := req[key]; ok && value != nil {
 			str := fmt.Sprintf("%v", value)
 			if str != "" {
