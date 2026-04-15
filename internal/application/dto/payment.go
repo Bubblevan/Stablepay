@@ -67,7 +67,8 @@ type GetPaymentRequirementRequest struct {
 	SkillDID  string `query:"skill_did" binding:"required"`
 	AgentDID  string `query:"agent_did,omitempty"`
 	SkillName string `query:"skill_name,omitempty"`
-	Price     string `query:"price,omitempty"`
+	Amount    string `query:"amount,omitempty"` // 优先使用 amount
+	Price     string `query:"price,omitempty"`  // 向后兼容
 	Currency  string `query:"currency,omitempty" binding:"omitempty,oneof=USDC USDT"`
 	Message   string `query:"message,omitempty"`
 }

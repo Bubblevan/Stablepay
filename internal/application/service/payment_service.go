@@ -261,12 +261,20 @@ func (s *PaymentApplicationService) GetPaymentRequirement(ctx context.Context, r
 	}
 
 	// 返回支付要求（HTTP 402）
-	price := "1.00"
-	if req.Price != "" {
+	// 优先使用 amount，如果不存在则使用 price（向后兼容）
+	var price string
+	if req.Amount != "" {
+		if _, err := utils.StringToMinorUnit(req.Amount); err != nil {
+			return nil, false, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid amount format")
+		}
+		price = req.Amount
+	} else if req.Price != "" {
 		if _, err := utils.StringToMinorUnit(req.Price); err != nil {
 			return nil, false, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid price format")
 		}
 		price = req.Price
+	} else {
+		return nil, false, errors.New(errors.INVALID_PARAMETERS, "amount or price is required")
 	}
 
 	currency := "USDC"
