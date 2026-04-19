@@ -10,18 +10,33 @@ import (
 	"github.com/gagliardetto/solana-go/rpc"
 )
 
-const defaultDevnetUSDCMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+// 默认 Mint 地址
+const (
+	defaultMainnetUSDCMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // Mainnet
+	defaultDevnetUSDCMint  = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU" // Devnet
+)
+
 const defaultSolanaRPC = "https://api.devnet.solana.com"
 
+// getDefaultUSDCMint returns the appropriate USDC mint address based on network
+func getDefaultUSDCMint() string {
+	// Check if we're on mainnet by looking at RPC URL
+	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
+	if strings.Contains(rpcURL, "mainnet") {
+		return defaultMainnetUSDCMint
+	}
+	return defaultDevnetUSDCMint
+}
+
 // queryOnchainUSDCBalanceMinor queries all token accounts for the given mint
-// and returns the total balance in minor units (lamports for USDC = 6 decimals)
+// and returns the total balance in minor units (6 decimals for USDC)
 func queryOnchainUSDCBalanceMinor(ctx context.Context, agentDID string) (int64, error) {
 	wallet, err := walletFromDID(agentDID)
 	if err != nil {
 		return 0, err
 	}
 
-	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", defaultDevnetUSDCMint)
+	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", getDefaultUSDCMint())
 	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
 
 	walletPubKey, err := solana.PublicKeyFromBase58(wallet)
@@ -43,7 +58,9 @@ func queryOnchainUSDCBalanceMinor(ctx context.Context, agentDID string) (int64, 
 		&rpc.GetTokenAccountsConfig{
 			Mint: &mintPubKey,
 		},
-		rpc.CommitmentFinalized,
+		&rpc.GetTokenAccountsOpts{
+			Commitment: rpc.CommitmentFinalized,
+		},
 	)
 	if err != nil {
 		// If no accounts found, return 0 (not an error)
@@ -62,11 +79,12 @@ func queryOnchainUSDCBalanceMinor(ctx context.Context, agentDID string) (int64, 
 	// Sum up balances from all token accounts
 	var totalBalance int64
 	for _, account := range accounts.Value {
-		if account.Account == nil || account.Account.Data == nil {
+		// account.Account is rpc.Account (struct), Data is *DataBytesOrJSON
+		if account.Account.Data == nil {
 			continue
 		}
 
-		// Parse the account data to get the balance
+		// Get binary data from the account
 		// Token account data layout: mint(32) + owner(32) + amount(8) + ...
 		data := account.Account.Data.GetBinary()
 		if len(data) < 72 { // minimum size for a token account
@@ -97,7 +115,7 @@ func queryOnchainUSDCBalanceMinorATA(ctx context.Context, agentDID string) (int6
 		return 0, err
 	}
 
-	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", defaultDevnetUSDCMint)
+	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", getDefaultUSDCMint())
 	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
 
 	walletPubKey, err := solana.PublicKeyFromBase58(wallet)
