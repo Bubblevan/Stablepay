@@ -21,7 +21,7 @@ const defaultSolanaRPC = "https://api.devnet.solana.com"
 // getDefaultUSDCMint returns the appropriate USDC mint address based on network
 func getDefaultUSDCMint() string {
 	// Check if we're on mainnet by looking at RPC URL
-	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
+	rpcURL := getenvDefaultBalance("SOLANA_RPC_ENDPOINT", defaultSolanaRPC)
 	if strings.Contains(rpcURL, "mainnet") {
 		return defaultMainnetUSDCMint
 	}
@@ -37,7 +37,7 @@ func queryOnchainUSDCBalanceMinor(ctx context.Context, agentDID string) (int64, 
 	}
 
 	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", getDefaultUSDCMint())
-	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
+	rpcURL := getenvDefaultBalance("SOLANA_RPC_ENDPOINT", defaultSolanaRPC)
 
 	walletPubKey, err := solana.PublicKeyFromBase58(wallet)
 	if err != nil {
@@ -116,7 +116,7 @@ func queryOnchainUSDCBalanceMinorATA(ctx context.Context, agentDID string) (int6
 	}
 
 	mint := getenvDefaultBalance("QUERY_BALANCE_USDC_MINT", getDefaultUSDCMint())
-	rpcURL := getenvDefaultBalance("QUERY_BALANCE_SOLANA_RPC", defaultSolanaRPC)
+	rpcURL := getenvDefaultBalance("SOLANA_RPC_ENDPOINT", defaultSolanaRPC)
 
 	walletPubKey, err := solana.PublicKeyFromBase58(wallet)
 	if err != nil {
