@@ -1,0 +1,44 @@
+{
+  "reports": [
+    {
+      "id": "ai-agent-job-2025",
+      "title": "AI Agent 岗位分析报告 2025",
+      "description": "深入分析 2025 年 AI Agent 领域的岗位需求、技能要求、薪资水平和发展趋势",
+      "price": "2.00",
+      "currency": "USDC",
+      "author": "StablePay Research",
+      "tags": ["AI", "Agent", "求职", "行业分析"],
+      "file": "reports/ai-agent-job-2025.md"
+    },
+    {
+      "id": "industry-briefing-q1",
+      "title": "2025 Q1 行业研究简报",
+      "description": "涵盖 AI、区块链、Web3 领域的最新趋势和投资机会",
+      "price": "1.50",
+      "currency": "USDC",
+      "author": "StablePay Research",
+      "tags": ["行业研究", "AI", "区块链", "Web3"],
+      "file": "reports/industry-briefing-q1.md"
+    },
+    {
+      "id": "resume-optimization-guide",
+      "title": "简历优化建议报告",
+      "description": "针对技术岗位的简历优化建议，包含模板和案例分析",
+      "price": "1.00",
+      "currency": "USDC",
+      "author": "StablePay Research",
+      "tags": ["求职", "简历", "技术岗位"],
+      "file": "reports/resume-optimization-guide.md"
+    },
+    {
+      "id": "vitality-research",
+      "title": "生命力研究：为什么有些人看起来生命力很强",
+      "description": "基于萨特《恶心》的存在主义解读，探讨生命力的本质与来源",
+      "price": "1.50",
+      "currency": "USDC",
+      "author": "StablePay Research",
+      "tags": ["哲学", "心理学", "存在主义", "个人成长"],
+      "file": "reports/vitality-research.md"
+    }
+  ]
+}
