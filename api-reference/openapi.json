@@ -1,152 +1,244 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenAPI Plant Store",
-    "description": "A sample API that uses a plant store as an example to demonstrate features in the OpenAPI specification",
-    "license": {
-      "name": "MIT"
-    },
+    "title": "StablePay API",
+    "description": "StablePay decentralized payment API for AI Agents. Built on W3C did:solana and x402 protocol.",
+    "license": { "name": "MIT" },
     "version": "1.0.0"
   },
   "servers": [
-    {
-      "url": "http://sandbox.mintlify.com"
-    }
+    { "url": "https://ai.wenfu.cn" }
   ],
   "security": [
-    {
-      "bearerAuth": []
-    }
+    { "didSignature": [] },
+    { "apiKey": [] }
   ],
   "paths": {
-    "/plants": {
-      "get": {
-        "description": "Returns all plants from the system that the user has access to",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "The maximum number of results to return",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Plant response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Plant"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unexpected error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
+    "/api/v1/did/register": {
       "post": {
-        "description": "Creates a new plant in the store",
+        "tags": ["DID"],
+        "description": "Register a client-held wallet's public key with StablePay. The server stores only the public key; the private key remains on the client.",
         "requestBody": {
-          "description": "Plant to add to the store",
+          "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewPlant"
-              }
+              "schema": { "$ref": "#/components/schemas/DIDRegisterRequest" }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
-            "description": "plant response",
+            "description": "DID registered successfully",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Plant"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "unexpected error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/DIDRecord" }
               }
             }
           }
         }
       }
     },
-    "/plants/{id}": {
-      "delete": {
-        "description": "Deletes a single plant based on the ID supplied",
+    "/api/v1/did/{did}": {
+      "get": {
+        "tags": ["DID"],
+        "description": "Query DID information by DID identifier",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "ID of plant to delete",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
+          { "name": "did", "in": "path", "required": true, "schema": { "type": "string" } }
         ],
         "responses": {
-          "204": {
-            "description": "Plant deleted",
-            "content": {}
-          },
-          "400": {
-            "description": "unexpected error",
+          "200": {
+            "description": "DID information",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/DIDRecord" }
               }
             }
           }
         }
       }
-    }
-  },
-  "webhooks": {
-    "/plant/webhook": {
+    },
+    "/api/v1/did/verify": {
       "post": {
-        "description": "Information about a new plant added to the store",
+        "tags": ["DID"],
+        "description": "Verify an Ed25519 signature against a DID's public key",
         "requestBody": {
-          "description": "Plant added to the store",
+          "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewPlant"
-              }
+              "schema": { "$ref": "#/components/schemas/DIDVerifyRequest" }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Return a 200 status to indicate that the data was received successfully"
+            "description": "Verification result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DIDVerifyResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pay/require": {
+      "get": {
+        "tags": ["Payment"],
+        "description": "Check if payment is required for a skill. Returns HTTP 200 if already purchased; HTTP 402 with payment challenge if not.",
+        "parameters": [
+          { "name": "skill_did", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "agent_did", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "skill_name", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "price", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "currency", "in": "query", "schema": { "type": "string" } },
+          { "name": "message", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Already purchased — no payment needed" },
+          "402": { "description": "Payment required — body contains x402 payment challenge" }
+        }
+      }
+    },
+    "/api/v1/pay": {
+      "post": {
+        "tags": ["Payment"],
+        "description": "Submit a signed payment transaction. Body includes the partially-signed SPL transfer, agent signature, and gateway auth headers.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PayRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment submitted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PayResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pay/{tx_id}": {
+      "get": {
+        "tags": ["Payment"],
+        "description": "Query payment transaction status",
+        "parameters": [
+          { "name": "tx_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PayStatusResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/verify": {
+      "get": {
+        "tags": ["Verification"],
+        "description": "Check whether an agent has purchased a specific skill",
+        "parameters": [
+          { "name": "agent_did", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "skill_did", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase verification result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerifyResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/verify/batch": {
+      "post": {
+        "tags": ["Verification"],
+        "description": "Batch-check purchase status for multiple skills",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VerifyBatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch verification results",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerifyBatchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/balance": {
+      "get": {
+        "tags": ["Query"],
+        "description": "Query agent wallet balance and monthly spending",
+        "parameters": [
+          { "name": "agent_did", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BalanceResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sales": {
+      "get": {
+        "tags": ["Query"],
+        "description": "Query sales records by skill DID (developer/seller view)",
+        "parameters": [
+          { "name": "skill_did", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales records",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SalesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/revenue": {
+      "get": {
+        "tags": ["Query"],
+        "description": "Query revenue summary and trends by skill DID",
+        "parameters": [
+          { "name": "skill_did", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revenue summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RevenueResponse" }
+              }
+            }
           }
         }
       }
@@ -154,63 +246,173 @@
   },
   "components": {
     "schemas": {
-      "Plant": {
-        "required": [
-          "name"
-        ],
+      "DIDRegisterRequest": {
         "type": "object",
+        "required": ["public_key", "wallet_address"],
         "properties": {
-          "name": {
-            "description": "The name of the plant",
-            "type": "string"
-          },
-          "tag": {
-            "description": "Tag to specify the type",
-            "type": "string"
-          }
+          "user_type": { "type": "string", "enum": ["agent", "developer"] },
+          "public_key": { "type": "string", "description": "Solana public key (Base58)" },
+          "wallet_address": { "type": "string", "description": "Same as public_key" },
+          "wallet_id": { "type": "string" },
+          "wallet_name": { "type": "string" },
+          "metadata": { "type": "object" }
         }
       },
-      "NewPlant": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Plant"
-          },
-          {
-            "required": [
-              "id"
-            ],
-            "type": "object",
-            "properties": {
-              "id": {
-                "description": "Identification number of the plant",
-                "type": "integer",
-                "format": "int64"
+      "DIDRecord": {
+        "type": "object",
+        "properties": {
+          "did": { "type": "string", "description": "did:solana:<pubkey>" },
+          "wallet_address": { "type": "string" },
+          "public_key": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DIDVerifyRequest": {
+        "type": "object",
+        "required": ["did", "message", "signature", "timestamp"],
+        "properties": {
+          "did": { "type": "string" },
+          "message": { "type": "string" },
+          "signature": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DIDVerifyResponse": {
+        "type": "object",
+        "properties": {
+          "valid": { "type": "boolean" }
+        }
+      },
+      "PayRequest": {
+        "type": "object",
+        "required": ["agent_did", "skill_did", "amount", "currency", "signed_tx_base64", "signature", "order_id", "timestamp", "nonce"],
+        "properties": {
+          "agent_did": { "type": "string" },
+          "skill_did": { "type": "string" },
+          "amount": { "type": "string", "description": "Decimal price (e.g., 1.00)" },
+          "currency": { "type": "string", "enum": ["USDC", "USDT"] },
+          "signed_tx_base64": { "type": "string", "description": "Base64-encoded partially-signed SPL transaction" },
+          "signature": { "type": "string", "description": "Business signature: sha256(signed_tx_base64) signed by wallet" },
+          "order_id": { "type": "string" },
+          "timestamp": { "type": "integer", "description": "Unix seconds" },
+          "nonce": { "type": "string" }
+        }
+      },
+      "PayResponse": {
+        "type": "object",
+        "properties": {
+          "tx_id": { "type": "string" },
+          "tx_hash": { "type": "string" },
+          "status": { "type": "string", "enum": ["confirmed", "pending", "failed"] }
+        }
+      },
+      "PayStatusResponse": {
+        "type": "object",
+        "properties": {
+          "tx_id": { "type": "string" },
+          "status": { "type": "string" },
+          "tx_hash": { "type": "string" },
+          "confirmed_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VerifyResponse": {
+        "type": "object",
+        "properties": {
+          "purchased": { "type": "boolean" },
+          "purchase_time": { "type": "string", "format": "date-time" },
+          "tx_id": { "type": "string" },
+          "amount": { "type": "string" },
+          "currency": { "type": "string" }
+        }
+      },
+      "VerifyBatchRequest": {
+        "type": "object",
+        "required": ["agent_did", "skill_dids"],
+        "properties": {
+          "agent_did": { "type": "string" },
+          "skill_dids": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "VerifyBatchResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill_did": { "type": "string" },
+                "purchased": { "type": "boolean" }
               }
             }
           }
-        ]
+        }
       },
-      "Error": {
-        "required": [
-          "error",
-          "message"
-        ],
+      "BalanceResponse": {
         "type": "object",
         "properties": {
-          "error": {
-            "type": "integer",
-            "format": "int32"
+          "balance": { "type": "string" },
+          "currency": { "type": "string" },
+          "monthly_spent": { "type": "string" },
+          "monthly_limit": { "type": "string" }
+        }
+      },
+      "SalesResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tx_id": { "type": "string" },
+                "agent_did": { "type": "string" },
+                "amount": { "type": "string" },
+                "currency": { "type": "string" },
+                "created_at": { "type": "string", "format": "date-time" }
+              }
+            }
           },
-          "message": {
-            "type": "string"
+          "total": { "type": "integer" }
+        }
+      },
+      "RevenueResponse": {
+        "type": "object",
+        "properties": {
+          "total_revenue": { "type": "string" },
+          "total_sales": { "type": "integer" },
+          "currency": { "type": "string" },
+          "sales_trend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string" },
+                "amount": { "type": "string" }
+              }
+            }
           }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" }
         }
       }
     },
     "securitySchemes": {
-      "bearerAuth": {
+      "didSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-StablePay-Signature",
+        "description": "Ed25519 signature over canonical string. Also requires X-StablePay-DID, X-StablePay-Timestamp, and X-StablePay-Nonce headers."
+      },
+      "apiKey": {
         "type": "http",
-        "scheme": "bearer"
+        "scheme": "bearer",
+        "description": "API Key for developer backend calls (primarily verification endpoints)."
       }
     }
   }

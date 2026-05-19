@@ -1,81 +1,154 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get StablePay running on your OpenClaw agent in under 5 minutes"
 icon: 'rocket'
 ---
 
-## Get started in three steps
+## Before you start
 
-Get your documentation site running locally and make your first customization.
+You need:
+- OpenClaw installed (`openclaw --version` shows ≥ 2026.3.1)
+- A shell where you can set environment variables
 
-### Step 1: Set up your local environment
+You do **not** need:
+- Docker, Kubernetes, or any backend services (the gateway at `ai.wenfu.cn` is already running)
+- A Solana wallet with real funds (we use DevNet for development)
+- Any prior blockchain knowledge
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Info>
+  **Gateway is online.** The plugin talks to `https://ai.wenfu.cn` automatically. You don't need to start any services yourself.
+</Info>
 
-### Step 2: Deploy your changes
+## Step 1: Install the plugin
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+```bash
+openclaw plugins install clawhub:stablepay-agentpay-dev
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+Verify it's loaded:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```bash
+openclaw plugins list
+```
 
-### Step 3: Go live
+Expected output includes `stablepay-agentpay-dev` with status `enabled`.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Step 2: Configure OpenClaw
+
+Add this to your `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "stablepay-agentpay-dev": {
+        "enabled": true,
+        "config": {
+          "backendBaseUrl": "https://ai.wenfu.cn",
+          "owsRuntime": "auto",
+          "didRegisterPath": "/api/v1/did/register",
+          "requestTimeoutMs": 90000
+        }
+      }
+    }
+  },
+  "tools": {
+    "allow": [
+      "stablepay_runtime_status",
+      "stablepay_create_local_wallet",
+      "stablepay_bind_existing_wallet",
+      "stablepay_register_local_did",
+      "stablepay_configure_payment_limits",
+      "stablepay_sign_message",
+      "stablepay_pay_via_gateway",
+      "stablepay_query_balance",
+      "stablepay_query_sales"
+    ]
+  }
+}
+```
+
+## Step 3: Set environment variables
+
+```bash
+# Required — master key for encrypting your local wallet state
+export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
+
+# Required for real payments — DevNet hotwallet public key
+export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+
+# Optional — for unattended OWS signing
+export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
+```
+
+<Tip>
+  Add these to your `~/.zshrc` or `~/.bashrc` so they persist across sessions.
+</Tip>
+
+## Step 4: Restart and enter TUI
+
+```bash
+openclaw gateway restart
+openclaw tui
+```
+
+## Step 5: Your first conversation
+
+In the TUI, walk through these steps in order:
+
+### 5.1 Check runtime status
+
+> Run stablepay_runtime_status
+
+Confirm the output shows `has_wallet: false` and an active driver is selected.
+
+### 5.2 Create a wallet
+
+> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+
+This creates a new Solana wallet via OWS. Record the `did` and `wallet_address` shown in the output.
+
+### 5.3 Register your DID
+
+> Run stablepay_register_local_did with user_type "agent"
+
+This registers your public key with the StablePay backend. You now have a valid `did:solana:...` identity.
+
+### 5.4 Set payment limits
+
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 100, auto_purchase_threshold_usdc 10
+
+- **Single purchase limit**: Maximum per-transaction spend (hard cap)
+- **Auto purchase threshold**: Purchases below this amount skip confirmation
+
+### 5.5 Make a test payment
+
+> Run stablepay_pay_via_gateway with skill_did "did:solana:<a-seller-address>", skill_name "demo-skill", price "1.00", currency "USDC"
+
+If the payment succeeds, you'll get a `tx_id` back.
+
+<Tip>
+  For testing, use the demo hotwallet address as the skill_did target:
+  `did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`
+</Tip>
+
+### 5.6 Check your balance
+
+> Run stablepay_query_balance with did "<your-did>"
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="I'm building a paid service" icon="hammer" href="/integrating-payment">
+    Learn how to integrate x402 payments into your skill or backend.
+  </Card>
+  <Card title="I want to publish on MoltBay" icon="store" href="/moltbay">
+    List your service on the Agent marketplace.
+  </Card>
+  <Card title="Plugin config deep dive" icon="gear" href="/plugin-configuration">
+    Every configuration option explained.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Full REST API documentation.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

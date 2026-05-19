@@ -1,0 +1,111 @@
+---
+title: "Wallet setup"
+description: "Create or bind an OWS wallet and generate your StablePay identity"
+icon: 'wallet'
+---
+
+## Overview
+
+Your wallet is your identity in StablePay. The plugin uses [OWS](https://docs.openwallet.sh/) (Open Wallet Standard) to manage wallets and sign transactions. Private keys never leave your machine.
+
+Two paths:
+
+| Path | Tool | When |
+|------|------|------|
+| **Create new** | `stablepay_create_local_wallet` | Starting fresh, no existing wallet |
+| **Bind existing** | `stablepay_bind_existing_wallet` | Already have an OWS/Solana wallet |
+
+## Path A: Create a new wallet
+
+### via TUI conversation
+
+> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+
+The plugin auto-detects the best available OWS runtime:
+1. `ows-sdk` — in-process (no setup needed)
+2. `ows-rest` — HTTP signing service (if configured)
+3. `ows-cli` — local CLI (needs `ows` on PATH)
+
+### Using ows-cli (manual setup)
+
+If you prefer to create the wallet outside the plugin:
+
+```bash
+# Create wallet
+ows wallet create --name stablepay-agent
+
+# List wallets, note the Solana address
+ows wallet list
+```
+
+Then in TUI:
+
+> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "<Solana address from ows wallet list>"
+
+<Info>
+  When using `ows-cli` or `wsl-ows`, you must pass the `public_key` parameter — the Solana Base58 address from `ows wallet list`.
+</Info>
+
+## Path B: Bind an existing wallet
+
+If you already have an OWS wallet (or want to import one):
+
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "<Solana Base58 address>"
+
+The plugin will:
+1. Look up the wallet in the OWS vault
+2. Verify the public key matches
+3. Sign a random challenge
+4. Verify the Ed25519 signature against the public key
+5. Persist the binding to encrypted local state
+
+<Warning>
+  `stablepay_bind_existing_wallet` verifies ownership via challenge signature. If the `public_key` doesn't match the wallet's actual key, the bind will fail.
+</Warning>
+
+### Importing a non-OWS wallet
+
+If your private key is not yet in an OWS vault:
+
+```bash
+ows wallet import --name my-wallet --private-key <hex-or-base58-key>
+```
+
+Then use `stablepay_bind_existing_wallet` as above.
+
+## Choosing a runtime
+
+| Runtime | Setup | Best for |
+|---------|-------|----------|
+| `ows-sdk` | Zero setup | Most users |
+| `ows-cli` | Install OWS CLI | CLI power users |
+| `wsl-ows` | Same as `ows-cli` | WSL2 environments |
+| `ows-rest` | Running OWS HTTP service | Remote signing |
+
+<AccordionGroup>
+  <Accordion title="ows-sdk details">
+    The SDK runs in-process within OpenClaw's Node.js environment. It uses `@open-wallet-standard/core` to call `createWallet` or `getWallet`. No PATH dependencies, no external processes. This is the default and recommended for most users.
+  </Accordion>
+  <Accordion title="ows-cli / wsl-ows details">
+    The plugin spawns `ows sign message --wallet <name> --chain solana --message <payload> --json` as a child process. You must install OWS CLI separately, create the wallet first, and pass `public_key` when calling create/bind.
+
+    For unattended use, set `STABLEPAY_OWS_PASSPHRASE` or configure an OWS API key.
+  </Accordion>
+  <Accordion title="ows-rest details">
+    Sends `POST {owsRestBaseUrl}/v1/sign/message` with `{ walletId, chainId, message, encoding }`. Required: `owsRestBaseUrl`, `STABLEPAY_OWS_REST_API_KEY`, and `owsRestWalletId`.
+  </Accordion>
+</AccordionGroup>
+
+## Wallet state
+
+Your wallet info is stored encrypted at:
+
+```
+~/.stablepay-openclaw/stablepay-local-state.enc
+```
+
+Encryption: AES-256-GCM, keyed by `STABLEPAY_PLUGIN_MASTER_KEY`.
+
+<Warning>
+  If you lose `STABLEPAY_PLUGIN_MASTER_KEY`, you cannot decrypt this file. Delete it and recreate your wallet binding.
+</Warning>

@@ -1,95 +1,335 @@
 ---
-title: 'Development'
-description: 'Preview changes locally to update your docs'
-icon: 'terminal'
+title: "Plugin configuration"
+description: "Complete reference for all StablePay plugin configuration options"
+icon: 'gear'
 ---
 
-<Info>
-  **Prerequisites**:
-  - Node.js version 19 or higher
-  - A docs repository with a `docs.json` file
-</Info>
+## Configuration overview
 
-Follow these steps to install and run Mintlify on your operating system.
+The StablePay plugin is configured in two places:
 
-<Steps>
-<Step title="Install the Mintlify CLI">
+| Location | What to configure |
+|----------|-------------------|
+| `~/.openclaw/openclaw.json` → `plugins.entries.stablepay-agentpay-dev.config` | Plugin behavior, endpoints, runtime |
+| Environment variables | Secrets, keys, debug flags |
 
-```bash
-npm i -g mint
-```
-</Step>
+## `openclaw.json` config schema
 
-<Step title="Preview locally">
+All configuration fields for the `config` object:
 
-Navigate to your docs directory where your `docs.json` file is located, and run the following command:
-
-```bash
-mint dev
-```
-
-A local preview of your documentation will be available at `http://localhost:3000`.
-
-</Step>
-</Steps>
-
-## Custom ports
-
-By default, Mintlify uses port 3000. You can customize the port Mintlify runs on by using the `--port` flag. For example, to run Mintlify on port 3333, use this command:
-
-```bash
-mint dev --port 3333
-```
-
-If you attempt to run Mintlify on a port that's already in use, it will use the next available port:
-
-```md
-Port 3000 is already in use. Trying 3001 instead.
+```json
+{
+  "backendBaseUrl": "https://ai.wenfu.cn",
+  "feePayerSolanaAddress": "",
+  "solanaRpcUrl": "https://api.devnet.solana.com",
+  "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  "verifyPageBaseUrl": "",
+  "requestTimeoutMs": 90000,
+  "rewardAmount": 1,
+  "localStatePath": "",
+  "localStateKeyEnv": "STABLEPAY_PLUGIN_MASTER_KEY",
+  "owsVaultPath": "",
+  "owsPassphraseEnv": "STABLEPAY_OWS_PASSPHRASE",
+  "owsRuntime": "auto",
+  "walletNamePrefix": "stablepay",
+  "didRegisterPath": "/api/v1/did/register",
+  "owsRestBaseUrl": "",
+  "owsRestSignPath": "/v1/sign/message",
+  "owsRestApiKeyEnv": "STABLEPAY_OWS_REST_API_KEY",
+  "owsRestAuthMode": "bearer",
+  "owsRestWalletId": "",
+  "owsRestChainId": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  "pluginDebug": false
+}
 ```
 
-## Mintlify versions
+### Core options
 
-Please note that each CLI release is associated with a specific version of Mintlify. If your local preview does not align with the production version, please update the CLI:
+<AccordionGroup>
+  <Accordion title="backendBaseUrl">
+    **Default:** `https://ai.wenfu.cn`
 
-```bash
-npm mint update
+    The StablePay API Gateway base URL. All API calls (DID registration, payment, balance, etc.) go through this endpoint. Change this only if you're running a local gateway for development.
+
+    ```json
+    "backendBaseUrl": "https://ai.wenfu.cn"
+    ```
+  </Accordion>
+  <Accordion title="feePayerSolanaAddress">
+    **Default:** `""` (empty — must be set for real payments)
+
+    The Solana public key of the platform hotwallet that pays gas fees. This is only the **public key** — the private key lives exclusively on the server-side `blockchain-adapter`.
+
+    Can also be set via env var `STABLEPAY_FEE_PAYER_SOL` (takes precedence).
+
+    Current DevNet hotwallet: `FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`
+
+    ```json
+    "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+    ```
+  </Accordion>
+  <Accordion title="solanaRpcUrl">
+    **Default:** `https://api.devnet.solana.com`
+
+    Solana RPC endpoint used for fetching blockhashes and building SPL transfer transactions. Currently points to DevNet.
+
+    ```json
+    "solanaRpcUrl": "https://api.devnet.solana.com"
+    ```
+  </Accordion>
+  <Accordion title="splTokenMintAddress">
+    **Default:** `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
+
+    The SPL Token mint address for the payment currency. Default is DevNet USDC.
+
+    ```json
+    "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    ```
+  </Accordion>
+  <Accordion title="requestTimeoutMs">
+    **Default:** `90000` (90 seconds)
+
+    HTTP request timeout in milliseconds. Payment flows can take 60+ seconds due to Solana confirmation. Minimum 1000ms, maximum 180000ms.
+
+    ```json
+    "requestTimeoutMs": 90000
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Wallet & state
+
+<AccordionGroup>
+  <Accordion title="localStatePath">
+    **Default:** `~/.stablepay-openclaw/stablepay-local-state.enc`
+
+    Path to the encrypted local state file. Contains your wallet info, payment limits, and policy manifests. Encrypted with AES-256-GCM.
+
+    ```json
+    "localStatePath": "/home/user/.stablepay-openclaw/stablepay-local-state.enc"
+    ```
+  </Accordion>
+  <Accordion title="localStateKeyEnv">
+    **Default:** `STABLEPAY_PLUGIN_MASTER_KEY`
+
+    Name of the environment variable that provides the master encryption key for the local state file.
+
+    <Warning>
+      **Keep this key safe.** If you lose it, you cannot decrypt your local state and will need to recreate your wallet binding.
+    </Warning>
+  </Accordion>
+  <Accordion title="walletNamePrefix">
+    **Default:** `stablepay`
+
+    Prefix used when auto-generating wallet names. The final name is `{prefix}-{user_id}` or `{prefix}-{random}`.
+
+    ```json
+    "walletNamePrefix": "stablepay"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### OWS signing runtime {#ows-runtime}
+
+<AccordionGroup>
+  <Accordion title="owsRuntime">
+    **Default:** `auto`
+
+    Which OWS runtime to use for signing. Options:
+
+    | Value | Description | When to use |
+    |-------|-------------|-------------|
+    | `auto` | Auto-detect (recommended) | Tries SDK → REST → CLI in that order |
+    | `ows-sdk` | In-process `@open-wallet-standard/core` | Default when SDK is loadable |
+    | `ows-cli` | Shell out to `ows` command | When OWS CLI is on PATH |
+    | `wsl-ows` | Same as `ows-cli` | WSL environment |
+    | `ows-rest` | HTTP signing service | When using an OWS access layer |
+
+    ```json
+    "owsRuntime": "auto"
+    ```
+  </Accordion>
+  <Accordion title="owsVaultPath">
+    **Default:** `""` (OWS default vault path)
+
+    Custom path to the OWS vault directory.
+
+    ```json
+    "owsVaultPath": "/home/user/.ows/vault"
+    ```
+  </Accordion>
+  <Accordion title="owsPassphraseEnv">
+    **Default:** `STABLEPAY_OWS_PASSPHRASE`
+
+    Environment variable that stores the OWS passphrase or API token for unattended signing.
+  </Accordion>
+</AccordionGroup>
+
+### ows-rest options
+
+These only matter when `owsRuntime` is `ows-rest`.
+
+<AccordionGroup>
+  <Accordion title="owsRestBaseUrl">
+    **Default:** `""` (ows-rest disabled)
+
+    Base URL of the OWS REST signing service. When set, enables the `ows-rest` runtime.
+
+    ```json
+    "owsRestBaseUrl": "http://localhost:3000"
+    ```
+  </Accordion>
+  <Accordion title="owsRestSignPath">
+    **Default:** `/v1/sign/message`
+
+    POST path appended to `owsRestBaseUrl` for `signMessage` requests.
+  </Accordion>
+  <Accordion title="owsRestApiKeyEnv">
+    **Default:** `STABLEPAY_OWS_REST_API_KEY`
+
+    Environment variable holding the API token for ows-rest authentication.
+  </Accordion>
+  <Accordion title="owsRestAuthMode">
+    **Default:** `bearer`
+
+    How to send the API token. Options: `bearer` (Authorization: Bearer), `x_api_key` (X-API-Key header), `raw` (raw Authorization value).
+  </Accordion>
+  <Accordion title="owsRestWalletId">
+    **Default:** `""`
+
+    Default OWS wallet UUID for ows-rest signing when not provided at wallet creation.
+  </Accordion>
+  <Accordion title="owsRestChainId">
+    **Default:** `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`
+
+    CAIP-2 chain identifier for Solana.
+  </Accordion>
+</AccordionGroup>
+
+### Other options
+
+<AccordionGroup>
+  <Accordion title="didRegisterPath">
+    **Default:** `/api/v1/did/register`
+
+    API path for registering a client-held wallet DID. Uses `POST /api/v1/did/register` which binds a public key (client holds the private key). This is different from the server-side `POST /api/v1/did` which generates keys on the server.
+
+    ```json
+    "didRegisterPath": "/api/v1/did/register"
+    ```
+  </Accordion>
+  <Accordion title="verifyPageBaseUrl">
+    **Default:** `{backendBaseUrl}/verify`
+
+    Base URL for the X verification page. Only relevant for the optional X/Twitter verification flow.
+  </Accordion>
+  <Accordion title="rewardAmount">
+    **Default:** `1`
+
+    Displayed reward amount for the X verification demo flow (USDC).
+  </Accordion>
+  <Accordion title="pluginDebug">
+    **Default:** `false`
+
+    Enable verbose debug logging (wallet fields, ATA addresses, fee payer vs transfer authority). Can also be enabled via `STABLEPAY_PLUGIN_DEBUG=1`.
+
+    ```json
+    "pluginDebug": true
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `STABLEPAY_PLUGIN_MASTER_KEY` | **Yes** | Master key for AES-256-GCM encryption of local state |
+| `STABLEPAY_FEE_PAYER_SOL` | For payments | Hotwallet public key (takes priority over `feePayerSolanaAddress`) |
+| `STABLEPAY_OWS_PASSPHRASE` | Optional | OWS passphrase for unattended signing |
+| `STABLEPAY_OWS_REST_API_KEY` | Only for ows-rest | API token for REST signing service |
+| `STABLEPAY_PLUGIN_DEBUG` | Optional | Set to `1` for verbose debug logs |
+
+### Fee payer priority {#fee-payer}
+
+The fee payer address is resolved in this order:
+
+1. `STABLEPAY_FEE_PAYER_SOL` environment variable
+2. `feePayerSolanaAddress` in `openclaw.json` config
+3. Error — payment fails
+
+<Warning>
+  The fee payer address is **public key only**. The private key is held exclusively by the server-side `blockchain-adapter`. You never need to handle it.
+</Warning>
+
+## `tools.allow` whitelist
+
+If you configure a `tools.allow` list in `openclaw.json`, you must explicitly include every tool you want available. The recommended minimum set:
+
+```json
+"tools": {
+  "allow": [
+    "stablepay_runtime_status",
+    "stablepay_create_local_wallet",
+    "stablepay_bind_existing_wallet",
+    "stablepay_register_local_did",
+    "stablepay_configure_payment_limits",
+    "stablepay_sign_message",
+    "stablepay_pay_via_gateway",
+    "stablepay_execute_paid_skill_demo",
+    "stablepay_query_balance",
+    "stablepay_query_sales"
+  ]
+}
 ```
 
-## Validating links
+## Minimum vs full config
 
-The CLI can assist with validating links in your documentation. To identify any broken links, use the following command:
-
-```bash
-mint broken-links
-```
-
-## Deployment
-
-If the deployment is successful, you should see the following:
-
-<Frame>
-  <img src="/images/checks-passed.png" alt="Screenshot of a deployment confirmation message that says All checks have passed." style={{ borderRadius: '0.5rem' }} />
-</Frame>
-
-## Code formatting
-
-We suggest using extensions on your IDE to recognize and format MDX. If you're a VSCode user, consider the [MDX VSCode extension](https://marketplace.visualstudio.com/items?itemName=unifiedjs.vscode-mdx) for syntax highlighting, and [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) for code formatting.
+<Tabs>
+  <Tab title="Minimum (buyer)">
+    ```json
+    {
+      "backendBaseUrl": "https://ai.wenfu.cn",
+      "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
+      "owsRuntime": "auto"
+    }
+    ```
+  </Tab>
+  <Tab title="Full (developer)">
+    ```json
+    {
+      "backendBaseUrl": "https://ai.wenfu.cn",
+      "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
+      "solanaRpcUrl": "https://api.devnet.solana.com",
+      "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "requestTimeoutMs": 90000,
+      "owsRuntime": "auto",
+      "didRegisterPath": "/api/v1/did/register",
+      "pluginDebug": false
+    }
+    ```
+  </Tab>
+</Tabs>
 
 ## Troubleshooting
 
 <AccordionGroup>
-  <Accordion title='Error: Could not load the "sharp" module using the darwin-arm64 runtime'>
-
-    This may be due to an outdated version of node. Try the following:
-    1. Remove the currently-installed version of the CLI: `npm remove -g mint`
-    2. Upgrade to Node v19 or higher.
-    3. Reinstall the CLI: `npm i -g mint`
+  <Accordion title="Plugin tools not appearing in TUI">
+    1. Check `plugins.entries` key is `stablepay-agentpay-dev` (not a different name)
+    2. Run `openclaw plugins list` to verify the plugin is `enabled`
+    3. If using `tools.allow`, make sure all needed tool names are listed
+    4. Run `openclaw gateway restart` after any config change
   </Accordion>
-
-  <Accordion title="Issue: Encountering an unknown error">
-  
-    Solution: Go to the root of your device and delete the `~/.mintlify` folder. Then run `mint dev` again.
+  <Accordion title="Failed to load local plugin state">
+    The `STABLEPAY_PLUGIN_MASTER_KEY` used now doesn't match the one used when the state file was created. Delete the state file and recreate:
+    ```bash
+    rm ~/.stablepay-openclaw/stablepay-local-state.enc
+    ```
+    Then re-create your wallet and re-register your DID.
+  </Accordion>
+  <Accordion title="Missing fee payer error during payment">
+    Neither `STABLEPAY_FEE_PAYER_SOL` env var nor `feePayerSolanaAddress` config is set. The plugin needs the hotwallet **public key** to construct the Solana transaction.
+  </Accordion>
+  <Accordion title="ows-sdk not loading">
+    The `@open-wallet-standard/core` package may not be available in your Node.js environment. Try `owsRuntime: "ows-cli"` if you have the OWS CLI installed, or `owsRuntime: "auto"` to auto-detect the best available runtime.
   </Accordion>
 </AccordionGroup>
-
-Curious about what changed in the latest CLI version? Check out the [CLI changelog](https://www.npmjs.com/package/mintlify?activeTab=versions).

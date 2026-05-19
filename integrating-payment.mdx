@@ -1,0 +1,202 @@
+---
+title: "Integrating x402 payments"
+description: "Add StablePay payment to your skill with HTTP 402 and x402 protocol"
+icon: 'credit-card'
+---
+
+## Two approaches
+
+| Approach | Effort | Security | Flexibility |
+|----------|--------|----------|-------------|
+| **skill.md block** | Copy-paste | Weak — can be removed by user | Fixed price only |
+| **Backend HTTP 402** | Backend development | Strong — enforced server-side | Dynamic pricing, full control |
+
+## Approach 1: skill.md payment block
+
+Add this to your skill's `skill.md`:
+
+```markdown
+## StablePay Payment
+
+This skill requires {PRICE} USDC.
+
+Payment: https://ai.wenfu.cn/pay?skill={SKILL_DID}&price={PRICE}
+
+Verification: https://ai.wenfu.cn/verify?skill={SKILL_DID}&agent={AGENT_DID}
+```
+
+Replace:
+- `{PRICE}` → Your price (e.g., `5`)
+- `{SKILL_DID}` → Your developer DID (`did:solana:...`)
+- `{AGENT_DID}` → Leave as-is; filled by the agent runtime
+
+<Warning>
+  Users can edit `skill.md` to remove the payment block. For production or higher-value skills, use the backend approach.
+</Warning>
+
+## Approach 2: Backend HTTP 402
+
+This is the recommended approach for production skills. Your backend enforces payment by checking purchase status before serving requests.
+
+### Flow
+
+```
+Agent requests your API ──────────────────────────────────────┐
+   │                                                          │
+   ▼                                                          │
+Your backend checks:                                          │
+  GET ai.wenfu.cn/api/v1/verify?agent_did=...&skill_did=...   │
+   │                                                          │
+   ├── purchased: true ──▶ Return 200 + results               │
+   │                                                          │
+   └── purchased: false ─▶ Return 402 + payment challenge     │
+                               │                              │
+                               ▼                              │
+                    Plugin auto-handles:                       │
+                    builds SPL tx, signs, POST /api/v1/pay     │
+                               │                              │
+                               ▼                              │
+                    Agent retries your API ────────────────────┘
+```
+
+### Step 1: Check purchase status
+
+```bash
+curl "https://ai.wenfu.cn/api/v1/verify?agent_did=did:solana:<buyer>&skill_did=did:solana:<your-did>"
+```
+
+Response:
+
+```json
+{
+  "code": 0,
+  "data": {
+    "purchased": true,
+    "purchase_time": "2026-05-16T10:30:00Z",
+    "tx_id": "uuid",
+    "amount": "1.00",
+    "currency": "USDC"
+  }
+}
+```
+
+### Step 2: Return 402 if not purchased
+
+When `purchased` is `false`, return an HTTP 402 with a payment challenge in the body. The plugin recognizes two formats (see [/x402-format](/x402-format) for full details).
+
+**Recommended — x402 standard format:**
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [{
+    "scheme": "exact",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "payTo": "did:solana:<your-did>",
+    "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "maxAmountRequired": "1000000",
+    "maxTimeoutSeconds": 60,
+    "description": "Pay 1.00 USDC to access this skill",
+    "extra": {
+      "skillDid": "did:solana:<your-did>",
+      "currency": "USDC",
+      "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+    }
+  }]
+}
+```
+
+<Info>
+  **`maxAmountRequired` uses minor units** (6 decimals for USDC). `"1000000"` = 1.00 USDC. Must be a string, not a number. See [x402 format reference](/x402-format).
+</Info>
+
+### Step 3: Example implementations
+
+<Tabs>
+  <Tab title="Go">
+    ```go
+    func HandleExecute(w http.ResponseWriter, r *http.Request) {
+        agentDid := r.URL.Query().Get("agent_did")
+        myDID := "did:solana:AbCdEf..." // your developer DID
+
+        purchased, _ := checkPurchase(agentDid, myDID)
+        if !purchased {
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(402)
+            json.NewEncoder(w).Encode(map[string]interface{}{
+                "x402Version": 1,
+                "accepts": []map[string]interface{}{{
+                    "scheme":            "exact",
+                    "network":           "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                    "payTo":             myDID,
+                    "asset":             "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                    "maxAmountRequired": "1000000",
+                    "description":       "Pay 1.00 USDC to access",
+                    "extra": map[string]string{
+                        "skillDid":       myDID,
+                        "currency":       "USDC",
+                        "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay",
+                    },
+                }},
+            })
+            return
+        }
+        w.Write([]byte("Skill result..."))
+    }
+    ```
+  </Tab>
+  <Tab title="Node.js">
+    ```js
+    app.get('/execute', async (req, res) => {
+      const agentDid = req.query.agent_did;
+      const myDID = 'did:solana:AbCdEf...';
+
+      const purchased = await checkPurchase(agentDid, myDID);
+      if (!purchased) {
+        return res.status(402).json({
+          x402Version: 1,
+          accepts: [{
+            scheme: 'exact',
+            network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+            payTo: myDID,
+            asset: 'USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+            maxAmountRequired: '1000000',
+            description: 'Pay 1.00 USDC to access',
+            extra: {
+              skillDid: myDID,
+              currency: 'USDC',
+              facilitatorUrl: 'https://ai.wenfu.cn/api/v1/pay'
+            }
+          }]
+        });
+      }
+      res.send('Skill result...');
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Testing the integration
+
+1. Start your backend
+2. In OpenClaw TUI, ensure you have a wallet and DID registered
+3. Tell your agent to access your execute endpoint
+4. The plugin should receive the 402, process payment automatically, and retry
+
+<Info>
+  Purchase records are written **asynchronously** via RocketMQ. After payment, the purchase record typically appears within 5 seconds (max ~30s in edge cases). Build a retry loop in your agent or plugin call.
+</Info>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="x402 format reference" icon="file-code" href="/x402-format">
+    Complete specification of both x402 and legacy 402 formats.
+  </Card>
+  <Card title="Publish on MoltBay" icon="store" href="/moltbay">
+    List your paid service on the Agent marketplace.
+  </Card>
+</CardGroup>

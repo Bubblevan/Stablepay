@@ -1,133 +1,136 @@
 ---
 title: "Introduction"
-description: "Welcome to the new home for your documentation"
+description: "StablePay — decentralized micropayments for AI Agents. Built on did:solana and x402 protocol."
 icon: 'star'
 ---
 
-## Setting up
+## What is StablePay?
 
-Get your documentation site up and running in minutes.
+StablePay is a decentralized payment infrastructure for the AI Agent economy. It lets your Agent **discover, purchase, and pay for services** — all through natural conversation, settled instantly on Solana.
+
+Built on open standards:
+- **W3C `did:solana`** — decentralized identity; your wallet is your identity
+- **x402 / HTTP 402** — the payment protocol for the machine economy
+- **A2A Protocol** — Agent-to-Agent service discovery and negotiation
 
 <Card
-  title="Start here"
+  title="Get started in 5 minutes"
   icon="rocket"
   href="/quickstart"
   horizontal
 >
-  Follow our three step quickstart guide.
+  Install the plugin, create a wallet, register your DID, and make your first payment.
 </Card>
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
+## Who is this for?
 
 <Columns cols={2}>
   <Card
-    title="Edit locally"
-    icon="pen-to-square"
+    title="I'm a Service Developer"
+    icon="hammer"
+    href="/wallet-setup"
+  >
+    Create a wallet, register a developer DID, integrate x402 payments into your skill, publish on MoltBay, and earn revenue.
+  </Card>
+  <Card
+    title="I'm an Agent User"
+    icon="user"
+    href="/quickstart"
+  >
+    Set up your wallet, configure spending limits, and let your Agent discover and purchase services automatically.
+  </Card>
+</Columns>
+
+## How it works
+
+```
+You (Human)                    Your Agent                    Marketplace               Blockchain
+──────────                    ──────────                    ───────────               ──────────
+   │                              │                              │                        │
+   │  "Analyze this data"         │                              │                        │
+   ├─────────────────────────────►│                              │                        │
+   │                              │  Search MoltBay (A2A)        │                        │
+   │                              ├─────────────────────────────►│                        │
+   │                              │  Found: DataCruncher-$2      │                        │
+   │                              │◄─────────────────────────────┤                        │
+   │                              │                              │                        │
+   │                              │  Trigger purchase            │                        │
+   │                              ├─────────────────────────────►│  x402 Payment Required │
+   │                              │                              ├───────────────────────►│
+   │                              │                              │  USDC transfer          │
+   │                              │                              │◄───────────────────────┤
+   │                              │  Execute task (A2A)          │                        │
+   │                              ├─────────────────────────────►│                        │
+   │  "Here's your analysis"      │                              │                        │
+   │◄─────────────────────────────┤                              │                        │
+```
+
+## Core concepts
+
+<Columns cols={2}>
+  <Card
+    title="DID = Identity + Wallet"
+    icon="fingerprint"
+    href="/wallet-setup"
+  >
+    Your `did:solana:<pubkey>` is both your decentralized identity and your Solana wallet address. No separate accounts needed.
+  </Card>
+  <Card
+    title="skill_did = Payee"
+    icon="arrow-right-arrow-left"
+    href="/integrating-payment"
+  >
+    For developers: your DID is your `skill_did`. Payments go directly to your wallet — instant settlement, no intermediaries.
+  </Card>
+  <Card
+    title="OWS Signing"
+    icon="key"
     href="/development"
   >
-    Edit your docs locally and preview them in real time.
+    Private keys stay on your machine. The plugin uses OWS (Open Wallet Standard) to sign transactions locally. Multiple runtime options: SDK, CLI, or REST.
   </Card>
   <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
+    title="Fee Payer Model"
+    icon="coins"
+    href="/development#fee-payer"
   >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+    Users pay only for the service (USDC). Gas fees (SOL) are covered by the platform hotwallet. No need to hold SOL.
   </Card>
 </Columns>
 
-## Create beautiful pages
+## Architecture
 
-Everything you need to create world-class documentation.
+```
+┌─────────────────────────┐     ┌──────────────────────────────┐
+│  OpenClaw + Plugin      │     │  StablePay Backend (ACK)      │
+│  (your machine)          │────▶│  ai.wenfu.cn                  │
+│                          │     │                              │
+│  • OWS wallet            │     │  API Gateway → DID Service   │
+│  • Local state (AES-GCM) │     │            → Payment Service │
+│  • SPL tx construction   │     │            → Blockchain Adap │
+│  • Signing               │     │            → Verification    │
+└─────────────────────────┘     └──────────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────┐
+                                    │  Solana DevNet    │
+                                    │  USDC SPL Token   │
+                                    └──────────────────┘
+```
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Ready to start?
 
-## Make your content agent ready
-
-Make your docs work for humans and AI agents alike.
-
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install, configure, and pay in under 5 minutes.
   </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
+  <Card title="Wallet & DID" icon="wallet" href="/wallet-setup">
+    Deep dive into wallet creation and DID management.
   </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
+  <Card title="x402 Integration" icon="credit-card" href="/integrating-payment">
+    Add payment to your skill with HTTP 402.
   </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Full REST API documentation.
   </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+</CardGroup>

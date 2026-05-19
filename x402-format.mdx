@@ -1,0 +1,140 @@
+---
+title: "x402 response format"
+description: "Specification for the HTTP 402 payment challenge response format"
+icon: 'file-code'
+---
+
+The StablePay plugin recognizes two HTTP 402 response formats for payment challenges.
+
+## x402 standard format (recommended)
+
+This is the preferred format. It follows the [x402 protocol](https://www.x402.org/) conventions.
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "payTo": "did:solana:<developer-did>",
+      "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "maxAmountRequired": "1000000",
+      "maxTimeoutSeconds": 60,
+      "description": "Human-readable payment description",
+      "extra": {
+        "skillDid": "did:solana:<developer-did>",
+        "currency": "USDC",
+        "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+      }
+    }
+  ]
+}
+```
+
+### Field reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `x402Version` | integer | Yes | Must be `1` |
+| `accepts` | array | Yes | Array of payment options; plugin uses `accepts[0]` |
+| `accepts[0].scheme` | string | Yes | Payment scheme. Use `"exact"` for fixed-price |
+| `accepts[0].network` | string | Yes | CAIP-2 chain ID. Use `"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"` |
+| `accepts[0].payTo` | string | Yes | Recipient DID (`did:solana:...`) |
+| `accepts[0].asset` | string | Yes | Token identifier. Format: `SYMBOL:MINT_ADDRESS` |
+| `accepts[0].maxAmountRequired` | string | **Yes** | Payment amount in **minor units** (6 decimals). Must be a string |
+| `accepts[0].maxTimeoutSeconds` | integer | No | Payment window in seconds |
+| `accepts[0].description` | string | No | Human-readable payment reason |
+| `accepts[0].extra.skillDid` | string | **Yes** | Developer/skill DID (same as `payTo` typically) |
+| `accepts[0].extra.currency` | string | No | Currency label. Default `"USDC"` |
+| `accepts[0].extra.facilitatorUrl` | string | No | Payment endpoint. Default `"/api/v1/pay"` |
+
+### maxAmountRequired calculation
+
+Amounts are in **minor units** with **6 decimal places**:
+
+| You want to charge | `maxAmountRequired` value |
+|--------------------|--------------------------|
+| 1.00 USDC | `"1000000"` |
+| 0.50 USDC | `"500000"` |
+| 12.50 USDC | `"12500000"` |
+| 0.000001 USDC | `"1"` |
+
+<Warning>
+  `maxAmountRequired` must be a **string**, not a number. `"1000000"` ✓ — `1000000` ✗ (will cause a parse error).
+</Warning>
+
+### DevNet asset reference
+
+| Currency | Asset string |
+|----------|-------------|
+| USDC | `USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
+| USDT | (DevNet USDT mint address) |
+
+## Legacy format (backward compatible)
+
+The plugin also supports this simpler format for quick integration:
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "payment_requirement": {
+    "skill_did": "did:solana:<developer-did>",
+    "price": "1.00",
+    "currency": "USDC",
+    "message": "Pay 1.00 USDC to access"
+  }
+}
+```
+
+Or wrapped in `data`:
+
+```json
+{
+  "data": {
+    "skill_did": "did:solana:<developer-did>",
+    "price": "1.00",
+    "currency": "USDC"
+  }
+}
+```
+
+### Legacy field reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `payment_requirement.skill_did` (or `.data.skill_did`) | string | Yes | Developer DID |
+| `payment_requirement.price` (or `.data.price`) | string | Yes | **Decimal** price (e.g., `"1.00"`) |
+| `payment_requirement.currency` (or `.data.currency`) | string | No | `"USDC"` or `"USDT"` |
+| `payment_requirement.message` (or `.data.message`) | string | No | Payment description |
+
+<Note>
+  Legacy format uses **decimal** prices (not minor units). `"price": "1.00"` means 1.00 USDC. This is different from x402's `maxAmountRequired` which uses minor units.
+</Note>
+
+## Resolution order
+
+The plugin checks for formats in this order:
+
+1. `payload.x402Version === 1` + `payload.accepts` array → **x402 standard**
+2. `payload.payment_requirement.data` → legacy nested
+3. `payload.payment_requirement` → legacy flat
+4. `payload.data` → legacy wrapped
+5. `payload` → bare (must have `skill_did` at top level)
+
+## Error handling
+
+If the 402 response doesn't match any recognized format:
+
+```
+Error: x402 response missing maxAmountRequired in accepts[0]
+Error: x402 response missing skillDid in accepts[0].extra
+Error: Payment requirement payload is missing skill_did
+```
+
+Ensure at minimum that `skill_did` (or `skillDid`) is present and the amount field is valid.

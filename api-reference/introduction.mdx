@@ -1,33 +1,78 @@
 ---
-title: 'Introduction'
-description: 'Example section for showcasing API endpoints'
+title: 'API overview'
+description: 'StablePay REST API — authentication, conventions, and error codes'
+icon: 'code'
 ---
 
-<Note>
-  If you're not looking to build API reference documentation, you can delete
-  this section by removing the api-reference folder.
-</Note>
+## Base URL
 
-## Welcome
+```
+https://ai.wenfu.cn
+```
 
-There are two ways to build API documentation: [OpenAPI](https://mintlify.com/docs/api-playground/openapi/setup) and [MDX components](https://mintlify.com/docs/api-playground/mdx/configuration). For the starter kit, we are using the following OpenAPI specification.
-
-<Card
-  title="Plant Store Endpoints"
-  icon="leaf"
-  href="https://github.com/mintlify/starter/blob/main/api-reference/openapi.json"
->
-  View the OpenAPI specification file
-</Card>
+All endpoints are prefixed with `/api/v1/`.
 
 ## Authentication
 
-All API endpoints are authenticated using Bearer tokens and picked up from the specification file.
+StablePay uses two authentication methods:
+
+| Method | Header(s) | Used for |
+|--------|-----------|----------|
+| **DID Signature** | `X-StablePay-DID`, `X-StablePay-Signature`, `X-StablePay-Timestamp`, `X-StablePay-Nonce` | Payment, balance, sales queries |
+| **API Key** | `X-API-Key` | Developer backend verification calls |
+
+### DID Signature
+
+The canonical string is:
+
+```
+{method}\n{path}\n{rawQuery}\n{bodySha256Hex}
+```
+
+Signed with your wallet's Ed25519 key. The plugin generates this automatically for TUI queries. For direct API access, use `stablepay_sign_message` to generate headers.
+
+### Timestamp & Nonce
+
+- Timestamp must be within ±5 minutes of server time
+- Nonce must be unique per request (prevents replay)
+
+## Response format
+
+All endpoints return a unified envelope:
 
 ```json
-"security": [
-  {
-    "bearerAuth": []
-  }
-]
+{
+  "code": 0,
+  "message": "success",
+  "data": { },
+  "request_id": "uuid",
+  "timestamp": "2026-05-16T10:30:00Z"
+}
 ```
+
+## Error codes
+
+| Code | Message | HTTP | Description |
+|------|---------|------|-------------|
+| 0 | success | 200 | Request succeeded |
+| 10001 | invalid parameters | 400 | Missing or malformed parameters |
+| 10002 | resource not found | 404 | Requested resource does not exist |
+| 10003 | permission denied | 403 | Insufficient permissions |
+| 10004 | signature verification failed | 401 | DID signature invalid or expired |
+| 20001 | insufficient balance | 402 | Wallet balance too low |
+| 20002 | payment already exists | 409 | Duplicate payment (idempotency) |
+| 20003 | blockchain network error | 503 | Solana network issue |
+| 20004 | gas subsidy failed | 500 | Hotwallet gas fee failure |
+| 30001 | internal server error | 500 | Unexpected server error |
+| 30002 | service unavailable | 503 | Dependency service down |
+| 30004 | rate limit exceeded | 429 | Too many requests |
+
+## HTTP 402 convention
+
+Endpoints that represent paid resources return **HTTP 402 Payment Required** when the caller hasn't purchased access. The response body contains either an [x402 standard format](/x402-format) or [legacy format](/x402-format#legacy-format-backward-compatible) payment challenge.
+
+## Currency precision
+
+- External API: `amount` in **string decimal** (e.g., `"5.00"`)
+- Internal/on-chain: **integer minor units** with 6 decimals (`5000000` = 5.00)
+- Supported currencies: `USDC`, `USDT`

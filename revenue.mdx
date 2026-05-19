@@ -1,0 +1,128 @@
+---
+title: "Revenue & sales"
+description: "Track your earnings, query sales data, and monitor revenue trends"
+icon: 'chart-line'
+---
+
+## Querying revenue
+
+Once your paid skill is live, you can monitor earnings through OpenClaw conversation or via the REST API.
+
+### via TUI conversation
+
+> Run stablepay_query_sales with skill_did "did:solana:<your-did>"
+
+This calls `GET /api/v1/sales?skill_did=...` with your wallet's DID signature for authentication.
+
+### via REST API
+
+```bash
+curl -H "X-StablePay-DID: did:solana:<your-did>" \
+     -H "X-StablePay-Signature: <signature>" \
+     -H "X-StablePay-Timestamp: <ISO-timestamp>" \
+     -H "X-StablePay-Nonce: <nonce>" \
+     "https://ai.wenfu.cn/api/v1/sales?skill_did=did:solana:<your-did>"
+```
+
+<Info>
+  Sales/balance queries require DID signature authentication. The plugin generates these headers automatically when you query via TUI tools. For direct API access, use `stablepay_sign_message` to generate the required headers.
+</Info>
+
+## Available endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/sales?skill_did=...` | GET | Sales records for a specific skill |
+| `/api/v1/revenue?skill_did=...` | GET | Revenue summary (total + trends) |
+| `/api/v1/balance?agent_did=...` | GET | Wallet balance + monthly spending |
+| `/api/v1/transactions?did=...` | GET | Transaction history (purchase/revenue) |
+
+## Response examples
+
+### Sales query (`GET /api/v1/sales`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "items": [
+      {
+        "tx_id": "uuid-1",
+        "agent_did": "did:solana:buyer123...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-16T10:30:00Z"
+      }
+    ],
+    "total": 24
+  }
+}
+```
+
+### Revenue summary (`GET /api/v1/revenue`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "total_revenue": "120.00",
+    "total_sales": 24,
+    "currency": "USDC",
+    "sales_trend": [
+      { "date": "2026-05-15", "amount": "15.00" },
+      { "date": "2026-05-16", "amount": "25.00" }
+    ]
+  }
+}
+```
+
+### Balance (`GET /api/v1/balance`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "balance": "120.00",
+    "currency": "USDC",
+    "monthly_spent": "0",
+    "monthly_limit": "100.00"
+  }
+}
+```
+
+## Settlement timing
+
+Payments settle directly on Solana:
+
+```
+Buyer Agent pays
+  → Solana transaction submitted (5s)
+    → Confirmed on-chain (5-30s)
+      → RocketMQ event → Verification Service (async, <5s normally)
+        → Purchase record written
+          → Visible in sales/revenue queries
+```
+
+<Info>
+  USDC goes directly from buyer wallet to your wallet on-chain. There is no intermediary holding account. You can verify independently on any Solana block explorer.
+</Info>
+
+## Tracking multiple skills
+
+If you publish multiple skills, you can use different `skill_did` values for each (by creating separate developer wallets), or use the same DID across all skills and differentiate by metadata.
+
+Query each skill separately:
+
+> Run stablepay_query_sales with skill_did "did:solana:<skill-1>"
+> Run stablepay_query_sales with skill_did "did:solana:<skill-2>"
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="API reference" icon="code" href="/api-reference/introduction">
+    Full endpoint documentation.
+  </Card>
+  <Card title="Publish on MoltBay" icon="store" href="/moltbay">
+    List your services on the marketplace.
+  </Card>
+</CardGroup>
