@@ -9,64 +9,64 @@ import (
 	"sync"
 )
 
-// M0 °æ±¾£º×îÐ¡»¯ x402 Ö§¸¶Á÷³Ì
-// ºËÐÄ£º
-// 1. /protected - ÐèÒªÖ§¸¶µÄ×ÊÔ´
-// 2. /pay - ´¦ÀíÖ§¸¶
-// 3. /verify - ÑéÖ¤¹ºÂò¹ØÏµ
+// M0 ï¿½æ±¾ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ x402 Ö§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+// ï¿½ï¿½ï¿½Ä£ï¿½
+// 1. /protected - ï¿½ï¿½ÒªÖ§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô´
+// 2. /pay - ï¿½ï¿½ï¿½ï¿½Ö§ï¿½ï¿½
+// 3. /verify - ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½ï¿½Ïµ
 
-// PaymentRecord ¼ÇÂ¼¹ºÂò¹ØÏµ
+// PaymentRecord ï¿½ï¿½Â¼ï¿½ï¿½ï¿½ï¿½ï¿½Ïµ
 type PaymentRecord struct {
 	AgentDID string `json:"agent_did"`
 	SkillDID string `json:"skill_did"`
-	Amount   int    `json:"amount"` // µ¥Î»£ºUSDC/×îÐ¡µ¥Î»
+	Amount   int    `json:"amount"` // ï¿½ï¿½Î»ï¿½ï¿½USDC/ï¿½ï¿½Ð¡ï¿½ï¿½Î»
 	TxHash   string `json:"tx_hash"`
 }
 
-// PaymentRequirement x402 ±ê×¼Ö§¸¶ÒªÇó
+// PaymentRequirement x402 ï¿½ï¿½×¼Ö§ï¿½ï¿½Òªï¿½ï¿½
 type PaymentRequirement struct {
 	Recipient   string `json:"recipient"`
 	Amount      int    `json:"amount"`
 	Currency    string `json:"currency"`
 	Description string `json:"description"`
-	Timeout     int    `json:"timeout"` // Ãë
+	Timeout     int    `json:"timeout"` // ï¿½ï¿½
 }
 
-// PaymentProof Ö§¸¶Í¨Öª
+// PaymentProof Ö§ï¿½ï¿½Í¨Öª
 type PaymentProof struct {
 	AgentDID string `json:"agent_did"`
 	TxHash   string `json:"tx_hash"`
 	Amount   int    `json:"amount"`
 }
 
-// VerifyRequest ÑéÖ¤ÇëÇó
+// VerifyRequest ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½
 type VerifyRequest struct {
 	AgentDID string `json:"agent_did"`
 	SkillDID string `json:"skill_did"`
 }
 
-// VerifyResponse ÑéÖ¤ÏìÓ¦
+// VerifyResponse ï¿½ï¿½Ö¤ï¿½ï¿½Ó¦
 type VerifyResponse struct {
 	Verified bool   `json:"verified"`
 	Message  string `json:"message"`
 }
 
 var (
-	// M0: ¼òµ¥µÄÄÚ´æ´æ´¢£¨Êµ¼ÊÉú²úÒªÓÃÊý¾Ý¿â£©
+	// M0: ï¿½òµ¥µï¿½ï¿½Ú´ï¿½æ´¢ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½Ý¿â£©
 	payments  = make(map[string]PaymentRecord)
 	paymentMu sync.Mutex
 
-	// ÅäÖÃ³£Á¿
+	// ï¿½ï¿½ï¿½Ã³ï¿½ï¿½ï¿½
 	SKILL_DID       = "did:skill:stablepay:v1"
-	PAYMENT_WALLET  = "4zMMUHCXxYNbtjS7MBvVh8G7zVqKjn6fKgcR88VVFBq" // Solana Ê¾Àý
+	PAYMENT_WALLET  = "4zMMUHCXxYNbtjS7MBvVh8G7zVqKjn6fKgcR88VVFBq" // Solana Ê¾ï¿½ï¿½
 	PAYMENT_AMOUNT  = 10000                                         // 0.01 USDC (6 decimals)
-	PAYMENT_TIMEOUT = 300                                           // 5·ÖÖÓ
+	PAYMENT_TIMEOUT = 300                                           // 5ï¿½ï¿½ï¿½ï¿½
 )
 
-// handleProtected ÐèÒªÖ§¸¶µÄ×ÊÔ´¶Ëµã
-// Âß¼­£º
-// 1. ¼ì²éÊÇ·ñÒÑÖ§¸¶ ¡ú ·µ»Ø 200 + ÄÚÈÝ
-// 2. Î´Ö§¸¶ ¡ú ·µ»Ø 402 + Ö§¸¶ÒªÇó
+// handleProtected ï¿½ï¿½ÒªÖ§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô´ï¿½Ëµï¿½
+// ï¿½ß¼ï¿½ï¿½ï¿½
+// 1. ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 200 + ï¿½ï¿½ï¿½ï¿½
+// 2. Î´Ö§ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 402 + Ö§ï¿½ï¿½Òªï¿½ï¿½
 func handleProtected(w http.ResponseWriter, r *http.Request) {
 	agentDID := r.Header.Get("X-Agent-DID")
 	if agentDID == "" {
@@ -78,7 +78,7 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 	record, exists := payments[agentDID]
 	paymentMu.Unlock()
 
-	// ÒÑÖ§¸¶
+	// ï¿½ï¿½Ö§ï¿½ï¿½
 	if exists && record.SkillDID == SKILL_DID {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -90,7 +90,7 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Î´Ö§¸¶ ¡ú ·µ»Ø 402
+	// Î´Ö§ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 402
 	requirement := PaymentRequirement{
 		Recipient:   PAYMENT_WALLET,
 		Amount:      PAYMENT_AMOUNT,
@@ -107,8 +107,8 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(requirement)
 }
 
-// handlePay ¿Í»§¶ËÖ§¸¶ºóµ÷ÓÃ´Ë½Ó¿Ú
-// ÔÚ M0 ÖÐ£¬ÎÒÃÇÖ±½Ó¼ÇÂ¼£¨Êµ¼ÊÐèÒªÑéÖ¤ Solana Á´ÉÏ½»Ò×£©
+// handlePay ï¿½Í»ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã´Ë½Ó¿ï¿½
+// ï¿½ï¿½ M0 ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½Ö±ï¿½Ó¼ï¿½Â¼ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½Ö¤ Solana ï¿½ï¿½ï¿½Ï½ï¿½ï¿½×£ï¿½
 func handlePay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -121,7 +121,7 @@ func handlePay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// M0: ÑéÖ¤Âß¼­¼ò»¯£¨Êµ¼ÊÐèÒªµ÷ÓÃ Solana RPC ÑéÖ¤ tx_hash£©
+	// M0: ï¿½ï¿½Ö¤ï¿½ß¼ï¿½ï¿½ò»¯£ï¿½Êµï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ Solana RPC ï¿½ï¿½Ö¤ tx_hashï¿½ï¿½
 	if proof.AgentDID == "" || proof.TxHash == "" {
 		http.Error(w, `{"error":"Missing agent_did or tx_hash"}`, http.StatusBadRequest)
 		return
@@ -144,7 +144,7 @@ func handlePay(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleVerify ÑéÖ¤Ä³¸ö Agent ÊÇ·ñÒÑÖ§¸¶
+// handleVerify ï¿½ï¿½Ö¤Ä³ï¿½ï¿½ Agent ï¿½Ç·ï¿½ï¿½ï¿½Ö§ï¿½ï¿½
 func handleVerify(w http.ResponseWriter, r *http.Request) {
 	var req VerifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -171,7 +171,7 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleHealth ½¡¿µ¼ì²é
+// handleHealth ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -183,7 +183,10 @@ func main() {
 	http.HandleFunc("/pay", handlePay)
 	http.HandleFunc("/verify", handleVerify)
 
-	port := "8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8085"
+	}
 	log.Printf("StablePay M0 Server listening on :%s\n", port)
 	log.Printf("Skill DID: %s\n", SKILL_DID)
 

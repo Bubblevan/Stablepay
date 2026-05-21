@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-M0 °æ±¾£ºPython CLI ¿Í»§¶Ë£¬Ä£Äâ OpenClaw ÖÐµÄ Agent
-ºËÐÄÂß¼­£º
-1. ÇëÇóÊÜ±£»¤×ÊÔ´ /protected
-2. Èç¹ûÊÕµ½ 402£¬¶ÁÈ¡Ö§¸¶ÒªÇó
-3. ´¥·¢Ö§¸¶ ¡ú µ÷ÓÃ /pay
-4. ÖØÊÔÇëÇó /protected ¡ú Ó¦¸Ã·µ»Ø 200
+M0 ï¿½æ±¾ï¿½ï¿½Python CLI ï¿½Í»ï¿½ï¿½Ë£ï¿½Ä£ï¿½ï¿½ OpenClaw ï¿½Ðµï¿½ Agent
+ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½
+1. ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´ /protected
+2. ï¿½ï¿½ï¿½ï¿½Õµï¿½ 402ï¿½ï¿½ï¿½ï¿½È¡Ö§ï¿½ï¿½Òªï¿½ï¿½
+3. ï¿½ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ /pay
+4. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ /protected ï¿½ï¿½ Ó¦ï¿½Ã·ï¿½ï¿½ï¿½ 200
 """
 
 import requests
@@ -15,13 +15,13 @@ import time
 import argparse
 from typing import Optional, Dict, Any
 
-# È«¾ÖÅäÖÃ
+# È«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 DEFAULT_SERVER = "http://localhost:8080"
-DEFAULT_AGENT_DID = "did:agent:test:m0"  # Ä£ÄâµÄ Agent DID
+DEFAULT_AGENT_DID = "did:agent:test:m0"  # Ä£ï¿½ï¿½ï¿½ Agent DID
 
 
 class X402Client:
-    """x402 Ð­Òé¿Í»§¶Ë"""
+    """x402 Ð­ï¿½ï¿½Í»ï¿½ï¿½ï¿½"""
 
     def __init__(self, server_url: str = DEFAULT_SERVER, agent_did: str = DEFAULT_AGENT_DID):
         self.server_url = server_url.rstrip("/")
@@ -29,40 +29,40 @@ class X402Client:
 
     def access_protected_resource(self) -> tuple[int, Dict[str, Any]]:
         """
-        ²½Öè 1£ºÇëÇóÊÜ±£»¤×ÊÔ´
-        ·µ»Ø: (status_code, response_json)
+        ï¿½ï¿½ï¿½ï¿½ 1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´
+        ï¿½ï¿½ï¿½ï¿½: (status_code, response_json)
         """
         url = f"{self.server_url}/protected"
         headers = {
             "X-Agent-DID": self.agent_did,
         }
 
-        print(f"[1] ÇëÇóÊÜ±£»¤×ÊÔ´: {url}")
+        print(f"[1] ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´: {url}")
         print(f"    Agent DID: {self.agent_did}")
 
         try:
             resp = requests.get(url, headers=headers, timeout=5)
             return resp.status_code, resp.json()
         except Exception as e:
-            print(f"    ? ÇëÇóÊ§°Ü: {e}")
+            print(f"    ? ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {e}")
             return 500, {"error": str(e)}
 
     def handle_402_payment(self, payment_requirement: Dict[str, Any]) -> bool:
         """
-        ²½Öè 2£º´¦Àí 402 Ö§¸¶ÒªÇó
-        ÔÚ M0 ÖÐ£¬ÎÒÃÇÄ£ÄâÖ§¸¶£¨Éú³ÉÒ»¸ö mock tx_hash£©
+        ï¿½ï¿½ï¿½ï¿½ 2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 402 Ö§ï¿½ï¿½Òªï¿½ï¿½
+        ï¿½ï¿½ M0 ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½Ä£ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ mock tx_hashï¿½ï¿½
         """
-        print(f"\n[2] ÊÕµ½ 402 Payment Required")
-        print(f"    Ö§¸¶ÒªÇó: {json.dumps(payment_requirement, indent=2)}")
+        print(f"\n[2] ï¿½Õµï¿½ 402 Payment Required")
+        print(f"    Ö§ï¿½ï¿½Òªï¿½ï¿½: {json.dumps(payment_requirement, indent=2)}")
 
-        # M0: Ä£ÄâÖ§¸¶
-        # Êµ¼Ê³¡¾°: ÐèÒªµ÷ÓÃ Solana SDK£¬ÓÃ±¾µØË½Ô¿Ç©Ãû²¢·¢ËÍ½»Ò×
+        # M0: Ä£ï¿½ï¿½Ö§ï¿½ï¿½
+        # Êµï¿½Ê³ï¿½ï¿½ï¿½: ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ Solana SDKï¿½ï¿½ï¿½Ã±ï¿½ï¿½ï¿½Ë½Ô¿Ç©ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í½ï¿½ï¿½ï¿½
         mock_tx_hash = "5mVz4n7kL2pQwR9xJ8tY3uA6bC1dE5fG7hI9jK0lM2nO3pQ4rStU5vW"
 
-        print(f"\n[3] Ö´ÐÐÖ§¸¶ (M0 Ä£Äâ)")
+        print(f"\n[3] Ö´ï¿½ï¿½Ö§ï¿½ï¿½ (M0 Ä£ï¿½ï¿½)")
         print(f"    Mock TX Hash: {mock_tx_hash}")
 
-        # µ÷ÓÃºó¶Ë /pay ½Ó¿Ú
+        # ï¿½ï¿½ï¿½Ãºï¿½ï¿½ /pay ï¿½Ó¿ï¿½
         payment_proof = {
             "agent_did": self.agent_did,
             "tx_hash": mock_tx_hash,
@@ -73,24 +73,24 @@ class X402Client:
         try:
             resp = requests.post(url, json=payment_proof, timeout=5)
             if resp.status_code == 200:
-                print(f"    ? Ö§¸¶ÒÑ¼ÇÂ¼")
-                print(f"    ÏìÓ¦: {resp.json()}")
+                print(f"    ? Ö§ï¿½ï¿½ï¿½Ñ¼ï¿½Â¼")
+                print(f"    ï¿½ï¿½Ó¦: {resp.json()}")
                 return True
             else:
-                print(f"    ? Ö§¸¶Ê§°Ü: {resp.status_code}")
+                print(f"    ? Ö§ï¿½ï¿½Ê§ï¿½ï¿½: {resp.status_code}")
                 print(f"    {resp.text}")
                 return False
         except Exception as e:
-            print(f"    ? ÇëÇóÊ§°Ü: {e}")
+            print(f"    ? ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {e}")
             return False
 
     def retry_protected_resource(self) -> tuple[int, Dict[str, Any]]:
         """
-        ²½Öè 4£ºÖ§¸¶ºóÖØÊÔÇëÇóÊÜ±£»¤×ÊÔ´
-        Ó¦¸Ã·µ»Ø 200 OK
+        ï¿½ï¿½ï¿½ï¿½ 4ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´
+        Ó¦ï¿½Ã·ï¿½ï¿½ï¿½ 200 OK
         """
-        print(f"\n[4] ÖØÊÔÇëÇóÊÜ±£»¤×ÊÔ´...")
-        time.sleep(0.5)  # ¶ÌÔÝÑÓ³Ù£¬ÈÃÖ§¸¶´¦ÀíÍê³É
+        print(f"\n[4] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´...")
+        time.sleep(0.5)  # ï¿½ï¿½ï¿½ï¿½ï¿½Ó³Ù£ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
         url = f"{self.server_url}/protected"
         headers = {
@@ -101,14 +101,14 @@ class X402Client:
             resp = requests.get(url, headers=headers, timeout=5)
             return resp.status_code, resp.json()
         except Exception as e:
-            print(f"    ? ÇëÇóÊ§°Ü: {e}")
+            print(f"    ? ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {e}")
             return 500, {"error": str(e)}
 
     def verify_payment(self) -> bool:
         """
-        ÑéÖ¤Ö§¸¶×´Ì¬
+        ï¿½ï¿½Ö¤Ö§ï¿½ï¿½×´Ì¬
         """
-        print(f"\n[ÑéÖ¤] ¼ì²éÖ§¸¶×´Ì¬...")
+        print(f"\n[ï¿½ï¿½Ö¤] ï¿½ï¿½ï¿½Ö§ï¿½ï¿½×´Ì¬...")
         url = f"{self.server_url}/verify"
         payload = {
             "agent_did": self.agent_did,
@@ -119,68 +119,68 @@ class X402Client:
             resp = requests.post(url, json=payload, timeout=5)
             if resp.status_code == 200:
                 result = resp.json()
-                print(f"    ÑéÖ¤½á¹û: {result}")
+                print(f"    ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½: {result}")
                 return result.get("verified", False)
         except Exception as e:
-            print(f"    ? ÑéÖ¤Ê§°Ü: {e}")
+            print(f"    ? ï¿½ï¿½Ö¤Ê§ï¿½ï¿½: {e}")
 
         return False
 
     def run(self) -> bool:
         """
-        ÔËÐÐÍêÕûµÄ x402 Á÷³Ì
+        ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ x402 ï¿½ï¿½ï¿½ï¿½
         """
         print("=" * 60)
-        print("StablePay M0 - x402 ¿Í»§¶ËÑÝÊ¾")
+        print("StablePay M0 - x402 ï¿½Í»ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾")
         print("=" * 60)
 
-        # ²½Öè 1: ÇëÇóÊÜ±£»¤×ÊÔ´
+        # ï¿½ï¿½ï¿½ï¿½ 1: ï¿½ï¿½ï¿½ï¿½ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´
         status, response = self.access_protected_resource()
 
-        # ²½Öè 2: ´¦Àí 402
+        # ï¿½ï¿½ï¿½ï¿½ 2: ï¿½ï¿½ï¿½ï¿½ 402
         if status == 402:
-            print(f"    ? ÊÕµ½ 402£¬ÐèÒªÖ§¸¶")
+            print(f"    ? ï¿½Õµï¿½ 402ï¿½ï¿½ï¿½ï¿½ÒªÖ§ï¿½ï¿½")
 
-            # ²½Öè 3: Ö´ÐÐÖ§¸¶
+            # ï¿½ï¿½ï¿½ï¿½ 3: Ö´ï¿½ï¿½Ö§ï¿½ï¿½
             if not self.handle_402_payment(response):
-                print("\n? Ö§¸¶Ê§°Ü£¬ÖÐÖ¹")
+                print("\n? Ö§ï¿½ï¿½Ê§ï¿½Ü£ï¿½ï¿½ï¿½Ö¹")
                 return False
 
-            # ²½Öè 4: ÖØÊÔ
+            # ï¿½ï¿½ï¿½ï¿½ 4: ï¿½ï¿½ï¿½ï¿½
             status, response = self.retry_protected_resource()
 
-        # ×îÖÕ¼ì²é
-        print(f"\n[½á¹û] ×îÖÕ×´Ì¬Âë: {status}")
+        # ï¿½ï¿½ï¿½Õ¼ï¿½ï¿½
+        print(f"\n[ï¿½ï¿½ï¿½] ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½: {status}")
         if status == 200:
-            print(f"    ? ³É¹¦»ñÈ¡ÊÜ±£»¤×ÊÔ´!")
-            print(f"    ÏìÓ¦: {json.dumps(response, indent=2)}")
+            print(f"    ? ï¿½É¹ï¿½ï¿½ï¿½È¡ï¿½Ü±ï¿½ï¿½ï¿½ï¿½ï¿½Ô´!")
+            print(f"    ï¿½ï¿½Ó¦: {json.dumps(response, indent=2)}")
 
-            # ÑéÖ¤Ö§¸¶
+            # ï¿½ï¿½Ö¤Ö§ï¿½ï¿½
             self.verify_payment()
 
             print("\n" + "=" * 60)
-            print("? x402 Á÷³ÌÍê³É")
+            print("? x402 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½")
             print("=" * 60)
             return True
         else:
-            print(f"    ? Ê§°Ü ({status})")
+            print(f"    ? Ê§ï¿½ï¿½ ({status})")
             print(f"    {json.dumps(response, indent=2)}")
             return False
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="StablePay M0 x402 ¿Í»§¶Ë"
+        description="StablePay M0 x402 ï¿½Í»ï¿½ï¿½ï¿½"
     )
     parser.add_argument(
         "--server",
         default=DEFAULT_SERVER,
-        help=f"·þÎñ¶Ë URL (Ä¬ÈÏ: {DEFAULT_SERVER})"
+        help=f"ï¿½ï¿½ï¿½ï¿½ï¿½ URL (Ä¬ï¿½ï¿½: {DEFAULT_SERVER})"
     )
     parser.add_argument(
         "--agent-did",
         default=DEFAULT_AGENT_DID,
-        help=f"Agent DID (Ä¬ÈÏ: {DEFAULT_AGENT_DID})"
+        help=f"Agent DID (Ä¬ï¿½ï¿½: {DEFAULT_AGENT_DID})"
     )
 
     args = parser.parse_args()

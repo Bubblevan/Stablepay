@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/cloudwego/kitex/server"
 	verification_service "verification-service/kitex_gen/stablepay/verification_service/verificationservice"
@@ -23,8 +24,16 @@ func main() {
 		log.Fatalf("数据库连接失败: %v", err)
 	}
 
-	// 让数据库按照 PurchaseRecord 这个结构体建表
-	DB.AutoMigrate(&PurchaseRecord{})
+	// 让数据库按照结构体建表
+	DB.AutoMigrate(&PurchaseRecord{}, &XVerification{})
+
+	// 初始化 X API 客户端
+	initXAPIClient(
+		envOrDefault("X_API_KEY", ""),
+		envOrDefault("X_API_SECRET", ""),
+		envOrDefault("X_ACCESS_TOKEN", ""),
+		envOrDefault("X_ACCESS_TOKEN_SECRET", ""),
+	)
 
 	go StartMQConsumer()
 
@@ -63,4 +72,17 @@ type PurchaseRecord struct {
 	AgentDid string `gorm:"index"`
 	SkillDid string `gorm:"index"`
 	TxId     string
+}
+
+// X 验证表
+type XVerification struct {
+	gorm.Model
+	AgentDid      string    `gorm:"index"`
+	WalletAddress string    `gorm:"index"`
+	TweetUrl      string
+	TweetContent  string
+	Verified      bool      `gorm:"default:false"`
+	RewardAmount  int64     // 最小单位，如 100000 = 0.1 USDC (6 decimals)
+	RewardTxId    string
+	VerifiedAt    time.Time
 }
