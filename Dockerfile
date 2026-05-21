@@ -1,7 +1,7 @@
 # StablePay Query Service
 # 基于 Kitex 的微服务 - 查询服务
 
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
@@ -21,7 +21,7 @@ COPY . .
 RUN go clean -cache
 RUN CGO_ENABLED=0 go build -o query-service .
 
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
+FROM alpine:latest
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 

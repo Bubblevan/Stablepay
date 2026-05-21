@@ -16,6 +16,12 @@ func startHTTPServer(addr string) {
 	impl := &QueryServiceImpl{}
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
 	mux.HandleFunc("GET /internal/balance", func(w http.ResponseWriter, r *http.Request) {
 		resp, err := impl.GetBalanceSummary(context.Background(), &query_service.GetBalanceSummaryRequest{
 			Base:     &common.BaseReq{},
