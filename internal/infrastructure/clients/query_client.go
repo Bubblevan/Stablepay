@@ -3,6 +3,7 @@ package clients
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -39,13 +40,30 @@ func NewKitexQueryClient(destService, hostPort string, timeoutMs, retryCount int
 }
 
 func (c *KitexQueryClient) GetBalance(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	start := time.Now()
+	agentDID := stringFromIface(req["agent_did"])
+	log.Printf("[Gateway:QueryClient] GetBalance started for DID: %s", agentDID)
+
 	kreq := query_service.NewGetBalanceSummaryRequest()
 	kreq.Base = &common.BaseReq{}
-	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
+	kreq.AgentDid = common.DID(agentDID)
+
+	log.Printf("[Gateway:QueryClient] Calling GetBalanceSummary RPC...")
+	rpcStart := time.Now()
 	resp, err := c.cli.GetBalanceSummary(ctx, kreq)
+	rpcDuration := time.Since(rpcStart)
+	log.Printf("[Gateway:QueryClient] RPC call completed in %v", rpcDuration)
+
 	if err != nil {
+		log.Printf("[Gateway:QueryClient] ERROR: RPC call failed: %v", err)
 		return nil, 500, 0, err
 	}
+
+	base := resp.GetBase()
+	log.Printf("[Gateway:QueryClient] RPC response: code=%d, message=%s", base.GetCode(), base.GetMessage())
+	log.Printf("[Gateway:QueryClient] Balance data: minor=%d, currency=%d, spent=%d, limit=%d",
+		resp.GetBalanceMinor(), resp.GetCurrency(), resp.GetMonthlySpentMinor(), resp.GetMonthlyLimitMinor())
+
 	out := map[string]interface{}{
 		"base":                baseToMap(resp.GetBase()),
 		"balance_minor":       resp.GetBalanceMinor(),
@@ -53,6 +71,7 @@ func (c *KitexQueryClient) GetBalance(ctx context.Context, req map[string]interf
 		"monthly_spent_minor": resp.GetMonthlySpentMinor(),
 		"monthly_limit_minor": resp.GetMonthlyLimitMinor(),
 	}
+	log.Printf("[Gateway:QueryClient] GetBalance completed in %v", time.Since(start))
 	return out, 200, int(resp.GetBase().GetCode()), nil
 }
 
