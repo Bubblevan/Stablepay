@@ -23,6 +23,7 @@ type KitexDIDClient struct {
 func NewKitexDIDClient(destService, hostPort string, timeoutMs, retryCount int) (application.DIDServiceClient, error) {
 	opts := []client.Option{
 		client.WithHostPorts(hostPort),
+		client.WithResolver(nil),
 	}
 	if timeoutMs > 0 {
 		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))

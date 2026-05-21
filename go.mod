@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	code.wenfu.cn/stablepayai/stablepay-common v0.0.0-20260312091917-17bfa21343e0
+	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/gopkg v0.1.8
 	github.com/cloudwego/hertz v0.10.4
 	github.com/cloudwego/kitex v0.16.1

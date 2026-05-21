@@ -9,6 +9,9 @@ github.com/aliyun/aliyun-log-go-sdk
 github.com/aliyun/aliyun-log-go-sdk/internal
 github.com/aliyun/aliyun-log-go-sdk/producer
 github.com/aliyun/aliyun-log-go-sdk/util
+# github.com/apache/thrift v0.13.0
+## explicit
+github.com/apache/thrift/lib/go/thrift
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile

@@ -54,6 +54,10 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 		return s.verification.BatchVerify(ctx, req)
 	case "verification.proof":
 		return s.verification.GetProof(ctx, req)
+	case "verification.verify_x":
+		return s.verification.VerifyXTweet(ctx, req)
+	case "verification.get_x_status":
+		return s.verification.GetXVerificationStatus(ctx, req)
 	case "query.balance":
 		return s.query.GetBalance(ctx, req)
 	case "query.transactions":

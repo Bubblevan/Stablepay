@@ -23,6 +23,7 @@ type KitexQueryClient struct {
 func NewKitexQueryClient(destService, hostPort string, timeoutMs, retryCount int) (application.QueryServiceClient, error) {
 	opts := []client.Option{
 		client.WithHostPorts(hostPort),
+		client.WithResolver(nil),
 	}
 	if timeoutMs > 0 {
 		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))

@@ -134,6 +134,22 @@ routes:
     retry: 1
     auth: "api_key"
     rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.verify_x"
+    method: "POST"
+    path: "/api/v1/verify/x"
+    target: "verification-service"
+    timeout_ms: 10000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.get_x_status"
+    method: "GET"
+    path: "/api/v1/verify/x/status"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
 
   - name: "query.balance"
     method: "GET"

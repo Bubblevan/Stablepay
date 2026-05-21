@@ -164,6 +164,21 @@ func (m *MockVerificationClient) GetProof(ctx context.Context, req map[string]in
 	return data, 200, 0, nil
 }
 
+func (m *MockVerificationClient) VerifyXTweet(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{
+		"success":   true,
+		"message":   "mock_verify_success",
+		"agent_did": req["agent_did"],
+	}, 200, 0, nil
+}
+
+func (m *MockVerificationClient) GetXVerificationStatus(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{
+		"status":    "verified",
+		"agent_did": req["agent_did"],
+	}, 200, 0, nil
+}
+
 type MockQueryClient struct{}
 
 func NewMockQueryClient() *MockQueryClient { return &MockQueryClient{} }
