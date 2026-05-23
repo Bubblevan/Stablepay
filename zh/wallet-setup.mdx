@@ -1,0 +1,111 @@
+---
+title: "钱包设置"
+description: "创建或绑定 OWS 钱包并生成你的 StablePay 身份"
+icon: 'wallet'
+---
+
+## 概览
+
+你的钱包就是你在 StablePay 中的身份。插件使用 [OWS](https://docs.openwallet.sh/)（Open Wallet Standard）来管理钱包和签名交易。私钥永远不会离开你的机器。
+
+两种方式：
+
+| 方式 | 工具 | 适用场景 |
+|------|------|------|
+| **新建** | `stablepay_create_local_wallet` | 全新开始，没有现有钱包 |
+| **绑定已有** | `stablepay_bind_existing_wallet` | 已有 OWS/Solana 钱包 |
+
+## 方式 A：创建新钱包
+
+### 通过 TUI 对话
+
+> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+
+插件会自动检测最佳可用的 OWS 运行时：
+1. `ows-sdk` — 进程内（无需额外设置）
+2. `ows-rest` — HTTP 签名服务（需配置）
+3. `ows-cli` — 本地 CLI（需要 `ows` 在 PATH 上）
+
+### 使用 ows-cli（手动设置）
+
+如果你想在插件外部创建钱包：
+
+```bash
+# 创建钱包
+ows wallet create --name stablepay-agent
+
+# 列出钱包，记下 Solana 地址
+ows wallet list
+```
+
+然后在 TUI 中：
+
+> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "<ows wallet list 中的 Solana 地址>"
+
+<Info>
+  使用 `ows-cli` 或 `wsl-ows` 时，必须传入 `public_key` 参数——即 `ows wallet list` 中显示的 Solana Base58 地址。
+</Info>
+
+## 方式 B：绑定已有钱包
+
+如果你已经有一个 OWS 钱包（或想导入一个）：
+
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "<Solana Base58 地址>"
+
+插件将会：
+1. 在 OWS vault 中查找钱包
+2. 验证公钥是否匹配
+3. 签署一个随机挑战
+4. 用公钥验证 Ed25519 签名
+5. 将绑定信息持久化到加密的本地状态
+
+<Warning>
+  `stablepay_bind_existing_wallet` 通过挑战签名验证所有权。如果 `public_key` 与钱包的实际密钥不匹配，绑定将失败。
+</Warning>
+
+### 导入非 OWS 钱包
+
+如果你的私钥尚未在 OWS vault 中：
+
+```bash
+ows wallet import --name my-wallet --private-key <hex-or-base58-key>
+```
+
+然后按上述方式使用 `stablepay_bind_existing_wallet`。
+
+## 选择运行时
+
+| 运行时 | 配置 | 最适合 |
+|---------|-------|----------|
+| `ows-sdk` | 零配置 | 大多数用户 |
+| `ows-cli` | 安装 OWS CLI | CLI 高级用户 |
+| `wsl-ows` | 与 `ows-cli` 相同 | WSL2 环境 |
+| `ows-rest` | 运行 OWS HTTP 服务 | 远程签名 |
+
+<AccordionGroup>
+  <Accordion title="ows-sdk 详情">
+    SDK 在 OpenClaw 的 Node.js 环境中进程内运行。它使用 `@open-wallet-standard/core` 调用 `createWallet` 或 `getWallet`。无 PATH 依赖，无外部进程。这是大多数用户的默认和推荐选择。
+  </Accordion>
+  <Accordion title="ows-cli / wsl-ows 详情">
+    插件通过子进程方式执行 `ows sign message --wallet <name> --chain solana --message <payload> --json`。你必须单独安装 OWS CLI，先创建钱包，并在调用 create/bind 时传入 `public_key`。
+
+    无人值守使用时，设置 `STABLEPAY_OWS_PASSPHRASE` 或配置 OWS API 密钥。
+  </Accordion>
+  <Accordion title="ows-rest 详情">
+    发送 `POST {owsRestBaseUrl}/v1/sign/message`，body 为 `{ walletId, chainId, message, encoding }`。需要：`owsRestBaseUrl`、`STABLEPAY_OWS_REST_API_KEY` 和 `owsRestWalletId`。
+  </Accordion>
+</AccordionGroup>
+
+## 钱包状态
+
+你的钱包信息加密存储在：
+
+```
+~/.stablepay-openclaw/stablepay-local-state.enc
+```
+
+加密方式：AES-256-GCM，密钥由 `STABLEPAY_PLUGIN_MASTER_KEY` 提供。
+
+<Warning>
+  如果丢失 `STABLEPAY_PLUGIN_MASTER_KEY`，你将无法解密此文件。请删除它并重新创建钱包绑定。
+</Warning>

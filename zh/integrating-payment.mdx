@@ -1,0 +1,202 @@
+---
+title: "集成 x402 支付"
+description: "使用 HTTP 402 和 x402 协议为你的技能添加 StablePay 支付"
+icon: 'credit-card'
+---
+
+## 两种方式
+
+| 方式 | 工作量 | 安全性 | 灵活性 |
+|----------|--------|----------|-------------|
+| **skill.md 代码块** | 复制粘贴 | 弱 — 可被用户移除 | 仅固定价格 |
+| **后端 HTTP 402** | 后端开发 | 强 — 服务端强制执行 | 动态定价，完全控制 |
+
+## 方式 1：skill.md 支付代码块
+
+将此添加到你的技能 `skill.md` 中：
+
+```markdown
+## StablePay Payment
+
+This skill requires {PRICE} USDC.
+
+Payment: https://ai.wenfu.cn/pay?skill={SKILL_DID}&price={PRICE}
+
+Verification: https://ai.wenfu.cn/verify?skill={SKILL_DID}&agent={AGENT_DID}
+```
+
+替换：
+- `{PRICE}` → 你的价格（如 `5`）
+- `{SKILL_DID}` → 你的开发者 DID（`did:solana:...`）
+- `{AGENT_DID}` → 保持原样；由 Agent 运行时填充
+
+<Warning>
+  用户可以编辑 `skill.md` 来移除支付代码块。生产环境或高价值技能请使用后端方式。
+</Warning>
+
+## 方式 2：后端 HTTP 402
+
+这是生产环境技能的推荐方式。你的后端在服务请求前通过检查购买状态来强制执行支付。
+
+### 流程
+
+```
+Agent 请求你的 API ──────────────────────────────────────┐
+   │                                                          │
+   ▼                                                          │
+你的后端检查:                                                    │
+  GET ai.wenfu.cn/api/v1/verify?agent_did=...&skill_did=...   │
+   │                                                          │
+   ├── purchased: true ──▶ 返回 200 + 结果                    │
+   │                                                          │
+   └── purchased: false ─▶ 返回 402 + 支付挑战                 │
+                               │                              │
+                               ▼                              │
+                    插件自动处理:                                │
+                    构建 SPL 交易, 签名, POST /api/v1/pay      │
+                               │                              │
+                               ▼                              │
+                    Agent 重试你的 API ─────────────────────────┘
+```
+
+### 步骤 1：检查购买状态
+
+```bash
+curl "https://ai.wenfu.cn/api/v1/verify?agent_did=did:solana:<买家>&skill_did=did:solana:<你的-did>"
+```
+
+响应:
+
+```json
+{
+  "code": 0,
+  "data": {
+    "purchased": true,
+    "purchase_time": "2026-05-16T10:30:00Z",
+    "tx_id": "uuid",
+    "amount": "1.00",
+    "currency": "USDC"
+  }
+}
+```
+
+### 步骤 2：未购买时返回 402
+
+当 `purchased` 为 `false` 时，返回 HTTP 402 并在 body 中包含支付挑战。插件支持两种格式（详见 [/x402-format](/x402-format)）。
+
+**推荐 — x402 标准格式：**
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [{
+    "scheme": "exact",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "payTo": "did:solana:<你的-did>",
+    "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "maxAmountRequired": "1000000",
+    "maxTimeoutSeconds": 60,
+    "description": "支付 1.00 USDC 以访问此技能",
+    "extra": {
+      "skillDid": "did:solana:<你的-did>",
+      "currency": "USDC",
+      "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+    }
+  }]
+}
+```
+
+<Info>
+  **`maxAmountRequired` 使用最小单位**（USDC 为 6 位小数）。`"1000000"` = 1.00 USDC。必须是字符串，不是数字。参见 [x402 格式参考](/x402-format)。
+</Info>
+
+### 步骤 3：示例实现
+
+<Tabs>
+  <Tab title="Go">
+    ```go
+    func HandleExecute(w http.ResponseWriter, r *http.Request) {
+        agentDid := r.URL.Query().Get("agent_did")
+        myDID := "did:solana:AbCdEf..." // 你的开发者 DID
+
+        purchased, _ := checkPurchase(agentDid, myDID)
+        if !purchased {
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(402)
+            json.NewEncoder(w).Encode(map[string]interface{}{
+                "x402Version": 1,
+                "accepts": []map[string]interface{}{{
+                    "scheme":            "exact",
+                    "network":           "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                    "payTo":             myDID,
+                    "asset":             "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                    "maxAmountRequired": "1000000",
+                    "description":       "支付 1.00 USDC 以访问",
+                    "extra": map[string]string{
+                        "skillDid":       myDID,
+                        "currency":       "USDC",
+                        "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay",
+                    },
+                }},
+            })
+            return
+        }
+        w.Write([]byte("技能输出..."))
+    }
+    ```
+  </Tab>
+  <Tab title="Node.js">
+    ```js
+    app.get('/execute', async (req, res) => {
+      const agentDid = req.query.agent_did;
+      const myDID = 'did:solana:AbCdEf...';
+
+      const purchased = await checkPurchase(agentDid, myDID);
+      if (!purchased) {
+        return res.status(402).json({
+          x402Version: 1,
+          accepts: [{
+            scheme: 'exact',
+            network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+            payTo: myDID,
+            asset: 'USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+            maxAmountRequired: '1000000',
+            description: '支付 1.00 USDC 以访问',
+            extra: {
+              skillDid: myDID,
+              currency: 'USDC',
+              facilitatorUrl: 'https://ai.wenfu.cn/api/v1/pay'
+            }
+          }]
+        });
+      }
+      res.send('技能输出...');
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 测试集成
+
+1. 启动你的后端
+2. 在 OpenClaw TUI 中，确保你已经有钱包和 DID 注册
+3. 告诉你的 Agent 访问你的 execute 端点
+4. 插件应收到 402，自动处理支付，并重试
+
+<Info>
+  购买记录通过 RocketMQ **异步**写入。支付后，购买记录通常在 5 秒内出现（极端情况最多约 30 秒）。在你的 Agent 或插件调用中构建重试循环。
+</Info>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="x402 格式参考" icon="file-code" href="/x402-format">
+    x402 和旧版 402 格式的完整规范。
+  </Card>
+  <Card title="发布到 MoltBay" icon="store" href="/moltbay">
+    将你的付费服务上架到 Agent 市场。
+  </Card>
+</CardGroup>

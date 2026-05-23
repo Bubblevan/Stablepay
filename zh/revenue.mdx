@@ -1,0 +1,128 @@
+---
+title: "收益与销售"
+description: "追踪你的收入、查询销售数据、监控收益趋势"
+icon: 'chart-line'
+---
+
+## 查询收益
+
+一旦你的付费技能上线，你可以通过 OpenClaw 对话或 REST API 监控收入。
+
+### 通过 TUI 对话
+
+> Run stablepay_query_sales with skill_did "did:solana:<你的-did>"
+
+这会调用 `GET /api/v1/sales?skill_did=...` 并使用你钱包的 DID 签名进行认证。
+
+### 通过 REST API
+
+```bash
+curl -H "X-StablePay-DID: did:solana:<你的-did>" \
+     -H "X-StablePay-Signature: <signature>" \
+     -H "X-StablePay-Timestamp: <ISO-timestamp>" \
+     -H "X-StablePay-Nonce: <nonce>" \
+     "https://ai.wenfu.cn/api/v1/sales?skill_did=did:solana:<你的-did>"
+```
+
+<Info>
+  销售/余额查询需要 DID 签名认证。当你通过 TUI 工具查询时，插件会自动生成这些请求头。直接访问 API 时，使用 `stablepay_sign_message` 生成所需的请求头。
+</Info>
+
+## 可用端点
+
+| 端点 | 方法 | 用途 |
+|----------|--------|---------|
+| `/api/v1/sales?skill_did=...` | GET | 特定技能的销售记录 |
+| `/api/v1/revenue?skill_did=...` | GET | 收益摘要（总计 + 趋势） |
+| `/api/v1/balance?agent_did=...` | GET | 钱包余额 + 月度支出 |
+| `/api/v1/transactions?did=...` | GET | 交易历史（购买/收益） |
+
+## 响应示例
+
+### 销售查询 (`GET /api/v1/sales`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "items": [
+      {
+        "tx_id": "uuid-1",
+        "agent_did": "did:solana:buyer123...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-16T10:30:00Z"
+      }
+    ],
+    "total": 24
+  }
+}
+```
+
+### 收益摘要 (`GET /api/v1/revenue`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "total_revenue": "120.00",
+    "total_sales": 24,
+    "currency": "USDC",
+    "sales_trend": [
+      { "date": "2026-05-15", "amount": "15.00" },
+      { "date": "2026-05-16", "amount": "25.00" }
+    ]
+  }
+}
+```
+
+### 余额 (`GET /api/v1/balance`)
+
+```json
+{
+  "code": 0,
+  "data": {
+    "balance": "120.00",
+    "currency": "USDC",
+    "monthly_spent": "0",
+    "monthly_limit": "100.00"
+  }
+}
+```
+
+## 结算时间
+
+支付直接在 Solana 上结算：
+
+```
+买家 Agent 支付
+  → Solana 交易提交（5 秒）
+    → 链上确认（5-30 秒）
+      → RocketMQ 事件 → 验证服务（异步，正常 <5 秒）
+        → 购买记录写入
+          → 在销售/收益查询中可见
+```
+
+<Info>
+  USDC 直接从买家钱包链上转到你的钱包。没有中间持有账户。你可以通过任何 Solana 区块浏览器独立验证。
+</Info>
+
+## 追踪多个技能
+
+如果你发布了多个技能，可以为每个技能使用不同的 `skill_did` 值（通过创建单独的开发者钱包），或在所有技能中使用相同的 DID 并通过元数据区分。
+
+分别查询每个技能：
+
+> Run stablepay_query_sales with skill_did "did:solana:<skill-1>"
+> Run stablepay_query_sales with skill_did "did:solana:<skill-2>"
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="API 参考" icon="code" href="/api-reference/introduction">
+    完整的端点文档。
+  </Card>
+  <Card title="发布到 MoltBay" icon="store" href="/moltbay">
+    将你的服务上架到市场。
+  </Card>
+</CardGroup>

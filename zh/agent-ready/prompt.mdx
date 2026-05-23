@@ -1,0 +1,74 @@
+---
+title: 'Prompt 组件'
+description: '嵌入可分享的 AI prompt，读者可以复制或在 Cursor 中打开'
+icon: 'robot'
+---
+
+`Prompt` 组件显示一个预构建的 AI prompt，提供一键操作将其复制到剪贴板或直接在 Cursor 中打开。它非常适合任何需要给读者提供即用 prompt 的文档页面。
+
+## 基本用法
+
+<Prompt description="总结此 API 端点">
+你是一位技术文档作者。根据以下 API 端点文档，用一段话总结端点功能、所需输入和返回内容。保持简洁，使用通俗语言。
+</Prompt>
+
+```mdx
+<Prompt description="总结此 API 端点">
+你是一位技术文档作者。根据以下 API 端点文档，
+用一段话总结端点功能、所需输入和返回内容。保持简洁，使用通俗语言。
+</Prompt>
+```
+
+## 与 Cursor 集成
+
+添加 `actions={["copy", "cursor"]}` 同时显示"在 Cursor 中打开"按钮。这对于读者将在编辑器中使用 prompt 的情况尤其有用。
+
+<Prompt
+  description="生成带类型的 API 客户端"
+  icon="code"
+  actions={["copy", "cursor"]}
+>
+你是一位资深 TypeScript 开发者。根据以下 OpenAPI 规范，使用原生 fetch 生成一个完全带类型的 API 客户端。包括：
+- 一个基础客户端类，支持可配置的 baseUrl 和认证头
+- 每个端点一个方法，带类型的请求参数和响应类型
+- 每个方法的 JSDoc 注释
+不要使用任何第三方 HTTP 库。
+</Prompt>
+
+```mdx
+<Prompt
+  description="生成带类型的 API 客户端"
+  icon="code"
+  actions={["copy", "cursor"]}
+>
+你是一位资深 TypeScript 开发者。根据以下 OpenAPI
+规范，使用原生 fetch 生成一个完全带类型的 API 客户端...
+</Prompt>
+```
+
+## Props
+
+<ResponseField name="description" type="string" required>
+  prompt 内容上方显示的标题文本。支持 Markdown。
+</ResponseField>
+
+<ResponseField name="children" type="string" required>
+  被复制或发送到 Cursor 的 prompt 文本。
+</ResponseField>
+
+<ResponseField name="actions" type="array">
+  显示哪些操作按钮。选项：`"copy"`、`"cursor"`。默认为 `["copy"]`。
+</ResponseField>
+
+<ResponseField name="icon" type="string">
+  与描述一起显示的图标。支持 Font Awesome、Lucide 和 Tabler 图标名称、图片 URL 或内联 SVG。
+</ResponseField>
+
+## 何时使用
+
+`Prompt` 组件适用于任何你教读者使用 AI 的场景：
+
+- **快速开始指南** — 给读者一个生成他们第一个集成的 prompt
+- **API 参考页面** — 包含一个从规范生成客户端代码的 prompt
+- **故障排除指南** — 嵌入一个读者可以在他们自己的错误日志上运行的调试 prompt
+- **概念页面** — 添加一个使用 AI 助手进一步探索主题的 prompt

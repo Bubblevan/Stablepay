@@ -1,0 +1,102 @@
+---
+title: "DID 注册"
+description: "将你的钱包注册到 StablePay 后端并获取 DID"
+icon: 'fingerprint'
+---
+
+## 什么是 DID？
+
+StablePay 中的 DID（分布式标识符）遵循 W3C `did:solana` 方法：
+
+```
+did:solana:<base58-编码的-ed25519-公钥>
+```
+
+它同时服务于三个目的：
+1. **身份** — 你在 StablePay 生态系统中的唯一标识符
+2. **钱包地址** — 接收付款的 Solana 地址
+3. **技能标识符** — 对开发者来说，这就是你的 `skill_did`
+
+## 注册流程
+
+```
+┌──────────┐     ┌──────────────┐     ┌──────────────┐
+│  插件     │────▶│ API 网关      │────▶│ DID 服务      │
+│          │     │ ai.wenfu.cn  │     │              │
+└──────────┘     └──────────────┘     └──────────────┘
+     │                                        │
+     │  POST /api/v1/did/register            │
+     │  {                                     │
+     │    user_type: "agent"|"developer",     │
+     │    public_key: "<base58>",             │
+     │    wallet_address: "<base58>",         │
+     │    wallet_id: "...",                   │
+     │    wallet_name: "..."                  │
+     │  }                                     │
+     │                                        │
+     │              响应:                      │
+     │  {                                     │
+     │    did: "did:solana:...",              │
+     │    wallet_address: "...",              │
+     │    created_at: "..."                   │
+     │  }                                     │
+     │◄───────────────────────────────────────┤
+```
+
+## 在 TUI 中注册
+
+### 前置条件
+
+你必须先有一个钱包。运行 `stablepay_runtime_status` 并确认 `has_wallet: true`。如果没有，请先创建或绑定钱包再继续。
+
+### Agent 用户（买家）
+
+> Run stablepay_register_local_did with user_type "agent"
+
+### 开发者（卖家）
+
+> Run stablepay_register_local_did with user_type "developer"
+
+<Info>
+  `user_type` 的区别仅供参考。注册 API 在功能上没有区别——两者产生相同的 DID 记录。选择 `developer` 有助于系统为未来的平台功能对你的身份进行分类。
+</Info>
+
+## 注册路径
+
+插件支持两种注册 API 路径：
+
+| 路径 | 使用场景 | 服务端行为 |
+|------|-----------|-----------------|
+| `POST /api/v1/did/register` | 默认 — 客户端持有钱包 | 服务端仅存储公钥；私钥由你保管 |
+| `POST /api/v1/did` | 服务端生成密钥（旧版） | 服务端生成并存储密钥对 |
+
+默认 `didRegisterPath` 为 `/api/v1/did/register`，这是客户端持有钱包模型的正确选择。所有示例均使用此路径。
+
+<Warning>
+  除非有特定原因，否则不要使用 `POST /api/v1/did`（服务端生成密钥）。它在服务端创建密钥，与你"自己持有密钥"的模式相矛盾。
+</Warning>
+
+## 注册之后
+
+插件将 `backendDid` 存储在你的加密本地状态中。后续操作（支付、余额查询、销售查询）将使用此 DID 进行认证。
+
+验证：
+
+> Run stablepay_runtime_status
+
+输出现在应显示：
+```
+has_wallet: true
+wallet.backend_did: did:solana:AbCdEf...
+```
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="设置支付限额" icon="sliders" href="/quickstart#step-54-set-payment-limits">
+    配置单次购买和自动购买限额。
+  </Card>
+  <Card title="集成支付" icon="credit-card" href="/integrating-payment">
+    为你的技能添加 x402 支付。
+  </Card>
+</CardGroup>

@@ -9,79 +9,165 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "tabs": [
+    "languages": [
       {
-        "tab": "Guides",
-        "groups": [
+        "language": "en",
+        "tabs": [
           {
-            "group": "Getting started",
-            "pages": [
-              "index",
-              "quickstart",
-              "development"
+            "tab": "Guides",
+            "groups": [
+              {
+                "group": "Getting started",
+                "pages": [
+                  "index",
+                  "quickstart",
+                  "development"
+                ]
+              },
+              {
+                "group": "Identity & wallet",
+                "pages": [
+                  "wallet-setup",
+                  "did-registration"
+                ]
+              },
+              {
+                "group": "Payment integration",
+                "pages": [
+                  "integrating-payment",
+                  "x402-format"
+                ]
+              },
+              {
+                "group": "Marketplace",
+                "pages": [
+                  "moltbay",
+                  "revenue"
+                ]
+              }
             ]
           },
           {
-            "group": "Identity & wallet",
-            "pages": [
-              "wallet-setup",
-              "did-registration"
-            ]
-          },
-          {
-            "group": "Payment integration",
-            "pages": [
-              "integrating-payment",
-              "x402-format"
-            ]
-          },
-          {
-            "group": "Marketplace",
-            "pages": [
-              "moltbay",
-              "revenue"
+            "tab": "API reference",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "api-reference/introduction"
+                ]
+              },
+              {
+                "group": "DID endpoints",
+                "pages": [
+                  "api-reference/endpoint/did-register",
+                  "api-reference/endpoint/did-get",
+                  "api-reference/endpoint/did-verify"
+                ]
+              },
+              {
+                "group": "Payment endpoints",
+                "pages": [
+                  "api-reference/endpoint/pay-require",
+                  "api-reference/endpoint/pay-submit",
+                  "api-reference/endpoint/pay-status"
+                ]
+              },
+              {
+                "group": "Verification endpoints",
+                "pages": [
+                  "api-reference/endpoint/verify-purchase",
+                  "api-reference/endpoint/verify-batch"
+                ]
+              },
+              {
+                "group": "Query endpoints",
+                "pages": [
+                  "api-reference/endpoint/balance",
+                  "api-reference/endpoint/sales",
+                  "api-reference/endpoint/revenue"
+                ]
+              }
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
-        "groups": [
+        "language": "zh",
+        "tabs": [
           {
-            "group": "Overview",
-            "pages": [
-              "api-reference/introduction"
+            "tab": "指南",
+            "groups": [
+              {
+                "group": "快速开始",
+                "pages": [
+                  "zh/index",
+                  "zh/quickstart",
+                  "zh/development"
+                ]
+              },
+              {
+                "group": "身份与钱包",
+                "pages": [
+                  "zh/wallet-setup",
+                  "zh/did-registration"
+                ]
+              },
+              {
+                "group": "支付集成",
+                "pages": [
+                  "zh/integrating-payment",
+                  "zh/x402-format"
+                ]
+              },
+              {
+                "group": "市场",
+                "pages": [
+                  "zh/moltbay",
+                  "zh/revenue"
+                ]
+              }
             ]
           },
           {
-            "group": "DID endpoints",
-            "pages": [
-              "api-reference/endpoint/did-register",
-              "api-reference/endpoint/did-get",
-              "api-reference/endpoint/did-verify"
-            ]
-          },
-          {
-            "group": "Payment endpoints",
-            "pages": [
-              "api-reference/endpoint/pay-require",
-              "api-reference/endpoint/pay-submit",
-              "api-reference/endpoint/pay-status"
-            ]
-          },
-          {
-            "group": "Verification endpoints",
-            "pages": [
-              "api-reference/endpoint/verify-purchase",
-              "api-reference/endpoint/verify-batch"
-            ]
-          },
-          {
-            "group": "Query endpoints",
-            "pages": [
-              "api-reference/endpoint/balance",
-              "api-reference/endpoint/sales",
-              "api-reference/endpoint/revenue"
+            "tab": "API 参考",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/api-reference/introduction"
+                ]
+              },
+              {
+                "group": "DID 端点",
+                "pages": [
+                  "zh/api-reference/endpoint/did-register",
+                  "zh/api-reference/endpoint/did-get",
+                  "zh/api-reference/endpoint/did-verify"
+                ]
+              },
+              {
+                "group": "支付端点",
+                "pages": [
+                  "zh/api-reference/endpoint/pay-require",
+                  "zh/api-reference/endpoint/pay-submit",
+                  "zh/api-reference/endpoint/pay-status"
+                ]
+              },
+              {
+                "group": "验证端点",
+                "pages": [
+                  "zh/api-reference/endpoint/verify-purchase",
+                  "zh/api-reference/endpoint/verify-batch"
+                ]
+              },
+              {
+                "group": "查询端点",
+                "pages": [
+                  "zh/api-reference/endpoint/balance",
+                  "zh/api-reference/endpoint/sales",
+                  "zh/api-reference/endpoint/revenue"
+                ]
+              }
             ]
           }
         ]

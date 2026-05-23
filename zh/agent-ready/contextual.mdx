@@ -1,0 +1,91 @@
+---
+title: '上下文工具栏'
+description: '让读者一键访问 AI 工具和集成'
+icon: 'bolt'
+---
+
+上下文工具栏是一个浮动操作栏，出现在文档的每一页。它让读者可以即时复制页面内容、在 AI 助手中打开，或将你的文档作为 MCP 服务器添加——无需离开页面。
+
+在 `docs.json` 的 `contextual.options` 中配置：
+
+```json docs.json
+{
+  "contextual": {
+    "options": ["copy", "view", "claude", "chatgpt", "mcp", "cursor", "vscode"]
+  }
+}
+```
+
+## 可用选项
+
+### 内容操作
+
+| 选项 | 描述 |
+|--------|-------------|
+| `copy` | 将页面以 Markdown 格式复制到剪贴板 |
+| `view` | 打开页面的原始 Markdown 版本（`.md` URL） |
+
+### AI 助手
+
+| 选项 | 描述 |
+|--------|-------------|
+| `claude` | 在 Claude 中打开页面 |
+| `chatgpt` | 在 ChatGPT 中打开页面 |
+| `perplexity` | 在 Perplexity 中打开页面 |
+| `grok` | 在 Grok 中打开页面 |
+| `aistudio` | 在 Google AI Studio 中打开页面 |
+
+### 编辑器集成
+
+| 选项 | 描述 |
+|--------|-------------|
+| `cursor` | 将页面添加到 Cursor 的上下文 |
+| `vscode` | 将页面添加到 VS Code Copilot |
+| `windsurf` | 将页面添加到 Windsurf 的 Cascade |
+| `devin` | 在 Devin 中打开页面 |
+
+### MCP
+
+| 选项 | 描述 |
+|--------|-------------|
+| `mcp` | 显示将文档作为 MCP 服务器使用的说明 |
+| `add-mcp` | 提供一键 prompt 将文档 MCP 服务器添加到 AI 工具 |
+
+<Tip>
+  `mcp` 和 `add-mcp` 选项尤为强大——它们允许开发者将你的整个文档站点连接到任何兼容 MCP 的 AI 助手，使其能够直接回答有关你产品的问题。
+</Tip>
+
+## 自定义选项
+
+你可以将自定义条目添加到工具栏，包含标题、描述、图标和链接。`href` 支持动态占位符：
+
+| 占位符 | 解析为 |
+|-------------|-------------|
+| `$page` | 当前页面的完整 URL |
+| `$path` | 当前页面的路径 |
+| `$mcp` | 你的文档 MCP 服务器 URL |
+
+```json docs.json
+{
+  "contextual": {
+    "options": [
+      "copy",
+      "claude",
+      {
+        "title": "报告问题",
+        "description": "反馈此页面的问题",
+        "icon": "github",
+        "href": "https://github.com/your-org/docs/issues/new?title=Issue+on+$path"
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  上下文工具栏仅在预览和生产部署中可见，在 `mint dev` 本地预览中不可见。
+</Note>
+
+## 与 Visibility 配合
+
+工具栏的 `copy` 和 `view` 选项直接暴露页面的 Markdown 内容。如果你使用 [`Visibility`](/agent-ready/visibility) 组件，`for="agents"` 块将包含在该 Markdown 中——为 AI 助手提供人类读者看不到的结构化上下文。

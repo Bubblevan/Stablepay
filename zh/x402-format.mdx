@@ -1,0 +1,140 @@
+---
+title: "x402 响应格式"
+description: "HTTP 402 支付挑战响应格式规范"
+icon: 'file-code'
+---
+
+StablePay 插件支持两种 HTTP 402 响应格式用于支付挑战。
+
+## x402 标准格式（推荐）
+
+这是首选格式。它遵循 [x402 协议](https://www.x402.org/) 约定。
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "payTo": "did:solana:<开发者-did>",
+      "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "maxAmountRequired": "1000000",
+      "maxTimeoutSeconds": 60,
+      "description": "人类可读的支付描述",
+      "extra": {
+        "skillDid": "did:solana:<开发者-did>",
+        "currency": "USDC",
+        "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+      }
+    }
+  ]
+}
+```
+
+### 字段参考
+
+| 字段 | 类型 | 必需 | 描述 |
+|-------|------|----------|-------------|
+| `x402Version` | integer | 是 | 必须为 `1` |
+| `accepts` | array | 是 | 支付选项数组；插件使用 `accepts[0]` |
+| `accepts[0].scheme` | string | 是 | 支付方案。固定价格使用 `"exact"` |
+| `accepts[0].network` | string | 是 | CAIP-2 链 ID。使用 `"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"` |
+| `accepts[0].payTo` | string | 是 | 接收方 DID（`did:solana:...`） |
+| `accepts[0].asset` | string | 是 | 代币标识符。格式：`SYMBOL:MINT_ADDRESS` |
+| `accepts[0].maxAmountRequired` | string | **是** | 支付金额，以**最小单位**表示（6 位小数）。必须是字符串 |
+| `accepts[0].maxTimeoutSeconds` | integer | 否 | 支付窗口（秒） |
+| `accepts[0].description` | string | 否 | 人类可读的支付原因 |
+| `accepts[0].extra.skillDid` | string | **是** | 开发者/技能 DID（通常与 `payTo` 相同） |
+| `accepts[0].extra.currency` | string | 否 | 货币标签。默认 `"USDC"` |
+| `accepts[0].extra.facilitatorUrl` | string | 否 | 支付端点。默认 `"/api/v1/pay"` |
+
+### maxAmountRequired 计算
+
+金额以**最小单位**表示，**6 位小数**：
+
+| 你想收取的金额 | `maxAmountRequired` 值 |
+|--------------------|--------------------------|
+| 1.00 USDC | `"1000000"` |
+| 0.50 USDC | `"500000"` |
+| 12.50 USDC | `"12500000"` |
+| 0.000001 USDC | `"1"` |
+
+<Warning>
+  `maxAmountRequired` 必须是**字符串**，不是数字。`"1000000"` ✓ — `1000000` ✗（会导致解析错误）。
+</Warning>
+
+### DevNet 资产参考
+
+| 货币 | 资产字符串 |
+|----------|-------------|
+| USDC | `USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
+| USDT | （DevNet USDT 铸币地址） |
+
+## 旧版格式（向后兼容）
+
+插件也支持以下更简单的格式用于快速集成：
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "payment_requirement": {
+    "skill_did": "did:solana:<开发者-did>",
+    "price": "1.00",
+    "currency": "USDC",
+    "message": "支付 1.00 USDC 以访问"
+  }
+}
+```
+
+或包裹在 `data` 中：
+
+```json
+{
+  "data": {
+    "skill_did": "did:solana:<开发者-did>",
+    "price": "1.00",
+    "currency": "USDC"
+  }
+}
+```
+
+### 旧版字段参考
+
+| 字段 | 类型 | 必需 | 描述 |
+|-------|------|----------|-------------|
+| `payment_requirement.skill_did`（或 `.data.skill_did`） | string | 是 | 开发者 DID |
+| `payment_requirement.price`（或 `.data.price`） | string | 是 | **十进制**价格（如 `"1.00"`） |
+| `payment_requirement.currency`（或 `.data.currency`） | string | 否 | `"USDC"` 或 `"USDT"` |
+| `payment_requirement.message`（或 `.data.message`） | string | 否 | 支付描述 |
+
+<Note>
+  旧版格式使用**十进制**价格（非最小单位）。`"price": "1.00"` 表示 1.00 USDC。这与 x402 使用最小单位的 `maxAmountRequired` 不同。
+</Note>
+
+## 解析顺序
+
+插件按以下顺序检查格式：
+
+1. `payload.x402Version === 1` + `payload.accepts` 数组 → **x402 标准**
+2. `payload.payment_requirement.data` → 旧版嵌套
+3. `payload.payment_requirement` → 旧版平铺
+4. `payload.data` → 旧版包裹
+5. `payload` → 裸格式（必须在顶层有 `skill_did`）
+
+## 错误处理
+
+如果 402 响应不匹配任何已知格式：
+
+```
+Error: x402 response missing maxAmountRequired in accepts[0]
+Error: x402 response missing skillDid in accepts[0].extra
+Error: Payment requirement payload is missing skill_did
+```
+
+确保至少 `skill_did`（或 `skillDid`）存在且金额字段有效。
