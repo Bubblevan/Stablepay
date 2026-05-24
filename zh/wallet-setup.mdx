@@ -40,7 +40,7 @@ ows wallet list
 
 然后在 TUI 中：
 
-> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "<ows wallet list 中的 Solana 地址>"
+> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "`<ows wallet list 中的 Solana 地址>`"
 
 <Info>
   使用 `ows-cli` 或 `wsl-ows` 时，必须传入 `public_key` 参数——即 `ows wallet list` 中显示的 Solana Base58 地址。
@@ -50,7 +50,7 @@ ows wallet list
 
 如果你已经有一个 OWS 钱包（或想导入一个）：
 
-> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "<Solana Base58 地址>"
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "`<Solana Base58 地址>`"
 
 插件将会：
 1. 在 OWS vault 中查找钱包

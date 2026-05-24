@@ -40,7 +40,7 @@ ows wallet list
 
 Then in TUI:
 
-> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "<Solana address from ows wallet list>"
+> Run stablepay_create_local_wallet with wallet_name "stablepay-agent", runtime "ows-cli", public_key "`<Solana address from ows wallet list>`"
 
 <Info>
   When using `ows-cli` or `wsl-ows`, you must pass the `public_key` parameter — the Solana Base58 address from `ows wallet list`.
@@ -50,7 +50,7 @@ Then in TUI:
 
 If you already have an OWS wallet (or want to import one):
 
-> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "<Solana Base58 address>"
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "`<Solana Base58 address>`"
 
 The plugin will:
 1. Look up the wallet in the OWS vault

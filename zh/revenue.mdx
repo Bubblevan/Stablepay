@@ -10,7 +10,7 @@ icon: 'chart-line'
 
 ### 通过 TUI 对话
 
-> Run stablepay_query_sales with skill_did "did:solana:<你的-did>"
+> Run stablepay_query_sales with skill_did "did:solana:`<你的-did>`"
 
 这会调用 `GET /api/v1/sales?skill_did=...` 并使用你钱包的 DID 签名进行认证。
 
@@ -113,8 +113,8 @@ curl -H "X-StablePay-DID: did:solana:<你的-did>" \
 
 分别查询每个技能：
 
-> Run stablepay_query_sales with skill_did "did:solana:<skill-1>"
-> Run stablepay_query_sales with skill_did "did:solana:<skill-2>"
+> Run stablepay_query_sales with skill_did "did:solana:`<skill-1>`"
+> Run stablepay_query_sales with skill_did "did:solana:`<skill-2>`"
 
 ## 下一步
 
