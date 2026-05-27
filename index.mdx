@@ -43,26 +43,82 @@ Built on open standards:
 
 ## How it works
 
-```
-You (Human)                    Your Agent                    Marketplace               Blockchain
-──────────                    ──────────                    ───────────               ──────────
-   │                              │                              │                        │
-   │  "Analyze this data"         │                              │                        │
-   ├─────────────────────────────►│                              │                        │
-   │                              │  Search MoltBay (A2A)        │                        │
-   │                              ├─────────────────────────────►│                        │
-   │                              │  Found: DataCruncher-$2      │                        │
-   │                              │◄─────────────────────────────┤                        │
-   │                              │                              │                        │
-   │                              │  Trigger purchase            │                        │
-   │                              ├─────────────────────────────►│  x402 Payment Required │
-   │                              │                              ├───────────────────────►│
-   │                              │                              │  USDC transfer          │
-   │                              │                              │◄───────────────────────┤
-   │                              │  Execute task (A2A)          │                        │
-   │                              ├─────────────────────────────►│                        │
-   │  "Here's your analysis"      │                              │                        │
-   │◄─────────────────────────────┤                              │                        │
+```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#ffffff",
+    "primaryColor": "#dcfce7",
+    "primaryBorderColor": "#16A34A",
+    "primaryTextColor": "#222325",
+    "actorBkg": "#f0faf5",
+    "actorBorder": "#16A34A",
+    "actorTextColor": "#222325",
+    "actorLineColor": "#86efac",
+    "signalColor": "#222325",
+    "signalTextColor": "#222325",
+    "labelBoxBkgColor": "#f0faf5",
+    "labelBoxBorderColor": "#16A34A",
+    "labelTextColor": "#222325",
+    "noteBkgColor": "#fef3c7",
+    "noteBorderColor": "#f59e0b",
+    "noteTextColor": "#222325",
+    "sequenceNumberColor": "#ffffff"
+  },
+  "sequence": {
+    "mirrorActors": true,
+    "actorMargin": 130,
+    "width": 160,
+    "height": 48,
+    "boxMargin": 10,
+    "boxTextMargin": 6,
+    "messageMargin": 36,
+    "noteMargin": 12
+  }
+}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Payment as Payment Service
+        participant DID as DID Service
+        participant Adapter as Blockchain Adapter
+        participant Verify as Verification Service
+    end
+    participant Solana as Solana
+
+    Agent->>Server: 1. Request resource
+    Server->>Gateway: 2. Check purchase (verify API)
+    Gateway->>Verify: 3. Query record
+    Verify-->>Gateway: Not purchased
+    Gateway-->>Server: purchased=false
+    Server-->>Agent: 4. HTTP 402 + payment challenge
+
+    Note over Agent: 5. Build & sign SPL transfer tx
+    Note over Agent:  (local OWS wallet signature)
+
+    Agent->>Gateway: 6. POST /api/v1/pay
+    Gateway->>Payment: 7. Forward payment
+    Payment->>DID: 8. Verify agent signature
+    DID-->>Payment: Signature valid
+    Payment->>Adapter: 9. Execute SPL transfer
+    Adapter->>Solana: 10. Broadcast tx
+    Solana-->>Adapter: Tx confirmed
+    Adapter-->>Payment: Settlement confirmed
+    Payment-->>Gateway: Payment result
+    Gateway-->>Agent: 11. tx_id + status
+
+    Note over Payment,Verify: 12. RocketMQ async: Payment → Verify
+    Note over Verify: Write purchase record
+
+    Agent->>Server: 13. Retry resource request
+    Server->>Gateway: 14. Check purchase again
+    Gateway->>Verify: 15. Query record
+    Verify-->>Gateway: purchased=true
+    Gateway-->>Server: purchased=true
+    Server-->>Agent: 16. 200 OK + result
 ```
 
 ## Core concepts
