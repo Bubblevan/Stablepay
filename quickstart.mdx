@@ -6,20 +6,19 @@ icon: 'rocket'
 
 ## Before you start
 
-This guide uses the **Sandbox** environment. You don't need real money — Sandbox USDC has no monetary value. When you're ready for real payments, switch to [Production](/api-reference/introduction#environments).
-
 You need:
 - OpenClaw installed (`openclaw --version` shows ≥ 2026.3.1)
 - A shell where you can set environment variables
+- USDC in your wallet to pay for services; developers receive USDC directly to theirs
 
 You do **not** need:
 - Docker, Kubernetes, or any backend services (the gateway is already running)
-- Real USDC or SOL (Sandbox uses DevNet)
+- SOL for gas fees (covered by the platform hotwallet)
 - Any prior blockchain knowledge
 
-<Info>
-  **Sandbox gateway is online.** The plugin talks to `https://ai.wenfu.cn` automatically. You don't need to start any services yourself. For Production status, see [Environments](/api-reference/introduction#environments).
-</Info>
+<Note>
+  Production Mainnet payments are not yet deployed — the Sandbox gateway currently serves all traffic. API endpoints, authentication, and transaction flows are identical across both environments. Swap to Production values when Mainnet goes live. See [Environments](/api-reference/introduction#environments).
+</Note>
 
 ## Step 1: Install the plugin
 
@@ -39,49 +38,109 @@ Expected output includes `stablepay-agentpay-dev` with status `enabled`.
 
 Add this to your `~/.openclaw/openclaw.json`:
 
-```json
-{
-  "plugins": {
-    "entries": {
-      "stablepay-agentpay-dev": {
-        "enabled": true,
-        "config": {
-          "backendBaseUrl": "https://ai.wenfu.cn",
-          "owsRuntime": "auto",
-          "didRegisterPath": "/api/v1/did/register",
-          "requestTimeoutMs": 90000
+<Tabs>
+  <Tab title="Production">
+    ```json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://api.stablepay.co",
+              "solanaRpcUrl": "https://api.mainnet-beta.solana.com",
+              "splTokenMintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
         }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
       }
     }
-  },
-  "tools": {
-    "allow": [
-      "stablepay_runtime_status",
-      "stablepay_create_local_wallet",
-      "stablepay_bind_existing_wallet",
-      "stablepay_register_local_did",
-      "stablepay_configure_payment_limits",
-      "stablepay_sign_message",
-      "stablepay_pay_via_gateway",
-      "stablepay_query_balance",
-      "stablepay_query_sales"
-    ]
-  }
-}
-```
+    ```
+  </Tab>
+  <Tab title="Sandbox">
+    ```json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://ai.wenfu.cn",
+              "solanaRpcUrl": "https://api.devnet.solana.com",
+              "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
+        }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Use Sandbox for development and testing — USDC has no real value, and you can obtain it from any Solana DevNet faucet. The full [environment reference](/api-reference/introduction#environments) lists every value that differs between the two.
+</Tip>
 
 ## Step 3: Set environment variables
 
-```bash
-# Required — master key for encrypting your local wallet state
-export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
+<Tabs>
+  <Tab title="Production">
+    ```bash
+    # Required — encrypts your local wallet state
+    export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
 
-# Required for real payments — DevNet hotwallet public key
-export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+    # Required — platform hotwallet public key
+    export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
 
-# Optional — for unattended OWS signing
-export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
-```
+    # Optional — unattended OWS signing
+    export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
+    ```
+  </Tab>
+  <Tab title="Sandbox">
+    ```bash
+    # Required — encrypts your local wallet state
+    export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
+
+    # Required — Sandbox hotwallet public key
+    export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+
+    # Optional — unattended OWS signing
+    export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
+    ```
+  </Tab>
+</Tabs>
 
 <Tip>
   Add these to your `~/.zshrc` or `~/.bashrc` so they persist across sessions.
@@ -123,15 +182,14 @@ This registers your public key with the StablePay backend. You now have a valid 
 - **Single purchase limit**: Maximum per-transaction spend (hard cap)
 - **Auto purchase threshold**: Purchases below this amount skip confirmation
 
-### 5.5 Make a test payment
+### 5.5 Make a payment
 
-> Run stablepay_pay_via_gateway with skill_did "did:solana:`<a-seller-address>`", skill_name "demo-skill", price "1.00", currency "USDC"
+> Run stablepay_pay_via_gateway with skill_did "did:solana:`<seller-address>`", skill_name "skill-name", price "1.00", currency "USDC"
 
-If the payment succeeds, you'll get a `tx_id` back.
+If the payment succeeds, you'll get a `tx_id` back. The seller receives the USDC directly to their wallet.
 
 <Tip>
-  For testing, use the demo hotwallet address as the skill_did target:
-  `did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`
+  **Testing in Sandbox?** You can use the Sandbox hotwallet address as a dummy seller target: `did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`. Sandbox USDC has no real value — spend freely during development.
 </Tip>
 
 ### 5.6 Check your balance
@@ -147,7 +205,7 @@ If the payment succeeds, you'll get a `tx_id` back.
   <Card title="I want to publish on MoltBay" icon="store" href="/moltbay">
     List your service on the Agent marketplace.
   </Card>
-  <Card title="Plugin config deep dive" icon="gear" href="/plugin-configuration">
+  <Card title="Plugin config deep dive" icon="gear" href="/development">
     Every configuration option explained.
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
