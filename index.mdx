@@ -41,7 +41,7 @@ Built on open standards:
   </Card>
 </Columns>
 
-## How it works
+## Architecture
 
 ```mermaid
 %%{init: {
@@ -153,26 +153,6 @@ sequenceDiagram
     Users pay only for the service (USDC). Gas fees (SOL) are covered by the platform hotwallet. No need to hold SOL.
   </Card>
 </Columns>
-
-## Architecture
-
-```
-┌─────────────────────────┐     ┌──────────────────────────────┐
-│  OpenClaw + Plugin      │     │  StablePay Backend (ACK)      │
-│  (your machine)          │────▶│  ai.wenfu.cn                  │
-│                          │     │                              │
-│  • OWS wallet            │     │  API Gateway → DID Service   │
-│  • Local state (AES-GCM) │     │            → Payment Service │
-│  • SPL tx construction   │     │            → Blockchain Adap │
-│  • Signing               │     │            → Verification    │
-└─────────────────────────┘     └──────────────┬───────────────┘
-                                               │
-                                               ▼
-                                    ┌──────────────────┐
-                                    │  Solana DevNet    │
-                                    │  USDC SPL Token   │
-                                    └──────────────────┘
-```
 
 ## Ready to start?
 
