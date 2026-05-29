@@ -29,6 +29,7 @@ const (
 	ErrorCode_WALLET_NOT_FOUND_IN_TWEET     ErrorCode = 40003
 	ErrorCode_VERIFICATION_ALREADY_CLAIMED  ErrorCode = 40004
 	ErrorCode_INVALID_TWEET_URL             ErrorCode = 40005
+	ErrorCode_X_ACCOUNT_ALREADY_BOUND       ErrorCode = 40006
 )
 
 func (p ErrorCode) String() string {
@@ -69,6 +70,8 @@ func (p ErrorCode) String() string {
 		return "VERIFICATION_ALREADY_CLAIMED"
 	case ErrorCode_INVALID_TWEET_URL:
 		return "INVALID_TWEET_URL"
+	case ErrorCode_X_ACCOUNT_ALREADY_BOUND:
+		return "X_ACCOUNT_ALREADY_BOUND"
 	}
 	return "<UNSET>"
 }
@@ -111,6 +114,8 @@ func ErrorCodeFromString(s string) (ErrorCode, error) {
 		return ErrorCode_VERIFICATION_ALREADY_CLAIMED, nil
 	case "INVALID_TWEET_URL":
 		return ErrorCode_INVALID_TWEET_URL, nil
+	case "X_ACCOUNT_ALREADY_BOUND":
+		return ErrorCode_X_ACCOUNT_ALREADY_BOUND, nil
 	}
 	return ErrorCode(0), fmt.Errorf("not a valid ErrorCode string")
 }

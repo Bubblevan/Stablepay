@@ -79,10 +79,11 @@ type XVerification struct {
 	gorm.Model
 	AgentDid      string    `gorm:"index"`
 	WalletAddress string    `gorm:"index"`
+	XUsername     string    `gorm:"index"` // X 账号用户名，用于防止重复绑定
 	TweetUrl      string
 	TweetContent  string
 	Verified      bool      `gorm:"default:false"`
-	RewardAmount  int64     // 最小单位，如 100000 = 0.1 USDC (6 decimals)
+	RewardAmount  int64     // 最小单位，如 1000000 = 1 USDC (6 decimals)
 	RewardTxId    string
 	VerifiedAt    time.Time
 }
