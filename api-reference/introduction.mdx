@@ -1,14 +1,119 @@
 ---
 title: 'API overview'
-description: 'StablePay REST API — authentication, conventions, and error codes'
+description: 'StablePay REST API — prerequisites, environments, authentication, and conventions'
 icon: 'code'
 ---
 
-## Base URL
+## Before you start
+
+To call the StablePay API, you need:
+
+| Requirement | How to get it |
+|-------------|---------------|
+| A `did:solana:...` identity | [Create an OWS wallet](/wallet-setup) then [register your DID](/did-registration) |
+| Local signing capability | The [StablePay OpenClaw plugin](/quickstart) handles this in TUI. For direct API access, use your OWS wallet's Ed25519 key. |
+| (For developer backends) An API Key | Contact the StablePay team to obtain one for server-side verification calls |
+
+<Info>
+  **TUI users**: The plugin generates all auth headers, builds transactions, and signs payloads automatically — just use the tool names in conversation (e.g., `stablepay_query_balance`).
+
+  **Backend developers**: You'll call the API directly from your server. Read on for authentication setup and code examples.
+</Info>
+
+## Environments
+
+StablePay provides two environments. Both use the same API surface — only the base URL and chain parameters differ.
+
+| | Sandbox | Production |
+|--|---------|------------|
+| **Gateway** | `https://ai.wenfu.cn` | `https://api.stablepay.co` |
+| **Solana network** | DevNet | Mainnet |
+| **SPL mint (USDC)** | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| **Fee payer address** | `FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z` | (platform hotwallet pubkey) |
+| **Use for** | Development, testing, CI | Real payments |
+
+<Note>
+  Production environment is planned per PRD v1 scope. The Gateway and blockchain-adapter currently serve Sandbox; Production values above are the target configuration.
+</Note>
+
+### Switching environments
+
+Change four values. Everything else stays the same.
+
+**Sandbox → Production in `openclaw.json`:**
+
+```json
+{
+  "backendBaseUrl": "https://api.stablepay.co",
+  "solanaRpcUrl": "https://api.mainnet-beta.solana.com",
+  "splTokenMintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "feePayerSolanaAddress": "<prod-hotwallet-pubkey>"
+}
+```
+
+Or via environment variables:
+
+```bash
+export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+```
+
+<Warning>
+  Sandbox USDC has no monetary value. Get DevNet USDC from any [Solana DevNet faucet](https://solfaucet.com) for testing. Production USDC is real money — test your integration in Sandbox first.
+</Warning>
+
+## Minimum success path
 
 ```
-https://ai.wenfu.cn
+1. Install plugin           →  openclaw plugins install clawhub:stablepay-agentpay-dev
+2. Set env var (required)   →  export STABLEPAY_PLUGIN_MASTER_KEY="..."
+3. TUI: create wallet       →  stablepay_create_local_wallet
+4. TUI: register DID        →  stablepay_register_local_did
+5. TUI: set limits + pay    →  stablepay_configure_payment_limits → stablepay_pay_via_gateway
 ```
+
+Steps 3–5 happen entirely in OpenClaw conversation. Full guide: [Quickstart](/quickstart).
+
+## Environment variables
+
+### Required (all users)
+
+```bash
+export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+```
+
+Encrypts your local wallet state with AES-256-GCM. **Keep this safe** — losing it means recreating your wallet binding.
+
+### Required (for payments)
+
+```bash
+# Sandbox
+export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+
+# Production
+export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+```
+
+The platform hotwallet's **public key** — not the private key. Needed to construct Solana transactions with the correct `feePayer`. Can also be set as `feePayerSolanaAddress` in `openclaw.json` (env var takes priority).
+
+### Optional
+
+```bash
+export STABLEPAY_OWS_PASSPHRASE="your-passphrase"   # unattended OWS signing
+export STABLEPAY_PLUGIN_DEBUG=1                      # verbose logs during dev
+```
+
+### Only for ows-rest runtime
+
+```bash
+export STABLEPAY_OWS_REST_API_KEY="your-rest-token"
+```
+
+## Base URL
+
+| Environment | Base URL |
+|-------------|----------|
+| Sandbox | `https://ai.wenfu.cn` |
+| Production | `https://api.stablepay.co` |
 
 All endpoints are prefixed with `/api/v1/`.
 
@@ -23,18 +128,108 @@ StablePay uses two authentication methods:
 
 ### DID Signature
 
-The canonical string is:
+The gateway canonical string:
 
 ```
 {method}\n{path}\n{rawQuery}\n{bodySha256Hex}
 ```
 
-Signed with your wallet's Ed25519 key. The plugin generates this automatically for TUI queries. For direct API access, use `stablepay_sign_message` to generate headers.
+For GET requests, `bodySha256Hex` is the SHA256 of an empty string (`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+
+Signed with your wallet's Ed25519 key. The plugin generates these headers automatically in TUI. For direct API access, use `stablepay_sign_message` with `append_timestamp_nonce: true`.
+
+### API Key
+
+For developer backends making server-to-server calls (primarily verification endpoints):
+
+```bash
+curl -H "X-API-Key: sp_api_xxxxxxxx" \
+     "https://ai.wenfu.cn/api/v1/verify?agent_did=...&skill_did=..."
+```
+
+API Keys are provisioned by the StablePay team.
 
 ### Timestamp & Nonce
 
-- Timestamp must be within ±5 minutes of server time
-- Nonce must be unique per request (prevents replay)
+- Timestamp must be within **±5 minutes** of server time
+- Nonce must be **unique per request** (prevents replay)
+- Server caches processed signatures for the duration of the window
+
+## Quick examples
+
+### TypeScript
+
+```typescript
+import { createHash } from "node:crypto";
+
+const BASE = "https://ai.wenfu.cn";
+const did = "did:solana:AbCd...";
+const path = "/api/v1/balance";
+const query = `agent_did=${encodeURIComponent(did)}`;
+
+// Canonical: {method}\n{path}\n{rawQuery}\n{bodySha256Hex}
+const canonical = `GET\n${path}\n${query}\n${createHash("sha256").update("").digest("hex")}`;
+
+// Sign with OWS (use plugin, SDK, or CLI — see below)
+// const signature = signWithOws(walletName, canonical);
+
+const res = await fetch(`${BASE}${path}?${query}`, {
+  headers: {
+    "X-StablePay-DID": did,
+    "X-StablePay-Signature": signature,
+    "X-StablePay-Timestamp": new Date().toISOString(),
+    "X-StablePay-Nonce": `gw-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  }
+});
+const { data } = await res.json();
+console.log(data.balance, data.currency);
+```
+
+### Python
+
+```python
+import requests, hashlib, time, secrets
+
+BASE = "https://ai.wenfu.cn"
+did = "did:solana:AbCd..."
+path = "/api/v1/balance"
+query = f"agent_did={requests.utils.quote(did)}"
+
+canonical = f"GET\n{path}\n{query}\n{hashlib.sha256(b'').hexdigest()}"
+# signature = sign_with_ows(wallet_name, canonical)  # use ows CLI or SDK
+
+headers = {
+    "X-StablePay-DID": did,
+    "X-StablePay-Signature": signature,
+    "X-StablePay-Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "X-StablePay-Nonce": f"gw-{int(time.time())}-{secrets.token_hex(4)}"
+}
+resp = requests.get(f"{BASE}{path}?{query}", headers=headers)
+data = resp.json()["data"]
+print(f"{data['balance']} {data['currency']}")
+```
+
+### curl
+
+```bash
+DID="did:solana:AbCd..."
+PATH="/api/v1/balance"
+QUERY="agent_did=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$DID'))")"
+BODY_HASH="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+CANONICAL="GET\n$PATH\n$QUERY\n$BODY_HASH"
+
+# Sign the canonical (use stablepay_sign_message in TUI, or ows CLI)
+# SIGNATURE=$(ows sign message --wallet stablepay-agent --chain solana --message "$CANONICAL" --json | jq -r '.signature')
+
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NONCE="gw-$(date +%s)-$(openssl rand -hex 4)"
+
+curl -H "X-StablePay-DID: $DID" \
+     -H "X-StablePay-Signature: $SIGNATURE" \
+     -H "X-StablePay-Timestamp: $TS" \
+     -H "X-StablePay-Nonce: $NONCE" \
+     "https://ai.wenfu.cn$PATH?$QUERY"
+```
 
 ## Response format
 
@@ -46,9 +241,14 @@ All endpoints return a unified envelope:
   "message": "success",
   "data": { },
   "request_id": "uuid",
-  "timestamp": "2026-05-16T10:30:00Z"
+  "timestamp": "2026-05-29T10:30:00Z"
 }
 ```
+
+- `code` — Business error code. `0` = success.
+- `message` — Human-readable description.
+- `data` — Response payload (object or array). May be empty on error.
+- `request_id` — Unique ID for tracing this request through the system.
 
 ## Error codes
 
@@ -74,5 +274,5 @@ Endpoints that represent paid resources return **HTTP 402 Payment Required** whe
 ## Currency precision
 
 - External API: `amount` in **string decimal** (e.g., `"5.00"`)
-- Internal/on-chain: **integer minor units** with 6 decimals (`5000000` = 5.00)
+- x402 `maxAmountRequired`: **string minor units** with 6 decimals (`"5000000"` = 5.00)
 - Supported currencies: `USDC`, `USDT`

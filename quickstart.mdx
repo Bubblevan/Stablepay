@@ -6,17 +6,19 @@ icon: 'rocket'
 
 ## Before you start
 
+This guide uses the **Sandbox** environment. You don't need real money — Sandbox USDC has no monetary value. When you're ready for real payments, switch to [Production](/api-reference/introduction#environments).
+
 You need:
 - OpenClaw installed (`openclaw --version` shows ≥ 2026.3.1)
 - A shell where you can set environment variables
 
 You do **not** need:
-- Docker, Kubernetes, or any backend services (the gateway at `ai.wenfu.cn` is already running)
-- A Solana wallet with real funds (we use DevNet for development)
+- Docker, Kubernetes, or any backend services (the gateway is already running)
+- Real USDC or SOL (Sandbox uses DevNet)
 - Any prior blockchain knowledge
 
 <Info>
-  **Gateway is online.** The plugin talks to `https://ai.wenfu.cn` automatically. You don't need to start any services yourself.
+  **Sandbox gateway is online.** The plugin talks to `https://ai.wenfu.cn` automatically. You don't need to start any services yourself. For Production status, see [Environments](/api-reference/introduction#environments).
 </Info>
 
 ## Step 1: Install the plugin
