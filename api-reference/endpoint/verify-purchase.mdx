@@ -2,3 +2,131 @@
 title: 'Verify Purchase'
 openapi: 'GET /api/v1/verify'
 ---
+
+## Where this fits
+
+`GET /api/v1/verify` is the **purchase verification endpoint** — used by developer backends to enforce payment. It sits at two points in the lifecycle:
+
+```
+Point A (before payment):
+  Agent requests resource → Developer backend calls GET /api/v1/verify
+    → purchased=false → Return HTTP 402 to Agent
+
+Point B (after payment):
+  Agent retries resource → Developer backend calls GET /api/v1/verify
+    → purchased=true → Return 200 + result
+```
+
+<Warning>
+  **This is your primary defense against payment bypass.** Without backend verification, users can edit `skill.md` to remove the payment block. For any skill with meaningful pricing, always verify purchase status server-side before serving the resource.
+</Warning>
+
+## Query parameters
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `agent_did` | Yes | string | The buyer/agent DID (`did:solana:...`) |
+| `skill_did` | Yes | string | Your developer DID — the skill being checked (`did:solana:...`) |
+
+## Authentication
+
+This endpoint supports two authentication methods:
+
+| Method | Header | Best for |
+|--------|--------|----------|
+| **API Key** | `X-API-Key: <key>` | Developer backend → StablePay (recommended) |
+| **DID Signature** | `X-StablePay-DID` + `X-StablePay-Signature` + `X-StablePay-Timestamp` + `X-StablePay-Nonce` | Agent queries via plugin |
+
+<Info>
+  API Key auth is recommended for developer backends because it doesn't require wallet signing on every request. Obtain your API key from the StablePay platform.
+</Info>
+
+## Response
+
+### purchased = true
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "purchased": true,
+    "purchase_time": "2026-05-29T10:30:00Z",
+    "tx_id": "uuid-of-payment-transaction",
+    "amount": "1.00",
+    "currency": "USDC"
+  }
+}
+```
+
+### purchased = false
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "purchased": false
+  }
+}
+```
+
+<Note>
+  Both `true` and `false` results return HTTP 200 with `code: 0`. The `purchased` field in `data` is what you check — **not** the HTTP status or top-level code.
+</Note>
+
+## Asynchronous delay
+
+Purchase records are written **asynchronously** via RocketMQ:
+
+```
+Payment Service → RocketMQ (payment_events topic) → Verification Service → MySQL (purchase_records)
+```
+
+Timing:
+- **Normal**: < 5 seconds after `POST /api/v1/pay` returns
+- **Edge case**: up to 30 seconds under load
+
+<Warning>
+  After `POST /api/v1/pay` succeeds, the purchase record may **not be immediately visible** via this endpoint. The StablePay plugin handles this by retrying the resource request up to 6 times with 1.5-second delays. If you're building a custom client, implement similar retry logic.
+</Warning>
+
+## Typical backend flow
+
+```
+func HandleRequest(w http.ResponseWriter, r *http.Request) {
+    agentDid := r.URL.Query().Get("agent_did")   // from agent request
+    mySkillDid := "did:solana:AbCdEf..."          // your developer DID
+
+    // Check purchase — call this on EVERY request
+    purchased := verifyPurchase(agentDid, mySkillDid)
+
+    if !purchased {
+        // Return 402 with payment challenge
+        w.WriteHeader(402)
+        json.NewEncoder(w).Encode(buildX402Challenge(mySkillDid, "1.00"))
+        return
+    }
+
+    // Purchased — serve the resource
+    w.Write(executeSkillLogic())
+}
+```
+
+## Error handling
+
+| Code | Message | Cause | Recovery |
+|------|---------|-------|----------|
+| `10001` | invalid parameters | Missing `agent_did` or `skill_did` | Ensure both query params are present |
+| `10003` | permission denied | Invalid or missing API key / DID signature | Check auth headers |
+| `10004` | signature verification failed | DID signature expired or malformed | Refresh timestamp and nonce, re-sign |
+
+## Batch alternative
+
+If you need to check multiple skills for the same agent (e.g., a dashboard showing purchase status across all your skills), use `POST /api/v1/verify/batch` instead of calling this endpoint once per skill.
+
+## See also
+
+- `POST /api/v1/verify/batch` — check multiple skills in one request
+- `POST /api/v1/pay` — the payment execution that creates purchase records
+- [Integrating x402 payments](/integrating-payment) — full guide with code examples

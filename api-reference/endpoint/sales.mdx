@@ -2,3 +2,68 @@
 title: 'Sales'
 openapi: 'GET /api/v1/sales'
 ---
+
+## Purpose
+
+Query individual sales transaction records for a developer's skill. Each record represents one completed purchase by an agent.
+
+## Authentication
+
+Requires **DID signature authentication** — you must sign with the wallet that owns the `skill_did`.
+
+## Query parameters
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `skill_did` | Yes | string | The developer/skill DID to query |
+
+Pagination parameters (`limit`, `offset`) may be supported — check the OpenAPI schema for the latest.
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "tx_id": "uuid-1",
+        "agent_did": "did:solana:buyer123...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-29T10:30:00Z"
+      },
+      {
+        "tx_id": "uuid-2",
+        "agent_did": "did:solana:buyer456...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-29T11:45:00Z"
+      }
+    ],
+    "total": 24
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `items[].tx_id` | Payment transaction ID (matches the ID from `POST /api/v1/pay`) |
+| `items[].agent_did` | The buyer's DID |
+| `items[].amount` | Purchase amount in decimal USDC |
+| `items[].currency` | Settlement currency |
+| `items[].created_at` | When the purchase record was created |
+| `total` | Total number of matching records |
+
+Records are sorted by `created_at` descending (most recent first).
+
+## TUI query
+
+> Run stablepay_query_sales with skill_did "did:solana:AbCd..."
+
+## See also
+
+- `GET /api/v1/revenue` — aggregated revenue summary + trends
+- `GET /api/v1/verify` — check if a specific agent purchased a specific skill
+- [Revenue & sales guide](/revenue) — full guide

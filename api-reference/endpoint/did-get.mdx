@@ -2,3 +2,42 @@
 title: 'Get DID'
 openapi: 'GET /api/v1/did/{did}'
 ---
+
+## Purpose
+
+Query the stored public key and wallet address for a registered DID. Used to look up an agent's or developer's Solana public key when you only have their DID string.
+
+## Authentication
+
+Requires **DID signature authentication**.
+
+## Path parameter
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `did` | string | Full DID identifier (`did:solana:...`). URL-encode the colons. |
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "did": "did:solana:AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd"
+  }
+}
+```
+
+## Use cases
+
+- **Signature verification**: Retrieve the public key for a DID, then verify an Ed25519 signature locally
+- **Address resolution**: Convert a `did:solana:...` to a raw Solana address for block explorer lookup
+- **Pre-payment validation**: Confirm a `skill_did` is registered before attempting payment
+
+## See also
+
+- `POST /api/v1/did/register` — register a new DID
+- `POST /api/v1/did/verify` — verify a signature against a DID's public key (server-side)

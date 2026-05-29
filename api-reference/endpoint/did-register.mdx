@@ -2,3 +2,107 @@
 title: 'Register DID'
 openapi: 'POST /api/v1/did/register'
 ---
+
+## Where this fits
+
+`POST /api/v1/did/register` binds a **client-held** wallet public key to the StablePay backend. This is the second step in identity setup:
+
+```
+1. Create OWS wallet (local)  →  stablepay_create_local_wallet
+2. Register DID (this endpoint) →  POST /api/v1/did/register  ← YOU ARE HERE
+3. Set payment limits (local)  →  stablepay_configure_payment_limits
+4. Ready to pay / receive
+```
+
+## Which DID endpoint should I use?
+
+StablePay has two DID creation endpoints with fundamentally different security models:
+
+| Endpoint | Who holds the private key | When to use |
+|----------|--------------------------|-------------|
+| `POST /api/v1/did/register` | **You** (client) | **Always use this.** You create the wallet locally via OWS, then register the public key here. The server never sees your private key. |
+| `POST /api/v1/did` | **Server** | Legacy. Server generates the key pair and stores the private key. Avoid — violates the "you hold your own keys" principle. |
+
+<Warning>
+  The StablePay plugin defaults to `/api/v1/did/register` for a reason. Using `POST /api/v1/did` (server-side key generation) means the server knows your private key. Use only `/api/v1/did/register` unless you have a specific, reviewed reason not to.
+</Warning>
+
+## Request body
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `user_type` | No | `"agent"` or `"developer"` | Categorizes your identity. Default behavior is the same for both. |
+| `public_key` | Yes | string | Your Solana public key (Base58). This is the only key material the server stores. |
+| `wallet_address` | Yes | string | Same as `public_key`. |
+| `wallet_id` | No | string | OWS wallet UUID or name (for traceability) |
+| `wallet_name` | No | string | Human-readable wallet name |
+| `metadata` | No | object | Arbitrary key-value pairs (e.g., `{"sign_runtime": "ows-sdk"}`) |
+
+### Example
+
+```json
+{
+  "user_type": "developer",
+  "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+  "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+  "wallet_id": "uuid-from-ows",
+  "wallet_name": "stablepay-myname",
+  "metadata": {
+    "sign_runtime": "ows-sdk",
+    "source": "@stablepay/openclaw-plugin"
+  }
+}
+```
+
+## Idempotency
+
+This endpoint is **idempotent by public key**. Registering the same public key multiple times returns success — it does not create duplicate records.
+
+<Info>
+  You can safely call this endpoint again after a network timeout without worrying about creating duplicate DIDs.
+</Info>
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "did": "did:solana:AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_id": "uuid-from-ows",
+    "wallet_name": "stablepay-myname",
+    "created_at": "2026-05-29T10:30:00Z"
+  }
+}
+```
+
+<Note>
+  The `did` is derived as `did:solana:{public_key}`. The server does not generate a new identifier — it validates and stores your existing public key. Your DID is deterministic from your wallet.
+</Note>
+
+## After registration
+
+The plugin stores the returned `did` as `backendDid` in your encrypted local state. All subsequent operations (payment, balance queries, sales queries) use this DID for identification and auth.
+
+Verify registration:
+
+> Run stablepay_runtime_status
+
+Should now show `wallet.backend_did: did:solana:AbCd...`.
+
+## Error handling
+
+| Code | Message | Cause | Recovery |
+|------|---------|-------|----------|
+| `10001` | invalid parameters | Missing `public_key` or `wallet_address` | Ensure both fields are present and valid Base58 |
+| `30001` | internal server error | Server-side processing failure | Retry; report if persistent |
+
+## See also
+
+- [Wallet setup guide](/wallet-setup) — full wallet creation flow
+- [DID registration guide](/did-registration) — conceptual overview and `user_type` explanation
+- `GET /api/v1/did/{did}` — query a registered DID
+- `POST /api/v1/did/verify` — verify a DID signature

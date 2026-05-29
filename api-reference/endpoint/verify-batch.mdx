@@ -2,3 +2,63 @@
 title: 'Batch Verify'
 openapi: 'POST /api/v1/verify/batch'
 ---
+
+## Purpose
+
+Check purchase status for **multiple skills at once** for a single agent. More efficient than calling `GET /api/v1/verify` once per skill when you need to check several skills simultaneously.
+
+## When to use
+
+- **Dashboard**: Show purchase status for all your skills for a given agent
+- **Multi-skill access control**: An agent tries to access a bundle of skills — verify all at once
+- **Single-skill check**: Use `GET /api/v1/verify` instead (simpler, no JSON body needed)
+
+## Authentication
+
+Same as `GET /api/v1/verify` — supports **API Key** (recommended for developer backends) or **DID signature**.
+
+## Request body
+
+```json
+{
+  "agent_did": "did:solana:buyer123...",
+  "skill_dids": [
+    "did:solana:developerA...",
+    "did:solana:developerB...",
+    "did:solana:developerC..."
+  ]
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `agent_did` | Yes | string | The buyer DID to check |
+| `skill_dids` | Yes | string[] | Array of skill DIDs to check |
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {"skill_did": "did:solana:developerA...", "purchased": true},
+      {"skill_did": "did:solana:developerB...", "purchased": false},
+      {"skill_did": "did:solana:developerC...", "purchased": true}
+    ]
+  }
+}
+```
+
+Each item in the response corresponds to one `skill_did` in the request, in the same order.
+
+## Limitations
+
+- **Same agent only**: All `skill_dids` are checked against a single `agent_did`. To check multiple agents, make separate calls.
+- **No purchase details**: Unlike the single `GET /api/v1/verify`, the batch response may not include `purchase_time`, `tx_id`, or `amount`. For detailed info, follow up with the single endpoint.
+
+## See also
+
+- `GET /api/v1/verify` — single skill purchase check with full detail
+- [Integrating x402 payments](/integrating-payment) — full guide

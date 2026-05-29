@@ -2,3 +2,56 @@
 title: 'Verify Signature'
 openapi: 'POST /api/v1/did/verify'
 ---
+
+## Purpose
+
+Verify that an Ed25519 signature was produced by the private key corresponding to a DID's public key. Used for server-side identity verification.
+
+## Verification flow
+
+```
+1. Server receives a message + signature + DID from a client
+2. Server calls POST /api/v1/did/verify with {did, message, signature, timestamp}
+3. DID Service looks up the public key for the DID
+4. Checks timestamp is within ±5 minutes of server time (anti-replay)
+5. Checks nonce hasn't been used before (anti-replay)
+6. Verifies Ed25519 signature against public key
+7. Returns {valid: true} or {valid: false}
+```
+
+## Request body
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `did` | Yes | string | The DID claiming to have signed |
+| `message` | Yes | string | The original message that was signed |
+| `signature` | Yes | string | The Ed25519 signature (Base58 or hex) |
+| `timestamp` | Yes | string | ISO 8601 timestamp of when the signature was created |
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "valid": true
+  }
+}
+```
+
+## Anti-replay
+
+Two mechanisms prevent signature replay:
+
+- **Timestamp window**: `timestamp` must be within ±5 minutes of server time
+- **Nonce cache**: Processed signatures are cached in memory to prevent reuse within the window
+
+<Note>
+  This endpoint is distinct from the gateway DID auth used on other endpoints. Gateway DID auth signs a canonical string of `{method}\n{path}\n{query}\n{bodyHash}` + timestamp + nonce. This endpoint verifies arbitrary messages — it's a lower-level primitive.
+</Note>
+
+## See also
+
+- `GET /api/v1/did/{did}` — retrieve a DID's public key for local verification
+- [DID registration guide](/did-registration) — how DIDs are created and registered

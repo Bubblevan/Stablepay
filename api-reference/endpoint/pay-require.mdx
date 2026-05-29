@@ -2,3 +2,138 @@
 title: 'Pay Require'
 openapi: 'GET /api/v1/pay/require'
 ---
+
+## Where this fits
+
+`GET /api/v1/pay/require` is the **payment discovery endpoint** — the first step in the payment lifecycle:
+
+```
+1. GET /api/v1/pay/require  →  "Do I need to pay?"  ← YOU ARE HERE
+2. HTTP 402 response         →  "Yes, here's the payment challenge"
+3. Client builds & signs tx  →  Local: SPL transfer + OWS signing
+4. POST /api/v1/pay          →  "Execute this payment"
+5. Client retries resource   →  Verify purchase, get access
+```
+
+The StablePay plugin calls this endpoint when you use `stablepay_pay_via_gateway` or `stablepay_execute_paid_skill_demo` in TUI.
+
+## Behavior
+
+This endpoint has **two possible outcomes**:
+
+| HTTP Status | Meaning | Next action |
+|-------------|---------|-------------|
+| **200** | Already purchased — no payment needed | Proceed to access the resource |
+| **402** | Payment required — challenge returned | Extract payment details, build tx, call `POST /api/v1/pay` |
+
+<Info>
+  **200 does not mean "free".** It means the agent has already purchased this skill. If you're a developer testing and getting unexpected 200s, the agent DID you're testing with may have already purchased.
+</Info>
+
+## Query parameters
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `skill_did` | Yes | string | The seller/developer DID (`did:solana:...`) |
+| `agent_did` | Yes | string | The buyer/agent DID (`did:solana:...`) |
+| `skill_name` | Yes | string | Human-readable skill name (used in payment descriptions) |
+| `price` | Yes | string | Expected price in decimal format (e.g., `"1.00"`) |
+| `currency` | No | string | `"USDC"` (default) or `"USDT"` |
+| `message` | No | string | Optional payment description override |
+
+## The 402 response
+
+When payment is required, the response body contains a **payment challenge** in one of two formats. The StablePay plugin recognizes both automatically.
+
+### x402 standard format (recommended for new integrations)
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [{
+    "scheme": "exact",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "payTo": "did:solana:<developer-did>",
+    "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "maxAmountRequired": "1000000",
+    "maxTimeoutSeconds": 60,
+    "description": "Pay 1.00 USDC to access this skill",
+    "extra": {
+      "skillDid": "did:solana:<developer-did>",
+      "currency": "USDC",
+      "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+    }
+  }]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `maxAmountRequired` | Amount in **minor units** (6 decimals). `"1000000"` = 1.00 USDC. Must be a **string**. |
+| `payTo` | Recipient DID — this is the developer's `skill_did` |
+| `extra.skillDid` | Must match `payTo`; used by the plugin to identify the seller |
+| `extra.facilitatorUrl` | Where to POST the signed payment (default: `https://ai.wenfu.cn/api/v1/pay`) |
+
+### Legacy format (backward compatible)
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "payment_requirement": {
+    "skill_did": "did:solana:<developer-did>",
+    "price": "1.00",
+    "currency": "USDC",
+    "message": "Pay 1.00 USDC to access"
+  }
+}
+```
+
+<Note>
+  Legacy format uses **decimal** prices (`"price": "1.00"`), not minor units. This is different from x402's `maxAmountRequired`.
+</Note>
+
+### Format resolution order
+
+The plugin checks formats in this order:
+1. `payload.x402Version === 1` + `payload.accepts` → x402 standard
+2. `payload.payment_requirement.data` → legacy nested
+3. `payload.payment_requirement` → legacy flat
+4. `payload.data` → legacy wrapped
+5. `payload` itself (must have `skill_did` at top level)
+
+## Authentication
+
+This endpoint does **not** require authentication headers. It's a public discovery endpoint — anyone can ask whether payment is required for a given skill.
+
+## Error handling
+
+| Code | Message | Cause | Recovery |
+|------|---------|-------|----------|
+| `10001` | invalid parameters | Missing `skill_did` or `agent_did` | Ensure all required query params are present |
+| `10002` | resource not found | `skill_did` not registered | Verify the DID is correct and has been registered |
+
+## Relationship to other endpoints
+
+```
+pay/require (discovery)
+    │
+    ▼ (402 with payment challenge)
+POST /api/v1/pay (execution)
+    │
+    ▼ (tx_id returned)
+GET /api/v1/pay/{tx_id} (status polling)
+    │
+    ▼ (confirmed)
+GET /api/v1/verify (purchase record — called by developer backend)
+```
+
+## See also
+
+- [x402 format reference](/x402-format) — complete specification of both 402 response formats
+- `POST /api/v1/pay` — the next step: submit the signed transaction
+- `GET /api/v1/verify` — check purchase status (developer backend's perspective)

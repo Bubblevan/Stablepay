@@ -2,3 +2,61 @@
 title: 'Revenue'
 openapi: 'GET /api/v1/revenue'
 ---
+
+## Purpose
+
+Query aggregate revenue statistics for a developer's skill — total earnings, total sales count, and daily trends.
+
+## Revenue vs Sales
+
+| Endpoint | Returns | Best for |
+|----------|---------|----------|
+| `GET /api/v1/revenue` | Aggregated summary + daily trend | Dashboard, earnings overview |
+| `GET /api/v1/sales` | Individual transaction records | Transaction-level detail, reconciliation |
+
+Use `revenue` for high-level metrics and `sales` for drill-down into individual purchases.
+
+## Authentication
+
+Requires **DID signature authentication** — you must sign with the wallet that owns the `skill_did`.
+
+## Query parameters
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `skill_did` | Yes | string | The developer/skill DID to query |
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "total_revenue": "120.00",
+    "total_sales": 24,
+    "currency": "USDC",
+    "sales_trend": [
+      {"date": "2026-05-28", "amount": "15.00"},
+      {"date": "2026-05-29", "amount": "25.00"}
+    ]
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `total_revenue` | All-time total earnings in decimal USDC |
+| `total_sales` | Total number of purchases |
+| `currency` | Settlement currency |
+| `sales_trend` | Daily breakdown. Time range and granularity depend on the Query Service implementation. |
+
+## Multiple skills
+
+If you publish multiple skills under different DIDs, call this endpoint once per `skill_did`. There is no "all my skills" aggregation endpoint — query each skill separately.
+
+## See also
+
+- `GET /api/v1/sales` — individual transaction records
+- `GET /api/v1/balance` — on-chain wallet balance
+- [Revenue & sales guide](/revenue) — full guide with TUI conversation examples

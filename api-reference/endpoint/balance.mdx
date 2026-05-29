@@ -2,3 +2,76 @@
 title: 'Balance'
 openapi: 'GET /api/v1/balance'
 ---
+
+## Where this fits
+
+`GET /api/v1/balance` returns your wallet's USDC balance and monthly spending summary. It's the endpoint behind `stablepay_query_balance` in TUI.
+
+The balance is queried **on-chain from Solana** (not a cached database value), so it always reflects your actual token account balance.
+
+## Authentication
+
+Requires **DID signature authentication**:
+
+| Header | Value |
+|--------|-------|
+| `X-StablePay-DID` | Your DID (`did:solana:...`) |
+| `X-StablePay-Signature` | Base58 Ed25519 signature of gateway canonical string |
+| `X-StablePay-Timestamp` | ISO 8601 timestamp (±5 min window) |
+| `X-StablePay-Nonce` | Unique per-request nonce |
+
+## Query parameters
+
+The plugin tries two query parameter formats and falls back automatically:
+
+| Parameter | Example | Notes |
+|-----------|---------|-------|
+| `agent_did` | `?agent_did=did%3Asolana%3AAbCd...` | Primary format; URL-encode the DID |
+| `agent` | `?agent=did%3Asolana%3AAbCd...` | Fallback if the first returns HTTP 400 |
+
+<Info>
+  The plugin tries `agent_did` first. If the gateway returns 400, it retries with `agent`. This dual-format approach exists for backward compatibility. The `agent_did` format is preferred.
+</Info>
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "balance": "25.50",
+    "currency": "USDC",
+    "monthly_spent": "24.50",
+    "monthly_limit": "100.00"
+  }
+}
+```
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `balance` | Solana RPC (chain) | Sum of USDC across all your SPL Token Accounts. **Real on-chain balance.** |
+| `currency` | Query Service | `"USDC"` or `"USDT"` |
+| `monthly_spent` | MySQL (Query Service) | Sum of PURCHASE-type transaction amounts for the current calendar month |
+| `monthly_limit` | Config | Soft monthly spending cap from your payment limits config |
+
+<Note>
+  `balance` is queried from Solana directly via `GetTokenAccountsByOwner` RPC call. The Query Service extracts your wallet address from your DID, queries all your USDC token accounts, and sums their balances. This means the value reflects the chain state at query time — no caching layer between you and Solana.
+</Note>
+
+## Error handling
+
+| Code | Message | Cause | Recovery |
+|------|---------|-------|----------|
+| `10004` | signature verification failed | DID signature invalid or expired | Refresh timestamp, re-sign canonical string |
+| `10002` | resource not found | DID not registered | Register your DID first via `POST /api/v1/did/register` |
+| `30003` | database connection error | Query Service can't reach MySQL | Retry; report if persistent |
+
+## Example (TUI)
+
+> Run stablepay_query_balance with did "did:solana:AbCd..."
+
+## See also
+
+- `GET /api/v1/transactions` — detailed transaction history (purchase and revenue breakdown)
+- `GET /api/v1/revenue` — revenue summary for developers

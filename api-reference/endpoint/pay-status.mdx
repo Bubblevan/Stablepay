@@ -2,3 +2,85 @@
 title: 'Payment Status'
 openapi: 'GET /api/v1/pay/{tx_id}'
 ---
+
+## Where this fits
+
+`GET /api/v1/pay/{tx_id}` checks the status of a previously submitted payment:
+
+```
+POST /api/v1/pay → returns tx_id (status: "pending")
+    │
+    ▼
+GET /api/v1/pay/{tx_id} → poll for final status  ← YOU ARE HERE
+    │
+    ├── "pending"   → still waiting for chain confirmation
+    ├── "confirmed" → payment succeeded, purchase record being written
+    └── "failed"    → chain error or timeout
+```
+
+## When to call
+
+- **After `POST /api/v1/pay`**: The initial response is typically `"pending"`. Poll this endpoint to get the final status.
+- **During debugging**: If a payment seems stuck, check its status here before investigating further.
+
+<Info>
+  The Payment Service polls Solana internally for up to 5 minutes (60 attempts × 5 seconds). You don't need to implement your own chain polling — just check this endpoint.
+</Info>
+
+## Path parameter
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tx_id` | string (UUID) | The transaction ID returned by `POST /api/v1/pay` |
+
+## Authentication
+
+Requires **DID signature authentication** (same headers as other DID-authenticated endpoints).
+
+## Response
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "uuid",
+    "tx_hash": "solana_tx_signature",
+    "status": "confirmed",
+    "confirmed_at": "2026-05-29T10:30:35Z"
+  }
+}
+```
+
+## Status values
+
+| Status | Meaning | What happens next |
+|--------|---------|-------------------|
+| `pending` | Transaction submitted to Solana, awaiting confirmation | Poll again in ~5 seconds |
+| `confirmed` | Solana confirmed the transfer; purchase record is being written asynchronously | Proceed — the purchase will be visible via `/api/v1/verify` shortly |
+| `failed` | Chain rejected the tx, or polling timed out after 5 minutes | Check failure reason; may need retry with new blockhash |
+
+<Warning>
+  `"confirmed"` means the **chain transaction** is confirmed, but the **purchase record** in Verification Service may still be a few seconds behind (RocketMQ async). Always use `GET /api/v1/verify` to confirm purchase status from the developer backend's perspective, not just chain status.
+</Warning>
+
+## Polling strategy
+
+If you're implementing custom polling (rather than using the plugin's built-in retry):
+
+- **Interval**: 3-5 seconds
+- **Max attempts**: 12 (covers ~60s, which is well within the 5-minute internal timeout)
+- **Stop condition**: `status === "confirmed"` or `status === "failed"`
+- **On timeout**: Treat as failed; the user can retry with a new payment
+
+## Error handling
+
+| Code | Message | Cause | Recovery |
+|------|---------|-------|----------|
+| `10002` | resource not found | `tx_id` doesn't exist | Verify the tx_id from the `POST /api/v1/pay` response |
+| `10004` | signature verification failed | DID auth invalid | Refresh timestamp and re-sign |
+
+## See also
+
+- `POST /api/v1/pay` — submit the payment that creates the tx_id
+- `GET /api/v1/verify` — check purchase record status (developer backend perspective)
