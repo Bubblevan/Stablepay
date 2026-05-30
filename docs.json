@@ -112,6 +112,7 @@
                 "pages": [
                   "zh/index",
                   "zh/quickstart",
+                  "zh/testing",
                   "zh/development"
                 ]
               },
@@ -126,6 +127,7 @@
                 "group": "支付集成",
                 "pages": [
                   "zh/integrating-payment",
+                  "zh/backend-verification",
                   "zh/x402-format"
                 ]
               },
@@ -177,6 +179,13 @@
                   "zh/api-reference/endpoint/balance",
                   "zh/api-reference/endpoint/sales",
                   "zh/api-reference/endpoint/revenue"
+                ]
+              },
+              {
+                "group": "错误",
+                "pages": [
+                  "zh/api-reference/errors/error-codes",
+                  "zh/api-reference/errors/retry-idempotency"
                 ]
               }
             ]

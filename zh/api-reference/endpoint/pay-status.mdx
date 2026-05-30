@@ -2,3 +2,85 @@
 title: '支付状态'
 openapi: 'GET /api/v1/pay/{tx_id}'
 ---
+
+## 在流程中的位置
+
+`GET /api/v1/pay/{tx_id}` 检查先前提交支付的状态：
+
+```
+POST /api/v1/pay → 返回 tx_id（状态："pending"）
+    │
+    ▼
+GET /api/v1/pay/{tx_id} → 轮询最终状态  ← 当前位置
+    │
+    ├── "pending"   → 仍在等待链上确认
+    ├── "confirmed" → 支付成功，购买记录正在写入
+    └── "failed"    → 链上错误或超时
+```
+
+## 何时调用
+
+- **`POST /api/v1/pay` 之后**：初始响应通常为 `"pending"`。轮询此端点获取最终状态。
+- **调试期间**：如果支付似乎卡住了，在进一步调查之前先在这里检查状态。
+
+<Info>
+  Payment Service 内部轮询 Solana 最多 5 分钟（60 次 × 5 秒）。你无需实现自己的链上轮询——只需检查此端点。
+</Info>
+
+## 路径参数
+
+| 参数 | 类型 | 描述 |
+|-----------|------|-------------|
+| `tx_id` | string (UUID) | `POST /api/v1/pay` 返回的交易 ID |
+
+## 认证
+
+需要 **DID 签名认证**（与其他 DID 认证端点相同的请求头）。
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "tx_id": "uuid",
+    "tx_hash": "solana_tx_signature",
+    "status": "confirmed",
+    "confirmed_at": "2026-05-29T10:30:35Z"
+  }
+}
+```
+
+## 状态值
+
+| 状态 | 含义 | 接下来发生什么 |
+|--------|---------|-------------------|
+| `pending` | 交易已提交至 Solana，等待确认 | 约 5 秒后再次轮询 |
+| `confirmed` | Solana 确认了转账；购买记录正在异步写入 | 继续——购买记录很快可通过 `/api/v1/verify` 查看到 |
+| `failed` | 链拒绝了交易，或轮询在 5 分钟后超时 | 检查失败原因；可能需要用新的 blockhash 重试 |
+
+<Warning>
+  `"confirmed"` 表示**链上交易**已确认，但 Verification Service 中的**购买记录**可能仍滞后几秒（RocketMQ 异步）。务必使用 `GET /api/v1/verify` 从开发者后端视角确认购买状态，而非仅依赖链上状态。
+</Warning>
+
+## 轮询策略
+
+如果你实现自定义轮询（而非使用插件内置的重试）：
+
+- **间隔**：3-5 秒
+- **最大尝试次数**：12（覆盖约 60 秒，在 5 分钟内部超时范围内）
+- **停止条件**：`status === "confirmed"` 或 `status === "failed"`
+- **超时处理**：视为失败；用户可以用新支付重试
+
+## 错误处理
+
+| 错误码 | 消息 | 原因 | 恢复方式 |
+|------|---------|-------|----------|
+| `10002` | resource not found | `tx_id` 不存在 | 验证来自 `POST /api/v1/pay` 响应的 tx_id |
+| `10004` | signature verification failed | DID 认证无效 | 刷新时间戳并重新签名 |
+
+## 参见
+
+- `POST /api/v1/pay` — 提交创建 tx_id 的支付
+- `GET /api/v1/verify` — 检查购买记录状态（开发者后端视角）

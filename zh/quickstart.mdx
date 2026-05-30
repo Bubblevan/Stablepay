@@ -1,152 +1,185 @@
 ---
 title: "快速开始"
-description: "5 分钟内在你的 OpenClaw Agent 上运行 StablePay"
+description: "5 分钟内为你的技能添加 StablePay 支付"
 icon: 'rocket'
 ---
 
-## 准备工作
+## 为你的技能添加支付
 
-你需要：
-- 已安装 OpenClaw（`openclaw --version` 显示 ≥ 2026.3.1）
-- 一个可以设置环境变量的终端
+打开你技能的 `skill.md`。将以下内容粘贴到顶部或底部——替换两个值即可。
 
-你**不需要**：
-- Docker、Kubernetes 或任何后端服务（`ai.wenfu.cn` 网关已在运行）
-- 有真实余额的 Solana 钱包（我们使用 DevNet 进行开发）
-- 任何区块链知识
+```markdown
+## 💰 StablePay Payment
 
-<Info>
-  **网关已在线。** 插件会自动连接 `https://ai.wenfu.cn`。你无需自行启动任何服务。
-</Info>
+This Skill requires {PRICE} USDC to unlock.
 
-## 步骤 1：安装插件
+Payment endpoint:
+https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
 
-```bash
-openclaw plugins install clawhub:stablepay-agentpay-dev
+Verify purchase:
+https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
 ```
 
-验证是否已加载：
-
-```bash
-openclaw plugins list
-```
-
-预期输出中应包含 `stablepay-agentpay-dev`，状态为 `enabled`。
-
-## 步骤 2：配置 OpenClaw
-
-将以下内容添加到你的 `~/.openclaw/openclaw.json`：
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "stablepay-agentpay-dev": {
-        "enabled": true,
-        "config": {
-          "backendBaseUrl": "https://ai.wenfu.cn",
-          "owsRuntime": "auto",
-          "didRegisterPath": "/api/v1/did/register",
-          "requestTimeoutMs": 90000
-        }
-      }
-    }
-  },
-  "tools": {
-    "allow": [
-      "stablepay_runtime_status",
-      "stablepay_create_local_wallet",
-      "stablepay_bind_existing_wallet",
-      "stablepay_register_local_did",
-      "stablepay_configure_payment_limits",
-      "stablepay_sign_message",
-      "stablepay_pay_via_gateway",
-      "stablepay_query_balance",
-      "stablepay_query_sales"
-    ]
-  }
-}
-```
-
-## 步骤 3：设置环境变量
-
-```bash
-# 必需 — 用于加密本地钱包状态的主密钥
-export STABLEPAY_PLUGIN_MASTER_KEY="在此生成一长串随机密钥"
-
-# 真实支付必需 — DevNet 热钱包公钥
-export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
-
-# 可选 — 用于无人值守的 OWS 签名
-export STABLEPAY_OWS_PASSPHRASE="你的密码"
-```
+| 变量 | 替换为 |
+|----------|--------------|
+| `{PRICE}` | 你的 USDC 价格（如 `5`） |
+| `{SKILL_DID}` | 你的开发者 DID（`did:solana:AbCdEf...`） |
+| `{AGENT_DID}` | **保持原样**——买家 Agent 在运行时填充 |
 
 <Tip>
-  将这些添加到 `~/.zshrc` 或 `~/.bashrc` 中，以便跨会话持久保留。
+  还没有 DID？下面的章节会带你完成一次性钱包设置。只需做一次——之后为每个技能添加支付只需粘贴上面的模板。
 </Tip>
 
-## 步骤 4：重启并进入 TUI
+### 工作原理
+
+```
+买家的 Agent 读取你的 skill.md
+    → 看到支付块
+    → 在对话中运行 stablepay_pay_via_gateway
+    → 用其钱包签名 SPL 转账
+    → USDC 直接发送到你的钱包 (skill_did)
+    → 买家 Agent 获得访问权限
+```
+
+### 后端强制安全
+
+skill.md 模板是最简单的路径。如果你需要服务端强制（使用户无法移除支付块），你的后端应返回 HTTP 402 并调用 verify API。参见[集成 x402 支付](/integrating-payment)了解 Go、Node.js 的后端示例以及 x402 格式参考。
+
+---
+
+## 一次性设置
+
+在你的第一个付费技能之前，设置钱包并注册 DID。大约 5 分钟，只需做一次。
+
+### Sandbox vs Production
+
+<Tabs>
+  <Tab title="Production">
+    ```bash
+    # 安装插件
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://api.stablepay.co",
+              "solanaRpcUrl": "https://api.mainnet-beta.solana.com",
+              "splTokenMintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
+        }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
+      }
+    }
+
+    # 环境变量
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+    export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+    ```
+  </Tab>
+  <Tab title="Sandbox">
+    ```bash
+    # 安装插件
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://ai.wenfu.cn",
+              "solanaRpcUrl": "https://api.devnet.solana.com",
+              "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
+        }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
+      }
+    }
+
+    # 环境变量
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+    export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Production Mainnet 支付尚未部署——Sandbox 网关目前服务所有流量。两个环境的 API 端点、认证和交易流程完全一致。参见[环境](/api-reference/introduction#environments)。
+</Note>
+
+### 创建钱包和 DID
+
+配置后，重启网关并进入 TUI：
 
 ```bash
 openclaw gateway restart
 openclaw tui
 ```
 
-## 步骤 5：你的第一次对话
+在对话中按顺序执行以下三步：
 
-在 TUI 中，按顺序执行以下步骤：
+> Run stablepay_create_local_wallet with user_type "developer", runtime "auto"
 
-### 5.1 检查运行时状态
+> Run stablepay_register_local_did with user_type "developer"
 
-> Run stablepay_runtime_status
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 1000, auto_purchase_threshold_usdc 50
 
-确认输出显示 `has_wallet: false` 且已选择了一个活跃的驱动。
+记录输出中的 `did`——这就是你的 `{SKILL_DID}`。
 
-### 5.2 创建钱包
+### 完成
 
-> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+现在回到本页顶部，复制支付模板，粘贴到你的 skill.md 中，将 `{SKILL_DID}` 替换为你的 DID，`{PRICE}` 替换为你的价格。就这些。
 
-这会通过 OWS 创建一个新的 Solana 钱包。记录输出中显示的 `did` 和 `wallet_address`。
-
-### 5.3 注册你的 DID
-
-> Run stablepay_register_local_did with user_type "agent"
-
-这会将你的公钥注册到 StablePay 后端。你现在拥有了一个有效的 `did:solana:...` 身份。
-
-### 5.4 设置支付限额
-
-> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 100, auto_purchase_threshold_usdc 10
-
-- **单次购买限额**：每笔交易的最大支出（硬上限）
-- **自动购买阈值**：低于此金额的购买跳过确认
-
-### 5.5 测试支付
-
-> Run stablepay_pay_via_gateway with skill_did "did:solana:`<卖家地址>`", skill_name "demo-skill", price "1.00", currency "USDC"
-
-如果支付成功，你将获得一个 `tx_id`。
-
-<Tip>
-  测试时，可以使用演示热钱包地址作为 skill_did 目标：
-  `did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`
-</Tip>
-
-### 5.6 查询余额
-
-> Run stablepay_query_balance with did "`<你的-did>`"
+---
 
 ## 下一步
 
 <CardGroup cols={2}>
-  <Card title="我正在构建付费服务" icon="hammer" href="/integrating-payment">
-    了解如何将 x402 支付集成到你的技能或后端。
+  <Card title="端到端测试" icon="flask" href="/testing">
+    验证完整支付链路：钱包 → DID → 限额 → 支付 → 余额。
   </Card>
-  <Card title="我想发布到 MoltBay" icon="store" href="/moltbay">
+  <Card title="后端 x402 集成" icon="server" href="/integrating-payment">
+    使用 HTTP 402 和购买验证添加服务端支付强制。
+  </Card>
+  <Card title="发布到 MoltBay" icon="store" href="/moltbay">
     将你的服务上架到 Agent 市场。
-  </Card>
-  <Card title="插件配置详解" icon="gear" href="/plugin-configuration">
-    每个配置选项的详细说明。
   </Card>
   <Card title="API 参考" icon="code" href="/api-reference/introduction">
     完整的 REST API 文档。

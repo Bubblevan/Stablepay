@@ -2,3 +2,68 @@
 title: '销售'
 openapi: 'GET /api/v1/sales'
 ---
+
+## 用途
+
+查询开发者技能的单个销售交易记录。每条记录代表 Agent 完成的一次购买。
+
+## 认证
+
+需要 **DID 签名认证**——你必须使用拥有 `skill_did` 的钱包进行签名。
+
+## 查询参数
+
+| 参数 | 必需 | 类型 | 描述 |
+|-----------|----------|------|-------------|
+| `skill_did` | 是 | string | 要查询的开发者/技能 DID |
+
+分页参数（`limit`、`offset`）可能受支持——请查看 OpenAPI schema 获取最新信息。
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "tx_id": "uuid-1",
+        "agent_did": "did:solana:buyer123...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-29T10:30:00Z"
+      },
+      {
+        "tx_id": "uuid-2",
+        "agent_did": "did:solana:buyer456...",
+        "amount": "5.00",
+        "currency": "USDC",
+        "created_at": "2026-05-29T11:45:00Z"
+      }
+    ],
+    "total": 24
+  }
+}
+```
+
+| 字段 | 描述 |
+|-------|-------------|
+| `items[].tx_id` | 支付交易 ID（与 `POST /api/v1/pay` 返回的 ID 一致） |
+| `items[].agent_did` | 买家 DID |
+| `items[].amount` | 购买金额（十进制 USDC） |
+| `items[].currency` | 结算货币 |
+| `items[].created_at` | 购买记录创建时间 |
+| `total` | 匹配记录总数 |
+
+记录按 `created_at` 降序排列（最近的在前面）。
+
+## TUI 查询
+
+> Run stablepay_query_sales with skill_did "did:solana:AbCd..."
+
+## 参见
+
+- `GET /api/v1/revenue` — 汇总收益摘要 + 趋势
+- `GET /api/v1/verify` — 检查特定 Agent 是否购买了特定技能
+- [收益与销售指南](/revenue) — 完整指南

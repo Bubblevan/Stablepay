@@ -2,3 +2,138 @@
 title: '支付需求'
 openapi: 'GET /api/v1/pay/require'
 ---
+
+## 在流程中的位置
+
+`GET /api/v1/pay/require` 是**支付发现端点**——支付生命周期的第一步：
+
+```
+1. GET /api/v1/pay/require  →  "需要支付吗？"  ← 当前位置
+2. HTTP 402 响应             →  "是的，以下是支付挑战"
+3. 客户端构建并签名交易       →  本地：SPL 转账 + OWS 签名
+4. POST /api/v1/pay          →  "执行此支付"
+5. 客户端重试资源请求         →  验证购买，获取访问权限
+```
+
+当你在 TUI 中使用 `stablepay_pay_via_gateway` 或 `stablepay_execute_paid_skill_demo` 时，StablePay 插件会调用此端点。
+
+## 行为
+
+此端点有**两种可能的返回结果**：
+
+| HTTP 状态 | 含义 | 下一步 |
+|-------------|---------|-------------|
+| **200** | 已购买——无需支付 | 继续访问资源 |
+| **402** | 需要支付——返回支付挑战 | 提取支付详情，构建交易，调用 `POST /api/v1/pay` |
+
+<Info>
+  **200 不代表"免费"。** 它表示 Agent 已经购买过此技能。如果你是开发者，在测试中意外收到 200，可能是因为你测试所用的 Agent DID 已经购买过。
+</Info>
+
+## 查询参数
+
+| 参数 | 必需 | 类型 | 描述 |
+|-----------|----------|------|-------------|
+| `skill_did` | 是 | string | 卖家/开发者 DID（`did:solana:...`） |
+| `agent_did` | 是 | string | 买家/Agent DID（`did:solana:...`） |
+| `skill_name` | 是 | string | 人类可读的技能名称（用于支付描述） |
+| `price` | 是 | string | 十进制格式的预期价格（如 `"1.00"`） |
+| `currency` | 否 | string | `"USDC"`（默认）或 `"USDT"` |
+| `message` | 否 | string | 可选的支付描述覆盖 |
+
+## 402 响应
+
+当需要支付时，响应 body 包含**支付挑战**，有两种格式。StablePay 插件自动识别两种格式。
+
+### x402 标准格式（推荐用于新集成）
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [{
+    "scheme": "exact",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "payTo": "did:solana:<developer-did>",
+    "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "maxAmountRequired": "1000000",
+    "maxTimeoutSeconds": 60,
+    "description": "支付 1.00 USDC 以访问此技能",
+    "extra": {
+      "skillDid": "did:solana:<developer-did>",
+      "currency": "USDC",
+      "facilitatorUrl": "https://ai.wenfu.cn/api/v1/pay"
+    }
+  }]
+}
+```
+
+| 字段 | 描述 |
+|-------|-------------|
+| `maxAmountRequired` | 以**最小单位**表示的金额（6 位小数）。`"1000000"` = 1.00 USDC。必须是**字符串**。 |
+| `payTo` | 接收方 DID——即开发者的 `skill_did` |
+| `extra.skillDid` | 必须与 `payTo` 匹配；插件用于识别卖家 |
+| `extra.facilitatorUrl` | 提交签名支付的地址（默认：`https://ai.wenfu.cn/api/v1/pay`） |
+
+### 旧版格式（向后兼容）
+
+```json
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "payment_requirement": {
+    "skill_did": "did:solana:<developer-did>",
+    "price": "1.00",
+    "currency": "USDC",
+    "message": "支付 1.00 USDC 以访问"
+  }
+}
+```
+
+<Note>
+  旧版格式使用**十进制**价格（`"price": "1.00"`），而非最小单位。这与 x402 的 `maxAmountRequired` 不同。
+</Note>
+
+### 格式解析顺序
+
+插件按以下顺序检查格式：
+1. `payload.x402Version === 1` + `payload.accepts` → x402 标准
+2. `payload.payment_requirement.data` → 旧版嵌套
+3. `payload.payment_requirement` → 旧版平铺
+4. `payload.data` → 旧版包裹
+5. `payload` 自身（必须在顶层有 `skill_did`）
+
+## 认证
+
+此端点**不需要**认证头。它是一个公开的发现端点——任何人都可以询问某个技能是否需要支付。
+
+## 错误处理
+
+| 错误码 | 消息 | 原因 | 恢复方式 |
+|------|---------|-------|----------|
+| `10001` | invalid parameters | 缺少 `skill_did` 或 `agent_did` | 确保所有必需的查询参数都已填写 |
+| `10002` | resource not found | `skill_did` 未注册 | 验证 DID 正确且已注册 |
+
+## 与其他端点的关系
+
+```
+pay/require（发现）
+    │
+    ▼（402 及支付挑战）
+POST /api/v1/pay（执行）
+    │
+    ▼（返回 tx_id）
+GET /api/v1/pay/{tx_id}（状态轮询）
+    │
+    ▼（已确认）
+GET /api/v1/verify（购买记录——由开发者后端调用）
+```
+
+## 参见
+
+- [x402 格式参考](/x402-format) — 两种 402 响应格式的完整规范
+- `POST /api/v1/pay` — 下一步：提交签名交易
+- `GET /api/v1/verify` — 检查购买状态（开发者后端视角）

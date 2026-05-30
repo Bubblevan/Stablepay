@@ -2,3 +2,63 @@
 title: '批量验证'
 openapi: 'POST /api/v1/verify/batch'
 ---
+
+## 用途
+
+一次性检查单个 Agent 对**多个技能**的购买状态。当你需要同时检查多个技能时，比逐个调用 `GET /api/v1/verify` 更高效。
+
+## 何时使用
+
+- **仪表盘**：显示某个 Agent 对你所有技能的购买状态
+- **多技能访问控制**：Agent 尝试访问一组技能——一次性全部验证
+- **单技能检查**：使用 `GET /api/v1/verify` 即可（更简单，无需 JSON body）
+
+## 认证
+
+与 `GET /api/v1/verify` 相同——支持 **API Key**（推荐用于开发者后端）或 **DID 签名**。
+
+## 请求体
+
+```json
+{
+  "agent_did": "did:solana:buyer123...",
+  "skill_dids": [
+    "did:solana:developerA...",
+    "did:solana:developerB...",
+    "did:solana:developerC..."
+  ]
+}
+```
+
+| 字段 | 必需 | 类型 | 描述 |
+|-------|----------|------|-------------|
+| `agent_did` | 是 | string | 要检查的买家 DID |
+| `skill_dids` | 是 | string[] | 要检查的技能 DID 数组 |
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {"skill_did": "did:solana:developerA...", "purchased": true},
+      {"skill_did": "did:solana:developerB...", "purchased": false},
+      {"skill_did": "did:solana:developerC...", "purchased": true}
+    ]
+  }
+}
+```
+
+响应中的每一项对应请求中的一个 `skill_did`，顺序相同。
+
+## 限制
+
+- **仅同一 Agent**：所有 `skill_dids` 针对单个 `agent_did` 进行检查。要检查多个 Agent，需要分别调用。
+- **无购买详情**：与单个 `GET /api/v1/verify` 不同，批量响应可能不包含 `purchase_time`、`tx_id` 或 `amount`。如需详细信��，请使用单个端点跟进。
+
+## 参见
+
+- `GET /api/v1/verify` — 单技能购买检查（包含完整详情）
+- [集成 x402 支付](/integrating-payment) — 完整指南

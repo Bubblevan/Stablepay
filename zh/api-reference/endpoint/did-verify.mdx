@@ -2,3 +2,56 @@
 title: '验证签名'
 openapi: 'POST /api/v1/did/verify'
 ---
+
+## 用途
+
+验证 Ed25519 签名是否由对应 DID 公钥的私钥生成。用于服务端身份验证。
+
+## 验证流程
+
+```
+1. 服务端收到来自客户端的 message + signature + DID
+2. 服务端调用 POST /api/v1/did/verify，传入 {did, message, signature, timestamp}
+3. DID Service 查找该 DID 对应的公钥
+4. 检查 timestamp 是否在服务器时间 ±5 分钟内（防重放）
+5. 检查 nonce 是否已被使用（防重放）
+6. 用公钥验证 Ed25519 签名
+7. 返回 {valid: true} 或 {valid: false}
+```
+
+## 请求体
+
+| 字段 | 必需 | 类型 | 描述 |
+|-------|----------|------|-------------|
+| `did` | 是 | string | 声称已签名的 DID |
+| `message` | 是 | string | 被签名的原始消息 |
+| `signature` | 是 | string | Ed25519 签名（Base58 或 hex） |
+| `timestamp` | 是 | string | 签名创建时的 ISO 8601 时间戳 |
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "valid": true
+  }
+}
+```
+
+## 防重放
+
+两种机制防止签名重放：
+
+- **时间戳窗口**：`timestamp` 必须在服务器时间 ±5 分钟内
+- **Nonce 缓存**：已处理的签名在窗口期间缓存在内存中，防止重复使用
+
+<Note>
+  此端点与其他端点使用的网关 DID 认证不同。网关 DID 认证签名的规范字符串格式为 `{method}\n{path}\n{query}\n{bodyHash}` + timestamp + nonce。此端点验证任意消息——是一个更底层的原语。
+</Note>
+
+## 参见
+
+- `GET /api/v1/did/{did}` — 获取 DID 对应的公钥用于本地验证
+- [DID 注册指南](/did-registration) — DID 如何创建和注册

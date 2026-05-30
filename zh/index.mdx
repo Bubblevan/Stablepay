@@ -100,23 +100,96 @@ StablePay 是面向 AI Agent 经济的分布式支付基础设施。它让你的
 
 ## 架构
 
+支付流程分为三个阶段，点击标签页查看完整生命周期。
+
+<Tabs>
+  <Tab title="1. 402 挑战">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Verify as Verification Service
+    end
+
+    Agent->>Server: 1. 请求资源
+    Server->>Gateway: 2. 检查购买状态 (verify API)
+    Gateway->>Verify: 3. 查询记录
+    Verify-->>Gateway: 未购买
+    Gateway-->>Server: purchased=false
+    Server-->>Agent: 4. HTTP 402 + 支付挑战
 ```
-┌─────────────────────────┐     ┌──────────────────────────────┐
-│  OpenClaw + 插件          │     │  StablePay 后端 (ACK)         │
-│  (你的机器)                │────▶│  ai.wenfu.cn                  │
-│                          │     │                              │
-│  • OWS 钱包               │     │  API Gateway → DID Service   │
-│  • 本地状态 (AES-GCM)      │     │            → Payment Service │
-│  • SPL 交易构建            │     │            → Blockchain Adap │
-│  • 签名                    │     │            → Verification    │
-└─────────────────────────┘     └──────────────┬───────────────┘
-                                               │
-                                               ▼
-                                    ┌──────────────────┐
-                                    │  Solana DevNet    │
-                                    │  USDC SPL Token   │
-                                    └──────────────────┘
+
+开发者后端返回 **HTTP 402 Payment Required**，携带 [x402 支付挑战](/x402-format)。Agent 的 StablePay 插件自动识别此响应。
+
+  </Tab>
+  <Tab title="2. 支付与结算">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Gateway as API Gateway
+    participant Payment as Payment Service
+    participant DID as DID Service
+    participant Adapter as Blockchain Adapter
+    participant Solana as Solana
+
+    Note over Agent: 5. 构建并签名 SPL 转账交易
+    Note over Agent: (本地 OWS 钱包签名)
+
+    Agent->>Gateway: 6. POST /api/v1/pay
+    Gateway->>Payment: 7. 转发支付
+    Payment->>DID: 8. 验证 Agent 签名
+    DID-->>Payment: 签名有效
+    Payment->>Adapter: 9. 执行 SPL 转账
+    Adapter->>Solana: 10. 广播交易
+    Solana-->>Adapter: 交易已确认
+    Adapter-->>Payment: 结算已确认
+    Payment-->>Gateway: 支付结果
+    Gateway-->>Agent: 11. tx_id + 状态
 ```
+
+插件使用 OWS 在本地构建并签名 SPL 代币转账。网关将签名后的交易转发至 Solana 进行链上结算。**USDC 直接从买家转到卖家**——无中间方。
+
+  </Tab>
+  <Tab title="3. 验证与重试">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Verify as Verification Service
+    end
+    participant Payment as Payment Service
+
+    Note over Payment,Verify: 12. RocketMQ 异步 → 写入购买记录
+
+    Agent->>Server: 13. 重试资源请求
+    Server->>Gateway: 14. 再次检查购买状态
+    Gateway->>Verify: 15. 查询记录
+    Verify-->>Gateway: purchased=true
+    Gateway-->>Server: purchased=true
+    Server-->>Agent: 16. 200 OK + 结果
+```
+
+购买记录**异步**写入（通常 &lt;5 秒）。Agent 重试原始请求，开发者后端再次检查购买状态，成功后返回付费资源。
+
+  </Tab>
+</Tabs>
+
+<style>{`
+  .svg-pan-zoom-control { display: none !important; }
+`}</style>
 
 ## 准备开始？
 

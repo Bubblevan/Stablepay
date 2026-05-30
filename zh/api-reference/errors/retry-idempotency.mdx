@@ -1,0 +1,220 @@
+---
+title: '重试与幂等性'
+description: '安全重试策略、幂等键和防重放机制'
+icon: 'rotate-right'
+---
+
+## 哪些错误应该重试？
+
+并非所有失败都可以安全重试。使用以下决策树：
+
+```
+收到错误
+  │
+  ├── HTTP 402 ──▶ 不是错误。提取支付挑战并继续支付。
+  │
+  ├── HTTP 409 ──▶ 在 POST /api/v1/pay 时：支付已存在。视为成功。
+  │                其他端点：修复你的幂等键后重试。
+  │
+  ├── HTTP 429 / 500 / 503 ──▶ 可以安全地使用指数退避重试。
+  │
+  ├── HTTP 401 (code 10004) ──▶ 刷新 timestamp + nonce，重新签名，重试一次。
+  │
+  └── HTTP 400 / 403 / 404 ──▶ 不要重试。先修复根本原因。
+```
+
+## 重试策略
+
+对于重试安全的错误（`429`、`500`、`503`），使用**带抖动的指数退避**：
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    async function fetchWithRetry(
+      url: string,
+      options: RequestInit,
+      maxRetries = 3
+    ): Promise<Response> {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const res = await fetch(url, options);
+        if (res.ok || res.status === 402) return res; // 402 是正常流程
+
+        // 不重试客户端错误
+        if ([400, 403, 404].includes(res.status)) throw new ApiError(res);
+
+        // 最后一次尝试——放弃
+        if (attempt === maxRetries) throw new ApiError(res);
+
+        // 带抖动的指数退避：1s → 2s → 4s
+        const baseMs = 1000 * Math.pow(2, attempt);
+        const jitter = Math.random() * 500;
+        await sleep(baseMs + jitter);
+      }
+      throw new Error("unreachable");
+    }
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import time, random, requests
+
+    def fetch_with_retry(url, headers=None, json=None, max_retries=3):
+        for attempt in range(max_retries + 1):
+            resp = requests.request(
+                "GET" if json is None else "POST",
+                url, headers=headers, json=json
+            )
+            if resp.ok or resp.status_code == 402:
+                return resp  # 402 是正常业务流程
+
+            if resp.status_code in (400, 403, 404):
+                raise ApiError(resp)  # 不重试
+
+            if attempt == max_retries:
+                raise ApiError(resp)
+
+            base_ms = 1000 * (2 ** attempt)
+            jitter = random.uniform(0, 500) / 1000
+            time.sleep((base_ms / 1000) + jitter)
+    ```
+  </Tab>
+</Tabs>
+
+### 平台重试参数（来自 tech.md）
+
+| 设置 | 值 |
+|---------|-------|
+| 内部 RPC 超时 | 1000ms |
+| 外部 HTTP 超时 | 2000ms |
+| 最大重试次数 | 3 |
+| 退避间隔 | 100ms → 200ms → 400ms |
+| 熔断阈值 | 连续 5 次失败 → 打开 30 秒 |
+
+---
+
+## 幂等性
+
+幂等性对支付端点至关重要。如果 `POST /api/v1/pay` 在服务端处理后网络超时导致未收到响应，不带幂等键重试可能导致重复扣款。
+
+### X-Idempotency-Key
+
+在 `POST /api/v1/pay` 上传入此头：
+
+```
+X-Idempotency-Key: openclaw-biz-1717000000-d4e5f6
+```
+
+Payment Service 内部生成自己的幂等键（`agent_did + skill_did`），但提供自己的键可以让你控制重试行为。如果同一键提交两次：
+
+- 第一次调用：正常执行支付
+- 第二次调用：返回 `20002`（支付已存在）——**视为成功**
+
+### 键构造
+
+好的幂等键是：
+- **每次支付意图唯一**——非每次请求
+- **重试时可确定性重现**——同一支付意图 → 同一键
+
+```typescript
+// 每个订单一个键，跨重试稳定
+const orderId = `openclaw-${Date.now()}-${randomHex(8)}`;
+headers["X-Idempotency-Key"] = orderId;
+```
+
+<Warning>
+  不要在每次重试时生成新键。如果你第一次尝试成功但响应超时，重试时使用新键将创建重复支付。使用相同键并将 `20002` 视为成功。
+</Warning>
+
+### 幂等键作用域
+
+| 键类型 | 作用域 | TTL |
+|----------|-------|-----|
+| 支付幂等键（`agent_did + skill_did`） | 每个 agent-skill 对 | 30 分钟（Redis） |
+| `X-Idempotency-Key`（客户端提供） | 每个键值 | 支付流程期间 |
+
+---
+
+## 防重放：timestamp + nonce
+
+每个 DID 认证请求都包含 timestamp 和 nonce，防止截获的请求被重放。
+
+### 工作原理
+
+```
+客户端                              服务端
+  │                                    │
+  │  X-StablePay-Timestamp: now()      │
+  │  X-StablePay-Nonce: random()       │
+  ├───────────────────────────────────►│
+  │                                    ├─ 1. |timestamp - now| ≤ 5 分钟？
+  │                                    │    否 → 10004，拒绝
+  │                                    │
+  │                                    ├─ 2. 此 nonce 之前见过？
+  │                                    │    是 → 10004，拒绝
+  │                                    │    （nonce 在 Redis 中缓存在窗口期间）
+  │                                    │
+  │                                    ├─ 3. 验证 Ed25519 签名
+  │                                    │    失败 → 10004，拒绝
+  │                                    │
+  │                                    └─ 4. 所有检查通过 → 处理请求
+```
+
+### Nonce 格式
+
+插件生成以下格式的 nonce：
+
+```
+gw-{unix_ms}-{random_hex_8}
+```
+
+示例：`gw-1717000000000-a1b2c3d4`
+
+每个 nonce 必须全局唯一。服务端在时间戳窗口期间（±5 分钟）缓存已处理的 nonce。窗口关闭后，nonce 被清除。
+
+### 时间戳格式
+
+ISO 8601，UTC：
+
+```
+2026-05-30T10:30:00Z
+```
+
+必须在服务器时间 ±5 分钟内。如果时钟漂移，刷新并重新签名。
+
+### 构建规范字符串
+
+timestamp 和 nonce **附加到规范字符串后面**再签名：
+
+```
+{method}\n{path}\n{rawQuery}\n{bodySha256Hex}{timestamp}{nonce}
+```
+
+例如，一个 GET 请求：
+
+```
+GET\n/api/v1/balance\nagent_did=did%3Asolana%3AAbCd\ne3b0c4...2026-05-30T10:30:00Zgw-1717000000000-a1b2c3d4
+```
+
+<Info>
+  插件通过 `stablepay_sign_message` 并设置 `append_timestamp_nonce: true` 自动完成此操作。只有当你用自己的代码（而非通过插件）调用 API 时才需要手动构建规范字符串。
+</Info>
+
+---
+
+## 幂等性与重放保护的重叠
+
+| 关注点 | 机制 | 防止什么 |
+|---------|-----------|-----------------|
+| 重试时的重复支付 | `X-Idempotency-Key` | 支付响应在传输中丢失时双重扣款 |
+| 被盗请求重放 | Timestamp + nonce | 攻击者截获并重放你的签名请求 |
+| 签名伪造 | Ed25519 验证 | 攻击者在没有你私钥的情况下伪造请求 |
+
+三者都是必需的。没有哪个可以替代另一个。
+
+---
+
+## 参见
+
+- [错误码参考](/api-reference/errors/error-codes) — 哪些 HTTP 状态码和错误码映射到哪些恢复操作
+- [认证](/api-reference/introduction#authentication) — DID 签名和规范字符串如何工作
+- [提交支付端点](/api-reference/endpoint/pay-submit) — `X-Idempotency-Key` 实际使用的地方

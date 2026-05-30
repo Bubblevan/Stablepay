@@ -1,14 +1,119 @@
 ---
 title: 'API 概览'
-description: 'StablePay REST API — 认证、约定和错误码'
+description: 'StablePay REST API — 前置条件、环境、认证方式及约定'
 icon: 'code'
 ---
 
-## 基础 URL
+## 开始之前
+
+调用 StablePay API 需要：
+
+| 条件 | 如何获取 |
+|-------------|---------------|
+| 一个 `did:solana:...` 身份 | [创建 OWS 钱包](/wallet-setup)然后[注册 DID](/did-registration) |
+| 本地签名能力 | [StablePay OpenClaw 插件](/quickstart)在 TUI 中处理此事。直接访问 API 请使用你 OWS 钱包的 Ed25519 密钥。 |
+| （开发者后端）API Key | 联系 StablePay 团队获取，用于服务端验证调用 |
+
+<Info>
+  **TUI 用户**：插件自动生成所有认证头，构建交易并签名——只需在对话中使用工具名称（如 `stablepay_query_balance`）。
+
+  **后端开发者**：你将从自己的服务器直接调用 API。请继续阅读认证设置和代码示例。
+</Info>
+
+## 环境
+
+StablePay 提供两个环境。两者 API 接口相同——只有 base URL 和链参数不同。
+
+| | Sandbox | Production |
+|--|---------|------------|
+| **网关** | `https://ai.wenfu.cn` | `https://api.stablepay.co` |
+| **Solana 网络** | DevNet | Mainnet |
+| **SPL mint (USDC)** | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| **手续费支付方地址** | `FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z` | （平台热钱包公钥） |
+| **用途** | 开发、测试、CI | 真实支付 |
+
+<Note>
+  Production 环境按照 PRD v1 范围计划中。网关和 blockchain-adapter 当前服务 Sandbox；Production 值为目标配置。
+</Note>
+
+### 切换环境
+
+更改四个值，其他保持不变。
+
+**在 `openclaw.json` 中 Sandbox → Production：**
+
+```json
+{
+  "backendBaseUrl": "https://api.stablepay.co",
+  "solanaRpcUrl": "https://api.mainnet-beta.solana.com",
+  "splTokenMintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "feePayerSolanaAddress": "<prod-hotwallet-pubkey>"
+}
+```
+
+或通过环境变量：
+
+```bash
+export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+```
+
+<Warning>
+  Sandbox USDC 没有货币价值。从任何 [Solana DevNet faucet](https://solfaucet.com) 获取 DevNet USDC 用于测试。Production USDC 是真金白银——先在 Sandbox 中测试集成。
+</Warning>
+
+## 最小成功路径
 
 ```
-https://ai.wenfu.cn
+1. 安装插件           →  openclaw plugins install clawhub:stablepay-agentpay-dev
+2. 设置环境变量（必需）  →  export STABLEPAY_PLUGIN_MASTER_KEY="..."
+3. TUI：创建钱包       →  stablepay_create_local_wallet
+4. TUI：注册 DID        →  stablepay_register_local_did
+5. TUI：设置限额 + 支付  →  stablepay_configure_payment_limits → stablepay_pay_via_gateway
 ```
+
+步骤 3–5 完全在 OpenClaw 对话中完成。完整指南：[快速开始](/quickstart)。
+
+## 环境变量
+
+### 必需（所有用户）
+
+```bash
+export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+```
+
+使用 AES-256-GCM 加密你的本地钱包状态。**妥善保管**——丢失意味着需重新创建钱包绑定。
+
+### 必需（用于支付）
+
+```bash
+# Sandbox
+export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+
+# Production
+export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+```
+
+平台热钱包的**公钥**——不是私钥。用于构建拥有正确 `feePayer` 的 Solana 交易。也可在 `openclaw.json` 中设置为 `feePayerSolanaAddress`（环境变量优先级更高）。
+
+### 可选
+
+```bash
+export STABLEPAY_OWS_PASSPHRASE="your-passphrase"   # 无人值守 OWS 签名
+export STABLEPAY_PLUGIN_DEBUG=1                      # 开发期间输出详细日志
+```
+
+### 仅 ows-rest 运行时
+
+```bash
+export STABLEPAY_OWS_REST_API_KEY="your-rest-token"
+```
+
+## Base URL
+
+| 环境 | Base URL |
+|-------------|----------|
+| Sandbox | `https://ai.wenfu.cn` |
+| Production | `https://api.stablepay.co` |
 
 所有端点均带 `/api/v1/` 前缀。
 
@@ -19,22 +124,112 @@ StablePay 使用两种认证方式：
 | 方式 | 请求头 | 用途 |
 |--------|-----------|----------|
 | **DID 签名** | `X-StablePay-DID`、`X-StablePay-Signature`、`X-StablePay-Timestamp`、`X-StablePay-Nonce` | 支付、余额、销售查询 |
-| **API 密钥** | `X-API-Key` | 开发者后端验证调用 |
+| **API Key** | `X-API-Key` | 开发者后端验证调用 |
 
 ### DID 签名
 
-规范字符串为：
+网关规范字符串：
 
 ```
 {method}\n{path}\n{rawQuery}\n{bodySha256Hex}
 ```
 
-使用你钱包的 Ed25519 密钥签名。通过 TUI 查询时，插件会自动生成此签名。直接访问 API 时，使用 `stablepay_sign_message` 生成请求头。
+对于 GET 请求，`bodySha256Hex` 是空字符串的 SHA256（`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`）。
 
-### 时间戳与 Nonce
+使用你钱包的 Ed25519 密钥签名。插件在 TUI 中自动生成这些请求头。直接访问 API 请使用 `stablepay_sign_message` 并设置 `append_timestamp_nonce: true`。
 
-- 时间戳必须在服务器时间的 ±5 分钟内
-- Nonce 每个请求必须唯一（防重放）
+### API Key
+
+开发者后端进行服务端到服务端调用（主要是验证端点）：
+
+```bash
+curl -H "X-API-Key: sp_api_xxxxxxxx" \
+     "https://ai.wenfu.cn/api/v1/verify?agent_did=...&skill_did=..."
+```
+
+API Key 由 StablePay 团队发放。
+
+### Timestamp 与 Nonce
+
+- Timestamp 必须在服务器时间 **±5 分钟**内
+- Nonce 必须**每个请求唯一**（防重放）
+- 服务端在窗口期间缓存已处理的签名
+
+## 快速示例
+
+### TypeScript
+
+```typescript
+import { createHash } from "node:crypto";
+
+const BASE = "https://ai.wenfu.cn";
+const did = "did:solana:AbCd...";
+const path = "/api/v1/balance";
+const query = `agent_did=${encodeURIComponent(did)}`;
+
+// 规范字符串：{method}\n{path}\n{rawQuery}\n{bodySha256Hex}
+const canonical = `GET\n${path}\n${query}\n${createHash("sha256").update("").digest("hex")}`;
+
+// 使用 OWS 签名（使用插件、SDK 或 CLI——见下文）
+// const signature = signWithOws(walletName, canonical);
+
+const res = await fetch(`${BASE}${path}?${query}`, {
+  headers: {
+    "X-StablePay-DID": did,
+    "X-StablePay-Signature": signature,
+    "X-StablePay-Timestamp": new Date().toISOString(),
+    "X-StablePay-Nonce": `gw-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  }
+});
+const { data } = await res.json();
+console.log(data.balance, data.currency);
+```
+
+### Python
+
+```python
+import requests, hashlib, time, secrets
+
+BASE = "https://ai.wenfu.cn"
+did = "did:solana:AbCd..."
+path = "/api/v1/balance"
+query = f"agent_did={requests.utils.quote(did)}"
+
+canonical = f"GET\n{path}\n{query}\n{hashlib.sha256(b'').hexdigest()}"
+# signature = sign_with_ows(wallet_name, canonical)  # 使用 ows CLI 或 SDK
+
+headers = {
+    "X-StablePay-DID": did,
+    "X-StablePay-Signature": signature,
+    "X-StablePay-Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "X-StablePay-Nonce": f"gw-{int(time.time())}-{secrets.token_hex(4)}"
+}
+resp = requests.get(f"{BASE}{path}?{query}", headers=headers)
+data = resp.json()["data"]
+print(f"{data['balance']} {data['currency']}")
+```
+
+### curl
+
+```bash
+DID="did:solana:AbCd..."
+PATH="/api/v1/balance"
+QUERY="agent_did=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$DID'))")"
+BODY_HASH="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+CANONICAL="GET\n$PATH\n$QUERY\n$BODY_HASH"
+
+# 签名规范字符串（在 TUI 中使用 stablepay_sign_message，或 ows CLI）
+# SIGNATURE=$(ows sign message --wallet stablepay-agent --chain solana --message "$CANONICAL" --json | jq -r '.signature')
+
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NONCE="gw-$(date +%s)-$(openssl rand -hex 4)"
+
+curl -H "X-StablePay-DID: $DID" \
+     -H "X-StablePay-Signature: $SIGNATURE" \
+     -H "X-StablePay-Timestamp: $TS" \
+     -H "X-StablePay-Nonce: $NONCE" \
+     "https://ai.wenfu.cn$PATH?$QUERY"
+```
 
 ## 响应格式
 
@@ -46,33 +241,41 @@ StablePay 使用两种认证方式：
   "message": "success",
   "data": { },
   "request_id": "uuid",
-  "timestamp": "2026-05-16T10:30:00Z"
+  "timestamp": "2026-05-29T10:30:00Z"
 }
 ```
 
+- `code` — 业务错误码。`0` = 成功。
+- `message` — 人类可读描述。
+- `data` — 响应负载（对象或数组）。错误时可能为空。
+- `request_id` — 用于在系统中追踪此请求的唯一 ID。
+
 ## 错误码
 
-| 错误码 | 消息 | HTTP | 描述 |
-|------|---------|------|-------------|
-| 0 | success | 200 | 请求成功 |
-| 10001 | invalid parameters | 400 | 参数缺失或格式错误 |
-| 10002 | resource not found | 404 | 请求的资源不存在 |
-| 10003 | permission denied | 403 | 权限不足 |
-| 10004 | signature verification failed | 401 | DID 签名无效或已过期 |
-| 20001 | insufficient balance | 402 | 钱包余额不足 |
-| 20002 | payment already exists | 409 | 重复支付（幂等性） |
-| 20003 | blockchain network error | 503 | Solana 网络问题 |
-| 20004 | gas subsidy failed | 500 | 热钱包 Gas 费失败 |
-| 30001 | internal server error | 500 | 服务端意外错误 |
-| 30002 | service unavailable | 503 | 依赖服务宕机 |
-| 30004 | rate limit exceeded | 429 | 请求过于频繁 |
+StablePay 使用 HTTP 状态码信号错误类别，JSON body 中的 `code` 字段表示具体的业务拒绝。关键原则：
+
+- **402 不是错误**——是正常的支付挑战触发
+- **409 在支付时表示成功**——该购买已存在
+- **401 表示重新签名**——刷新 timestamp + nonce 后重试
+- **429/500/503 可以重试**——使用指数退避
+
+完整参考参见：
+
+<CardGroup cols={2}>
+  <Card title="错误码" icon="circle-exclamation" href="/api-reference/errors/error-codes">
+    HTTP 状态语义、完整业务码表（10001-30004）、速率限制、重试安全性矩阵。
+  </Card>
+  <Card title="重试与幂等性" icon="rotate-right" href="/api-reference/errors/retry-idempotency">
+    重试策略、X-Idempotency-Key 用法、timestamp+nonce 防重放。
+  </Card>
+</CardGroup>
 
 ## HTTP 402 约定
 
-代表付费资源的端点在调用者尚未购买访问权限时返回 **HTTP 402 Payment Required**。响应 body 包含 [x402 标准格式](/x402-format)或[旧版格式](/x402-format#legacy-format-backward-compatible)的支付挑战。
+代表付费资源的端点在调用者尚未购买访问权限时返回 **HTTP 402 Payment Required**。响应 body 包含[x402 标准格式](/x402-format)或[旧版格式](/x402-format#legacy-format-backward-compatible)支付挑战。
 
 ## 货币精度
 
-- 外部 API：`amount` 以**十进制字符串**表示（如 `"5.00"`）
-- 内部/链上：**整数最小单位**，6 位小数（`5000000` = 5.00）
+- 外部 API：`amount` 以**字符串十进制**表示（如 `"5.00"`）
+- x402 `maxAmountRequired`：**字符串最小单位**，6 位小数（`"5000000"` = 5.00）
 - 支持的货币：`USDC`、`USDT`

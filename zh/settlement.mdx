@@ -1,0 +1,191 @@
+---
+title: "结算与对账"
+description: "支付如何结算、如何独立验证以及运营最佳实践"
+icon: 'scale-balanced'
+---
+
+## 多技能 DID 策略
+
+当你发布多个付费技能时，有两种 DID 建模方式：
+
+| 策略 | 设置 | 收益视图 | 最适合 |
+|----------|-------|-------------|----------|
+| **一个 DID，多个技能** | 创建一个钱包，注册一个 DID，所有技能使用它作为 `skill_did` | 所有收入汇入一个钱包。查询 `/api/v1/sales?skill_did=...` 返回跨所有技能的全部购买。 | 大多数开发者——管理最简单 |
+| **每个技能一个 DID** | 每个技能创建一个钱包和 DID | 每个技能的收入独立。各有自己的钱包余额和销售历史。 | 不同定价等级、共同作者或需要分开核算的技能 |
+
+### 一个 DID，多个技能（推荐）
+
+```
+did:solana:AbCdEf...   ← 你的单一开发者 DID
+  ├── skill: "AI Writing Assistant"   ($5)
+  ├── skill: "Data Analysis Tool"     ($10)
+  └── skill: "Logo Generator"         ($3)
+         所有支付 → 同一钱包
+```
+
+优点：一个钱包管理，一个 DID 记住，税务申报更简单。  
+缺点：无法在钱包层面按技能区分收入（使用 `/api/v1/sales` 来拆分）。
+
+### 每个技能一个 DID
+
+```
+did:solana:AbCdEf...   ← "AI Writing Assistant" 的钱包
+did:solana:XyZ123...   ← "Data Analysis Tool" 的钱包
+did:solana:QwErTy...   ← "Logo Generator" 的钱包
+         支付 → 分别进入各自钱包
+```
+
+优点：收入清晰分离，每个技能独立钱包，更容易转移/出售技能。  
+缺点：管理更多钱包，注册更多 DID，如需分别签名则环境变量更多。
+
+<Info>
+  你可以以后更改策略。现有 DID 继续有效——为新技能添加新 DID，或合并使用。无需迁移——只需为新技能开始使用新的 DID。
+</Info>
+
+---
+
+## 对账
+
+当买家为你的技能付款时，在不同阶段会生成三个标识符。理解每个标识符是什么以及何时出现，可以让你跨系统匹配记录。
+
+### 三个标识符
+
+| 标识符 | 生成者 | 时机 | 格式 | 可见位置 |
+|-----------|-------------|------|--------|---------------|
+| `tx_id` | Payment Service | `POST /api/v1/pay` 响应 | UUID | `/api/v1/pay/{tx_id}`、`/api/v1/sales`、`/api/v1/verify` |
+| `tx_hash` | Solana 网络 | 链上确认 | Base58 字符串（88 字符） | `/api/v1/pay/{tx_id}`（`tx_hash` 字段）、Solana Explorer |
+| 购买证明 | Verification Service | RocketMQ 事件消费 | `proof_hash`（SHA256） | `/api/v1/verify/proof`（计划中） |
+
+### 对账流程
+
+```
+1. POST /api/v1/pay 返回 tx_id ──────────────┐
+2. 轮询 GET /api/v1/pay/{tx_id} 直到确认       │  你的系统
+3. tx_hash 现在可用 ─────────────────────────────┘
+4. 在 Solana Explorer 上交叉验证 tx_hash ────── 外部验证
+5. GET /api/v1/sales 显示该购买 ──────────────── 仪表盘
+6. GET /api/v1/verify 确认记录 ───────────────── 后端强制执行
+```
+
+所有三个标识符指向同一笔支付。`tx_id` 是你的系统记录主键。`tx_hash` 是 Solana 上的真实依据。购买证明是加密记录。
+
+### 跨系统匹配记录
+
+如果你的仪表盘和钱包数字对不上：
+
+```bash
+# 步骤 1：获取销售记录
+curl -H "X-API-Key: $STABLEPAY_API_KEY" \
+  "https://ai.wenfu.cn/api/v1/sales?skill_did=did:solana:<yours>"
+
+# 响应包含每笔销售的 tx_id
+
+# 步骤 2：从支付状态获取 tx_hash
+curl -H "X-StablePay-DID: ..." \
+  "https://ai.wenfu.cn/api/v1/pay/<tx_id>"
+
+# 步骤 3：在 Solana Explorer 上查找 tx_hash（见下文）
+```
+
+---
+
+## 在 Solana Explorer 上验证
+
+每笔 StablePay 支付都是 Solana 上真实的 SPL Token 转账。你可以独立验证任何交易——无需信任 StablePay。
+
+### 使用 Solana Explorer
+
+获取 `GET /api/v1/pay/{tx_id}` 返回的 `tx_hash`，然后打开：
+
+```
+https://explorer.solana.com/tx/<tx_hash>?cluster=devnet
+```
+
+<Note>
+  **Sandbox → DevNet。** 当 Mainnet 上线后，将 `?cluster=devnet` 改为 `?cluster=mainnet` 用于 Production。或直接使用 `explorer.solana.com/tx/<tx_hash>`——Explorer 会自动检测。
+</Note>
+
+### 查看什么
+
+Explorer 显示：
+
+- **代币转账**：你将看到 SPL Token 从买家钱包转到你的钱包。金额应与购买价格一致。
+- **手续费支付方**：热钱包地址（而非买家）支付了 SOL Gas 费——验证了 Gas 补贴。
+- **时间戳**：与链上确认支付的时间一致，应在调用 `POST /api/v1/pay` 后的 30 秒内。
+- **状态**：`Finalized` 表示交易不可逆。
+
+如果 Explorer 显示一笔与你钱包地址匹配、金额和货币正确的转账，支付就发生了。不需要 StablePay API 来验证——这是链上的、公开的、永久的。
+
+### 验证钱包余额
+
+你也可以直接在任何 Solana 区块浏览器或钱包应用中检查你的钱包余额。钱包中的 USDC 是所有转入 SPL 转账减去转出后的总和。这与 StablePay API 报告的内容无关。
+
+---
+
+## 退款、争议和错误支付
+
+### 当前状态
+
+StablePay v1 **不**支持链上退款。支付是不可逆的 SPL 转账——一旦在 Solana 上确认，StablePay 无法反转。
+
+### 应对措施
+
+| 场景 | 建议操作 |
+|----------|-------------------|
+| 买家误支付 | 手动从你的钱包向买家钱包发送 USDC |
+| 买家争议收费 | 链下解决。如果你选择退款，向其钱包发送 USDC。保留退款 tx_hash 记录 |
+| 买家支付金额错误 | 手动退还差额 |
+| 重复支付（409） | 幂等性机制对此做了防护。如发生，第二次支付以 `20002` 拒绝 |
+
+<Info>
+  **始终保留自己的记录。** 对于任何你发出的退款，同时保存原始购买的 `tx_hash` 和你的退款 `tx_hash`。这是你用于税务和争议解决的书面记录。
+</Info>
+
+### 未来
+
+链上退款机制和争议解决方案正在考虑用于未来的版本。如在这方面有需求，请与 StablePay 团队沟通。
+
+---
+
+## 税务与合规
+
+<Warning>
+  **StablePay 是支付协议，非税务顾问。** 以下信息为一般性指导。请咨询合格的会计师或税务专业人士处理你的具体情况。
+</Warning>
+
+### 你需要负责的
+
+StablePay 促进 USDC 从买家转移到卖家。作为接收支付的开发者：
+
+- **收入申报**：你收到的支付在你所在的管辖范围内可能是应税收入。保留所有销售记录（使用 `/api/v1/sales` 导出）。
+- **间接税（增值税/消费税/销售税）**：是否需要收取和缴纳税款取决于你的位置、买家的位置以及你服务的性质。StablePay 不代你计算、收取或缴纳税款。
+- **交易记录**：Solana 区块链提供每笔转账的永久公开记录。`tx_hash` 值是你的支付证明。StablePay 的 API 提供将链上转账与特定购买关联的额外元数据（Agent DID、skill DID、时间戳）。
+
+### StablePay 提供的
+
+- 不可变的链上交易记录（通过 Solana）
+- 通过 API 提供购买元数据（`tx_id`、`tx_hash`、时间戳、Agent/skill DID）
+- 通过 `/api/v1/sales` 和 `/api/v1/revenue` 提供销售和收益摘要
+
+### 数据导出
+
+使用 `/api/v1/sales` 和 `/api/v1/revenue` 导出交易历史用于核算。对于永久记录，保存每笔支付的 `tx_hash`——这是你在 Solana 上不可变的证明。
+
+---
+
+## 参见
+
+<CardGroup cols={2}>
+  <Card title="收益与销售" icon="chart-line" href="/revenue">
+    如何查询你的收入和交易历史。
+  </Card>
+  <Card title="发布到 MoltBay" icon="store" href="/moltbay">
+    将你的服务上架到 Agent 市场。
+  </Card>
+  <Card title="支付状态端点" icon="clock-rotate-left" href="/api-reference/endpoint/pay-status">
+    GET /api/v1/pay/{tx_id} 的 API 参考——你获取 tx_hash 的地方。
+  </Card>
+  <Card title="验证购买端点" icon="circle-check" href="/api-reference/endpoint/verify-purchase">
+    GET /api/v1/verify 的 API 参考。
+  </Card>
+</CardGroup>

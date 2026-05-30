@@ -2,3 +2,76 @@
 title: '余额'
 openapi: 'GET /api/v1/balance'
 ---
+
+## 在流程中的位置
+
+`GET /api/v1/balance` 返回你钱包的 USDC 余额和月度支出摘要。这是 TUI 中 `stablepay_query_balance` 对应的端���。
+
+余额直接从 **Solana 链上查询**（而非缓存数据库值），因此始终反映你的实际代币账户余额。
+
+## 认证
+
+需要 **DID 签名认证**：
+
+| 请求头 | 值 |
+|--------|-------|
+| `X-StablePay-DID` | 你的 DID（`did:solana:...`） |
+| `X-StablePay-Signature` | 网关规范字符串的 Base58 Ed25519 签名 |
+| `X-StablePay-Timestamp` | ISO 8601 时间戳（±5 分钟窗口） |
+| `X-StablePay-Nonce` | 每请求唯一的 nonce |
+
+## 查询参数
+
+插件会尝试两种查询参数格式，自动回退：
+
+| 参数 | 示例 | 备注 |
+|-----------|---------|-------|
+| `agent_did` | `?agent_did=did%3Asolana%3AAbCd...` | 首选格式；DID 需要 URL 编码 |
+| `agent` | `?agent=did%3Asolana%3AAbCd...` | 如果第一个返回 HTTP 400 则回退到此格式 |
+
+<Info>
+  插件优先尝试 `agent_did`。如果网关返回 400，则用 `agent` 重试。这种双格式方式是为了向后兼容。推荐使用 `agent_did`。
+</Info>
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "balance": "25.50",
+    "currency": "USDC",
+    "monthly_spent": "24.50",
+    "monthly_limit": "100.00"
+  }
+}
+```
+
+| 字段 | 来源 | 描述 |
+|-------|--------|-------------|
+| `balance` | Solana RPC（链上） | 所有 SPL Token Account 中 USDC 的总和。**真实的链上余额。** |
+| `currency` | Query Service | `"USDC"` 或 `"USDT"` |
+| `monthly_spent` | MySQL（Query Service） | 当前自然月中 PURCHASE 类型交易的金额总和 |
+| `monthly_limit` | 配置 | 来自支付限额配置的月度软性支出上限 |
+
+<Note>
+  `balance` 通过 `GetTokenAccountsByOwner` RPC 调用直接从 Solana 查询。Query Service 从你的 DID 中提取钱包地址，查询所有 USDC 代币账户，并汇总余额。这意味着该值反映的是查询时刻的链上状态——你和 Solana 之间没有缓存层。
+</Note>
+
+## 错误处理
+
+| 错误码 | 消息 | 原因 | 恢复方式 |
+|------|---------|-------|----------|
+| `10004` | signature verification failed | DID 签名无效或已过期 | 刷新时间戳，重新签名规范��符串 |
+| `10002` | resource not found | DID 未注册 | 先通过 `POST /api/v1/did/register` 注册 DID |
+| `30003` | database connection error | Query Service 无法连接 MySQL | 重试；如持续出现则报告 |
+
+## 示例（TUI）
+
+> Run stablepay_query_balance with did "did:solana:AbCd..."
+
+## 参见
+
+- `GET /api/v1/transactions` — 详细交易历史（购买和收益明细）
+- `GET /api/v1/revenue` — 开发者的收益摘要

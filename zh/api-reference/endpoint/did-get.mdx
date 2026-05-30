@@ -2,3 +2,42 @@
 title: '获取 DID'
 openapi: 'GET /api/v1/did/{did}'
 ---
+
+## 用途
+
+查询已注册 DID 的存储公钥和钱包地址。当你只有 DID 字符串时需要查找 Agent 或开发者的 Solana 公钥时使用。
+
+## 认证
+
+需要 **DID 签名认证**。
+
+## 路径参数
+
+| 参数 | 类型 | 描述 |
+|-----------|------|-------------|
+| `did` | string | 完整 DID 标识符（`did:solana:...`），冒号需要 URL 编码 |
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "did": "did:solana:AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd"
+  }
+}
+```
+
+## 使用场景
+
+- **签名验证**：获取 DID 对应的公钥，然后在本地验证 Ed25519 签名
+- **地址解析**：将 `did:solana:...` 转换为原始 Solana 地址，用于区块浏览器查询
+- **支付前验证**：在尝试支付前确认 `skill_did` 已注册
+
+## 参见
+
+- `POST /api/v1/did/register` — 注册新的 DID
+- `POST /api/v1/did/verify` — 验证签名与 DID 公钥是否匹配（服务端验证）

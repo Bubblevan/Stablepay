@@ -2,3 +2,107 @@
 title: '注册 DID'
 openapi: 'POST /api/v1/did/register'
 ---
+
+## 在流程中的位置
+
+`POST /api/v1/did/register` 将**客户端持有**的钱包公钥绑定到 StablePay 后端。这是身份设置的第二步：
+
+```
+1. 创建 OWS 钱包（本地）  →  stablepay_create_local_wallet
+2. 注册 DID（此端点）     →  POST /api/v1/did/register  ← 当前位置
+3. 设置支付限额（本地）     →  stablepay_configure_payment_limits
+4. 准备支付/接收
+```
+
+## 应该用哪个 DID 端点？
+
+StablePay 有两个 DID 创建端点，安全模型有根本区别：
+
+| 端点 | 谁持有私钥 | 何时使用 |
+|----------|--------------------------|-------------|
+| `POST /api/v1/did/register` | **你**（客户端） | **始终使用此端点。** 你通过 OWS 在本地创建钱包，然后在此处注册公钥。服务端永远不会看到你的私钥。 |
+| `POST /api/v1/did` | **服务端** | 旧版。服务端生成密钥对并存储私钥。避免使用——违反"自己持有密钥"原则。 |
+
+<Warning>
+  StablePay 插件默认使用 `/api/v1/did/register` 是有原因的。使用 `POST /api/v1/did`（服务端生成密钥）意味着服务端知道你的私钥。除非有经过审查的特定理由，否则只使用 `/api/v1/did/register`。
+</Warning>
+
+## 请求体
+
+| 字段 | 必需 | 类型 | 描述 |
+|-------|----------|------|-------------|
+| `user_type` | 否 | `"agent"` 或 `"developer"` | 分类你的身份。两者的默认行为相同。 |
+| `public_key` | 是 | string | 你的 Solana 公钥（Base58）。这是服务端存储的唯一密钥材料。 |
+| `wallet_address` | 是 | string | 与 `public_key` 相同。 |
+| `wallet_id` | 否 | string | OWS 钱包 UUID 或名称（用于追溯） |
+| `wallet_name` | 否 | string | 人类可读的钱包名称 |
+| `metadata` | 否 | object | 任意键值对（如 `{"sign_runtime": "ows-sdk"}`） |
+
+### 示例
+
+```json
+{
+  "user_type": "developer",
+  "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+  "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+  "wallet_id": "uuid-from-ows",
+  "wallet_name": "stablepay-myname",
+  "metadata": {
+    "sign_runtime": "ows-sdk",
+    "source": "@stablepay/openclaw-plugin"
+  }
+}
+```
+
+## 幂等性
+
+此端点**按公键幂等**。多次注册相同的公钥返回成功——不会创建重复记录。
+
+<Info>
+  在网络超时后可以安全地重新调用此端点，无需担心创建重复的 DID。
+</Info>
+
+## 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "did": "did:solana:AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_address": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "public_key": "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCd",
+    "wallet_id": "uuid-from-ows",
+    "wallet_name": "stablepay-myname",
+    "created_at": "2026-05-29T10:30:00Z"
+  }
+}
+```
+
+<Note>
+  `did` 通过 `did:solana:{public_key}` 派生。服务端不会生成新的标识符——它验证并存储你现有的公钥。你的 DID 由钱包确定性生成。
+</Note>
+
+## 注册后
+
+插件将返回的 `did` 作为 `backendDid` 存储在你的加密本地状态中。所有后续操作（支付、余额查询、销售查询）使用此 DID 进行标识和认证。
+
+验证注册：
+
+> Run stablepay_runtime_status
+
+现在应显示 `wallet.backend_did: did:solana:AbCd...`。
+
+## 错误处理
+
+| 错误码 | 消息 | 原因 | 恢复方式 |
+|------|---------|-------|----------|
+| `10001` | invalid parameters | 缺少 `public_key` 或 `wallet_address` | 确保两个字段都填写且是有效的 Base58 |
+| `30001` | internal server error | 服务端处理失败 | 重试；如持续出现则报告 |
+
+## 参见
+
+- [钱包设置指南](/wallet-setup) — 完整的钱包创建流程
+- [DID 注册指南](/did-registration) — 概念概述和 `user_type` 说明
+- `GET /api/v1/did/{did}` — 查询已注册的 DID
+- `POST /api/v1/did/verify` — 验证 DID 签名

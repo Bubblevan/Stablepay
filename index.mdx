@@ -43,51 +43,21 @@ Built on open standards:
 
 ## Architecture
 
+The payment flow has three phases. Click through each tab to follow the full lifecycle.
+
+<Tabs>
+  <Tab title="1. 402 Challenge">
+
 ```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "background": "#ffffff",
-    "primaryColor": "#dcfce7",
-    "primaryBorderColor": "#16A34A",
-    "primaryTextColor": "#222325",
-    "actorBkg": "#f0faf5",
-    "actorBorder": "#16A34A",
-    "actorTextColor": "#222325",
-    "actorLineColor": "#86efac",
-    "signalColor": "#222325",
-    "signalTextColor": "#222325",
-    "labelBoxBkgColor": "#f0faf5",
-    "labelBoxBorderColor": "#16A34A",
-    "labelTextColor": "#222325",
-    "noteBkgColor": "#fef3c7",
-    "noteBorderColor": "#f59e0b",
-    "noteTextColor": "#222325",
-    "sequenceNumberColor": "#ffffff"
-  },
-  "sequence": {
-    "mirrorActors": true,
-    "actorMargin": 130,
-    "width": 160,
-    "height": 48,
-    "boxMargin": 10,
-    "boxTextMargin": 6,
-    "messageMargin": 36,
-    "noteMargin": 12
-  }
-}}%%
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
 
 sequenceDiagram
     participant Agent as Client Agent
     participant Server as Developer Backend
     box StablePay Backend
         participant Gateway as API Gateway
-        participant Payment as Payment Service
-        participant DID as DID Service
-        participant Adapter as Blockchain Adapter
         participant Verify as Verification Service
     end
-    participant Solana as Solana
 
     Agent->>Server: 1. Request resource
     Server->>Gateway: 2. Check purchase (verify API)
@@ -95,9 +65,26 @@ sequenceDiagram
     Verify-->>Gateway: Not purchased
     Gateway-->>Server: purchased=false
     Server-->>Agent: 4. HTTP 402 + payment challenge
+```
+
+The developer's backend returns **HTTP 402 Payment Required** with an [x402 payment challenge](/x402-format). The agent's StablePay plugin recognizes this automatically.
+
+  </Tab>
+  <Tab title="2. Payment & Settlement">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Gateway as API Gateway
+    participant Payment as Payment Service
+    participant DID as DID Service
+    participant Adapter as Blockchain Adapter
+    participant Solana as Solana
 
     Note over Agent: 5. Build & sign SPL transfer tx
-    Note over Agent:  (local OWS wallet signature)
+    Note over Agent: (local OWS wallet signature)
 
     Agent->>Gateway: 6. POST /api/v1/pay
     Gateway->>Payment: 7. Forward payment
@@ -109,9 +96,26 @@ sequenceDiagram
     Adapter-->>Payment: Settlement confirmed
     Payment-->>Gateway: Payment result
     Gateway-->>Agent: 11. tx_id + status
+```
 
-    Note over Payment,Verify: 12. RocketMQ async: Payment → Verify
-    Note over Verify: Write purchase record
+The plugin builds and signs the SPL token transfer locally using OWS. The gateway forwards the signed transaction to Solana for on-chain settlement. **USDC moves directly from buyer to seller** — no intermediaries.
+
+  </Tab>
+  <Tab title="3. Verification & Retry">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Verify as Verification Service
+    end
+    participant Payment as Payment Service
+
+    Note over Payment,Verify: 12. RocketMQ async → Write purchase record
 
     Agent->>Server: 13. Retry resource request
     Server->>Gateway: 14. Check purchase again
@@ -120,6 +124,15 @@ sequenceDiagram
     Gateway-->>Server: purchased=true
     Server-->>Agent: 16. 200 OK + result
 ```
+
+Purchase records are written **asynchronously** (typically &lt;5 seconds). The agent retries the original request, the developer's backend re-checks purchase status, and on success returns the paid resource.
+
+  </Tab>
+</Tabs>
+
+<style>{`
+  .svg-pan-zoom-control { display: none !important; }
+`}</style>
 
 ## Core concepts
 
