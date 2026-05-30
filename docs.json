@@ -58,6 +58,13 @@
                 ]
               },
               {
+                "group": "Errors",
+                "pages": [
+                  "api-reference/errors/error-codes",
+                  "api-reference/errors/retry-idempotency"
+                ]
+              },
+              {
                 "group": "DID endpoints",
                 "pages": [
                   "api-reference/endpoint/did-register",

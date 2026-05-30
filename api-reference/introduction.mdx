@@ -252,20 +252,23 @@ All endpoints return a unified envelope:
 
 ## Error codes
 
-| Code | Message | HTTP | Description |
-|------|---------|------|-------------|
-| 0 | success | 200 | Request succeeded |
-| 10001 | invalid parameters | 400 | Missing or malformed parameters |
-| 10002 | resource not found | 404 | Requested resource does not exist |
-| 10003 | permission denied | 403 | Insufficient permissions |
-| 10004 | signature verification failed | 401 | DID signature invalid or expired |
-| 20001 | insufficient balance | 402 | Wallet balance too low |
-| 20002 | payment already exists | 409 | Duplicate payment (idempotency) |
-| 20003 | blockchain network error | 503 | Solana network issue |
-| 20004 | gas subsidy failed | 500 | Hotwallet gas fee failure |
-| 30001 | internal server error | 500 | Unexpected server error |
-| 30002 | service unavailable | 503 | Dependency service down |
-| 30004 | rate limit exceeded | 429 | Too many requests |
+StablePay uses HTTP status codes to signal error categories, and a `code` field in the JSON body for specific business rejections. Key principles:
+
+- **402 is not an error** — it's the normal payment challenge trigger
+- **409 on payment means success** — the purchase already exists
+- **401 means re-sign** — refresh timestamp + nonce and retry
+- **429/500/503 are retryable** — use exponential backoff
+
+For the complete reference see:
+
+<CardGroup cols={2}>
+  <Card title="Error codes" icon="circle-exclamation" href="/api-reference/errors/error-codes">
+    HTTP status semantics, full business code table (10001-30004), rate limits, retry safety matrix.
+  </Card>
+  <Card title="Retry & idempotency" icon="rotate-right" href="/api-reference/errors/retry-idempotency">
+    Retry strategies, X-Idempotency-Key usage, timestamp+nonce anti-replay.
+  </Card>
+</CardGroup> |
 
 ## HTTP 402 convention
 

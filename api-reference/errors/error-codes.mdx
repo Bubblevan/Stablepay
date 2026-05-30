@@ -1,0 +1,87 @@
+---
+title: 'Error codes'
+description: 'Complete reference of HTTP status codes and business error codes for the StablePay API'
+icon: 'circle-exclamation'
+---
+
+## HTTP status code semantics
+
+Not every non-200 response is an error. StablePay uses HTTP status codes to signal fundamentally different situations:
+
+| Status | Meaning | Is this an error? | Action |
+|--------|---------|-------------------|--------|
+| **200** | Success | No | Read `code` in the JSON body. `code: 0` = real success; `code ≠ 0` = business rejection |
+| **400** | Bad request | Yes — your request is malformed | Check parameters against the endpoint docs, fix and retry |
+| **401** | Unauthorized | Yes — DID signature missing or invalid | Regenerate timestamp + nonce, re-sign the canonical, retry |
+| **402** | Payment required | **No** — this is normal business flow, not a system error | Extract the payment challenge from the body, build and submit the signed transaction |
+| **403** | Forbidden | Yes — you lack permission for this resource | Verify you're using the correct DID or API Key for the resource |
+| **404** | Not found | Yes — the resource doesn't exist | Verify the DID or tx_id is correct and registered |
+| **409** | Conflict | Yes — duplicate or idempotency conflict | Check `X-Idempotency-Key`; a 409 on payment means it already succeeded |
+| **429** | Rate limited | Yes — you're sending too many requests | Wait and retry with backoff. See [Retry & idempotency](/api-reference/errors/retry-idempotency) |
+| **500** | Internal server error | Yes — something broke on the server | Retry with exponential backoff. Report if persistent |
+| **503** | Service unavailable | Yes — a dependency (Solana RPC, database) is down | Retry with backoff. Solana congestion is the most common cause |
+
+<Info>
+  **402 is not a bug.** If your backend receives HTTP 402 from `GET /api/v1/pay/require`, that's the expected response when an agent hasn't purchased a skill yet. It's the trigger for the payment flow, not a failure.
+</Info>
+
+### Which status codes can I retry?
+
+| Retry safe | Status codes | Strategy |
+|------------|-------------|----------|
+| Yes | `429`, `500`, `503` | Exponential backoff: 1s → 2s → 4s → ... up to 3 attempts |
+| Yes | `401` | Refresh timestamp + nonce, re-sign, retry once |
+| No | `400`, `403`, `404` | Fix the root cause before retrying |
+| Special case | `409` | On `POST /api/v1/pay`: treat as success (payment already exists). On other endpoints: fix the idempotency key |
+| Special case | `402` | Not a failure — proceed with payment |
+
+---
+
+## Business error codes
+
+Every response body (including errors) contains a `code` field. `0` = success. All other codes indicate a business-level rejection.
+
+### 1xxxx — Client errors
+
+| Code | Message | HTTP | Cause | Recovery |
+|------|---------|------|-------|----------|
+| `10001` | invalid parameters | 400 | Missing required field, wrong type, or value out of range | Check the endpoint's parameter table and retry with corrected values |
+| `10002` | resource not found | 404 | DID, tx_id, or skill_did doesn't exist or isn't registered | Verify the identifier is correct. For DIDs, call `POST /api/v1/did/register` first |
+| `10003` | permission denied | 403 | Wrong DID for the resource, or API Key lacks scope | Use the DID that owns the resource. For verification endpoints, confirm your API Key |
+| `10004` | signature verification failed | 401 | Timestamp outside ±5 minute window, nonce reused, or Ed25519 signature doesn't match the DID's public key | Refresh timestamp to current time, generate a new nonce, re-sign the canonical string |
+
+### 2xxxx — Payment errors
+
+| Code | Message | HTTP | Cause | Recovery |
+|------|---------|------|-------|----------|
+| `20001` | insufficient balance | 402 | Agent's wallet doesn't have enough USDC to cover the payment | The user must deposit USDC to their wallet. Show them their wallet address and the shortfall amount |
+| `20002` | payment already exists | 409 | The same `agent_did + skill_did` pair already has a completed payment | **Treat as success.** The purchase record exists. Proceed to serve the resource |
+| `20003` | blockchain network error | 503 | Solana RPC is unreachable or the transaction was rejected by the network | Retry up to 3 times with exponential backoff (2s → 4s → 8s). If all fail, tell the user to try again later |
+| `20004` | gas subsidy failed | 500 | The server-side hotwallet couldn't cover the SOL gas fee for this transaction | Retry once after 5 seconds. If it persists, report to the platform operator |
+
+### 3xxxx — Server errors
+
+| Code | Message | HTTP | Cause | Recovery |
+|------|---------|------|-------|----------|
+| `30001` | internal server error | 500 | Unhandled exception in a backend service | Retry with exponential backoff. Report to the platform team if it persists across multiple attempts |
+| `30002` | service unavailable | 503 | A dependency service (MySQL, Redis, RocketMQ) is unreachable | Retry with backoff. The platform's health checks should auto-recover this |
+| `30003` | database connection error | 503 | MySQL connection pool exhausted or instance unreachable | Retry with backoff. If persistent, the platform team is likely already responding to an incident |
+| `30004` | rate limit exceeded | 429 | You've exceeded the per-DID or per-IP request limit | Wait at least 60 seconds before retrying. Reduce your request frequency. See [Retry & idempotency](/api-reference/errors/retry-idempotency) |
+
+---
+
+## Rate limits
+
+| Scope | Limit | Window |
+|-------|-------|--------|
+| IP address | 100 requests | Per minute |
+| DID | 50 requests | Per minute |
+| Payment endpoint (`POST /api/v1/pay`) | 10 requests | Per minute |
+
+When you hit a limit, the API returns `30004` with HTTP `429`. The response includes a `Retry-After` header where available. Reduce your call frequency — retrying immediately at the same rate will keep triggering the limit.
+
+## See also
+
+- [Retry strategy & idempotency](/api-reference/errors/retry-idempotency) — how to retry safely without double-charging
+- [Authentication](/api-reference/introduction#authentication) — how DID signatures work
+- [HTTP 402 convention](/api-reference/introduction#http-402-convention) — the payment challenge lifecycle
