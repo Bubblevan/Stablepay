@@ -21,6 +21,7 @@
                 "pages": [
                   "index",
                   "quickstart",
+                  "testing",
                   "development"
                 ]
               },

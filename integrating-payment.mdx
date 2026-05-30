@@ -47,16 +47,16 @@ Agent requests your API ──────────────────�
 Your backend checks:                                          │
   GET ai.wenfu.cn/api/v1/verify?agent_did=...&skill_did=...   │
    │                                                          │
-   ├── purchased: true ──▶ Return 200 + results               │
+   ├── purchased: true ──▶ Return 200 + results              │
    │                                                          │
-   └── purchased: false ─▶ Return 402 + payment challenge     │
+   └── purchased: false ─▶ Return 402 + payment challenge    │
                                │                              │
                                ▼                              │
-                    Plugin auto-handles:                       │
-                    builds SPL tx, signs, POST /api/v1/pay     │
+                    Plugin auto-handles:                      │
+                    builds SPL tx, signs, POST /api/v1/pay    │
                                │                              │
                                ▼                              │
-                    Agent retries your API ────────────────────┘
+                    Agent retries your API ───────────────────┘
 ```
 
 ### Step 1: Check purchase status

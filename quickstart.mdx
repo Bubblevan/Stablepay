@@ -1,46 +1,65 @@
 ---
 title: "Quickstart"
-description: "Get StablePay running on your OpenClaw agent in under 5 minutes"
+description: "Add StablePay payment to your skill in under 5 minutes"
 icon: 'rocket'
 ---
 
-## Before you start
+## Add payment to your skill
 
-You need:
-- OpenClaw installed (`openclaw --version` shows ≥ 2026.3.1)
-- A shell where you can set environment variables
-- USDC in your wallet to pay for services; developers receive USDC directly to theirs
+Open your skill's `skill.md`. Paste this at the top or bottom — replace two values.
 
-You do **not** need:
-- Docker, Kubernetes, or any backend services (the gateway is already running)
-- SOL for gas fees (covered by the platform hotwallet)
-- Any prior blockchain knowledge
+```markdown
+## 💰 StablePay Payment
 
-<Note>
-  Production Mainnet payments are not yet deployed — the Sandbox gateway currently serves all traffic. API endpoints, authentication, and transaction flows are identical across both environments. Swap to Production values when Mainnet goes live. See [Environments](/api-reference/introduction#environments).
-</Note>
+This Skill requires {PRICE} USDC to unlock.
 
-## Step 1: Install the plugin
+Payment endpoint:
+https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
 
-```bash
-openclaw plugins install clawhub:stablepay-agentpay-dev
+Verify purchase:
+https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
 ```
 
-Verify it's loaded:
+| Variable | Replace with |
+|----------|--------------|
+| `{PRICE}` | Your price in USDC (e.g., `5`) |
+| `{SKILL_DID}` | Your developer DID (`did:solana:AbCdEf...`) |
+| `{AGENT_DID}` | **Leave as-is** — the buyer's agent fills this at runtime |
 
-```bash
-openclaw plugins list
+<Tip>
+  Don't have a DID yet? The section below walks you through one-time wallet setup. You only do this once — after that, adding payment to each skill is just the template above.
+</Tip>
+
+### How it works
+
+```
+Buyer's Agent reads your skill.md
+    → Sees the payment block
+    → Runs stablepay_pay_via_gateway in conversation
+    → Signs the SPL transfer with their wallet
+    → USDC sent directly to your wallet (skill_did)
+    → Buyer's Agent gets access
 ```
 
-Expected output includes `stablepay-agentpay-dev` with status `enabled`.
+### For backend-enforced security
 
-## Step 2: Configure OpenClaw
+The skill.md template is the simplest path. If you want server-side enforcement (so users can't remove the payment block), your backend should return HTTP 402 and call the verify API. See [Integrating x402 payments](/integrating-payment) for backend examples in Go, Node.js, and the x402 format reference.
 
-Add this to your `~/.openclaw/openclaw.json`:
+---
+
+## One-time setup
+
+Before your first paid skill, set up your wallet and register your DID. This takes about 5 minutes and you only do it once.
+
+### Sandbox vs Production
 
 <Tabs>
   <Tab title="Production">
-    ```json
+    ```bash
+    # Install the plugin
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
     {
       "plugins": {
         "entries": {
@@ -71,10 +90,18 @@ Add this to your `~/.openclaw/openclaw.json`:
         ]
       }
     }
+
+    # Environment variables
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+    export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
     ```
   </Tab>
   <Tab title="Sandbox">
-    ```json
+    ```bash
+    # Install the plugin
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
     {
       "plugins": {
         "entries": {
@@ -105,108 +132,54 @@ Add this to your `~/.openclaw/openclaw.json`:
         ]
       }
     }
-    ```
-  </Tab>
-</Tabs>
 
-<Tip>
-  Use Sandbox for development and testing — USDC has no real value, and you can obtain it from any Solana DevNet faucet. The full [environment reference](/api-reference/introduction#environments) lists every value that differs between the two.
-</Tip>
-
-## Step 3: Set environment variables
-
-<Tabs>
-  <Tab title="Production">
-    ```bash
-    # Required — encrypts your local wallet state
-    export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
-
-    # Required — platform hotwallet public key
-    export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
-
-    # Optional — unattended OWS signing
-    export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
-    ```
-  </Tab>
-  <Tab title="Sandbox">
-    ```bash
-    # Required — encrypts your local wallet state
-    export STABLEPAY_PLUGIN_MASTER_KEY="generate-a-long-random-secret-here"
-
-    # Required — Sandbox hotwallet public key
+    # Environment variables
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
     export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
-
-    # Optional — unattended OWS signing
-    export STABLEPAY_OWS_PASSPHRASE="your-passphrase"
     ```
   </Tab>
 </Tabs>
 
-<Tip>
-  Add these to your `~/.zshrc` or `~/.bashrc` so they persist across sessions.
-</Tip>
+<Note>
+  Production Mainnet payments are not yet deployed — the Sandbox gateway currently serves all traffic. API endpoints, authentication, and transaction flows are identical across both environments. See [Environments](/api-reference/introduction#environments).
+</Note>
 
-## Step 4: Restart and enter TUI
+### Create your wallet and DID
+
+After configuring, restart the gateway and enter TUI:
 
 ```bash
 openclaw gateway restart
 openclaw tui
 ```
 
-## Step 5: Your first conversation
+Walk through these three steps in conversation:
 
-In the TUI, walk through these steps in order:
+> Run stablepay_create_local_wallet with user_type "developer", runtime "auto"
 
-### 5.1 Check runtime status
+> Run stablepay_register_local_did with user_type "developer"
 
-> Run stablepay_runtime_status
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 1000, auto_purchase_threshold_usdc 50
 
-Confirm the output shows `has_wallet: false` and an active driver is selected.
+Record the `did` from the output — that's your `{SKILL_DID}`.
 
-### 5.2 Create a wallet
+### You're done
 
-> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+Now go back to the top of this page, copy the payment template, paste it into your skill.md, and replace `{SKILL_DID}` with your DID and `{PRICE}` with your price. That's it.
 
-This creates a new Solana wallet via OWS. Record the `did` and `wallet_address` shown in the output.
-
-### 5.3 Register your DID
-
-> Run stablepay_register_local_did with user_type "agent"
-
-This registers your public key with the StablePay backend. You now have a valid `did:solana:...` identity.
-
-### 5.4 Set payment limits
-
-> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 100, auto_purchase_threshold_usdc 10
-
-- **Single purchase limit**: Maximum per-transaction spend (hard cap)
-- **Auto purchase threshold**: Purchases below this amount skip confirmation
-
-### 5.5 Make a payment
-
-> Run stablepay_pay_via_gateway with skill_did "did:solana:`<seller-address>`", skill_name "skill-name", price "1.00", currency "USDC"
-
-If the payment succeeds, you'll get a `tx_id` back. The seller receives the USDC directly to their wallet.
-
-<Tip>
-  **Testing in Sandbox?** You can use the Sandbox hotwallet address as a dummy seller target: `did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`. Sandbox USDC has no real value — spend freely during development.
-</Tip>
-
-### 5.6 Check your balance
-
-> Run stablepay_query_balance with did "`<your-did>`"
+---
 
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="I'm building a paid service" icon="hammer" href="/integrating-payment">
-    Learn how to integrate x402 payments into your skill or backend.
+  <Card title="End-to-end testing" icon="flask" href="/testing">
+    Verify the full payment chain: wallet → DID → limits → pay → balance.
   </Card>
-  <Card title="I want to publish on MoltBay" icon="store" href="/moltbay">
+  <Card title="Backend x402 integration" icon="server" href="/integrating-payment">
+    Add server-side payment enforcement with HTTP 402 and purchase verification.
+  </Card>
+  <Card title="Publish on MoltBay" icon="store" href="/moltbay">
     List your service on the Agent marketplace.
-  </Card>
-  <Card title="Plugin config deep dive" icon="gear" href="/development">
-    Every configuration option explained.
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
     Full REST API documentation.
