@@ -18,25 +18,37 @@ icon: 'shield-check'
 
 你的后端每次请求只需**一次 API 调用**检查购买状态：
 
-```
-Agent 请求你的 API ─────────────────────────────┐
-   │                                                  │
-   ▼                                                  │
-你的后端:                                                │
-  GET /api/v1/verify?agent_did=...&skill_did=...      │
-   │                                                  │
-   ├── purchased: true ──▶ 提供资源（200）              │
-   │                                                  │
-   └── purchased: false ─▶ 返回 402 + 挑战             │
-                              │                       │
-                              ▼                       │
-                    插件拦截 402:                      │
-                    1. 提取支付需求                     │
-                    2. 构建 SPL 转账 + 签名             │
-                    3. POST /api/v1/pay               │
-                    4. 重试你的 API ─────────────────────┘
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
 
-你的后端再次检查 → purchased: true → 200
+sequenceDiagram
+    participant Agent as Agent
+    participant Backend as 开发者后端
+    participant Gateway as StablePay Gateway
+
+    Agent->>Backend: 请求资源
+    Backend->>Gateway: GET /api/v1/verify?agent_did=&skill_did=
+
+    alt purchased = true
+        Gateway-->>Backend: { purchased: true }
+        Backend-->>Agent: 200 OK + 结果
+    else purchased = false
+        Gateway-->>Backend: { purchased: false }
+        Backend-->>Agent: HTTP 402 + 支付挑战
+
+        Note over Agent: 插件拦截 402
+        Note over Agent: 1. 提取支付需求
+        Note over Agent: 2. 构建 SPL 转账 + 签名
+        Note over Agent: 3. POST /api/v1/pay
+
+        Agent->>Gateway: 提交签名支付
+        Gateway-->>Agent: tx_id（已确认）
+
+        Agent->>Backend: 重试资源请求
+        Backend->>Gateway: GET /api/v1/verify
+        Gateway-->>Backend: { purchased: true }
+        Backend-->>Agent: 200 OK + 结果
+    end
 ```
 
 两次调用你的端点，一次调用 StablePay。支付在两者之间透明地发生。

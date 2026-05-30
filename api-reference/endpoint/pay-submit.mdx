@@ -78,14 +78,18 @@ If you submit the same payment twice with different idempotency keys, the second
 
 ### Field relationships
 
-```
-signed_tx_base64  ──sha256──▶  signed_tx_hash_sha256
-                                      │
-agent_did | skill_did | amount_minor | currency | signed_tx_hash_sha256
-                                      │
-                               (business sign payload)
-                                      │
-                              wallet signs this ──▶  signature field
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325"}}}%%
+
+flowchart LR
+    TX[("signed_tx_base64")] -->|sha256| HASH[("signed_tx_hash_sha256")]
+    HASH --> CONCAT["agent_did | skill_did |<br/>amount_minor | currency |<br/>signed_tx_hash_sha256"]
+    CONCAT --> SIGN["wallet signs<br/>this payload"]
+    SIGN --> FIELD[("signature field")]
+
+    style TX fill:#f0faf5,stroke:#16A34A
+    style HASH fill:#f0faf5,stroke:#16A34A
+    style FIELD fill:#dcfce7,stroke:#16A34A,stroke-width:2px
 ```
 
 ## Response

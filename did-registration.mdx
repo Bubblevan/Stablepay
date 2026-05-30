@@ -23,28 +23,22 @@ It serves three purposes simultaneously:
 
 ## Registration flow
 
-```
-┌──────────┐     ┌──────────────┐     ┌──────────────┐
-│  Plugin  │────▶│ API Gateway  │────▶│ DID Service  │
-│          │     │ ai.wenfu.cn  │     │              │
-└──────────┘     └──────────────┘     └──────────────┘
-     │                                        │
-     │  POST /api/v1/did/register            │
-     │  {                                     │
-     │    user_type: "agent"|"developer",     │
-     │    public_key: "<base58>",             │
-     │    wallet_address: "<base58>",         │
-     │    wallet_id: "...",                   │
-     │    wallet_name: "..."                  │
-     │  }                                     │
-     │                                        │
-     │              Response:                 │
-     │  {                                     │
-     │    did: "did:solana:...",              │
-     │    wallet_address: "...",              │
-     │    created_at: "..."                   │
-     │  }                                     │
-     │◄───────────────────────────────────────┤
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Plugin as Plugin<br/>(OWS wallet)
+    participant Gateway as API Gateway<br/>ai.wenfu.cn
+    participant DID as DID Service
+
+    Plugin->>Gateway: POST /api/v1/did/register
+    Note over Plugin,Gateway: { user_type, public_key, wallet_address, wallet_id, wallet_name }
+
+    Gateway->>DID: Validate & store public key
+    DID-->>Gateway: DID record created
+
+    Gateway-->>Plugin: { did: "did:solana:...", wallet_address, created_at }
+    Note over Plugin: Encrypt & persist<br/>to local state
 ```
 
 ## Register in TUI

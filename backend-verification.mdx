@@ -18,25 +18,37 @@ The [skill.md payment block](/integrating-payment#approach-1-skillmd-payment-blo
 
 Your backend makes **one API call** per request to check purchase status:
 
-```
-Agent requests your API ─────────────────────────────┐
-   │                                                  │
-   ▼                                                  │
-Your backend:                                         │
-  GET /api/v1/verify?agent_did=...&skill_did=...      │
-   │                                                  │
-   ├── purchased: true ──▶ Serve the resource (200)    │
-   │                                                  │
-   └── purchased: false ─▶ Return 402 + challenge     │
-                              │                       │
-                              ▼                       │
-                    Plugin intercepts 402:            │
-                    1. Extracts payment requirement   │
-                    2. Builds SPL transfer + signs    │
-                    3. POST /api/v1/pay               │
-                    4. Retries your API ──────────────┘
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
 
-Your backend checks again → purchased: true → 200
+sequenceDiagram
+    participant Agent as Agent
+    participant Backend as Developer Backend
+    participant Gateway as StablePay Gateway
+
+    Agent->>Backend: Request resource
+    Backend->>Gateway: GET /api/v1/verify?agent_did=&skill_did=
+
+    alt purchased = true
+        Gateway-->>Backend: { purchased: true }
+        Backend-->>Agent: 200 OK + result
+    else purchased = false
+        Gateway-->>Backend: { purchased: false }
+        Backend-->>Agent: HTTP 402 + payment challenge
+
+        Note over Agent: Plugin intercepts 402
+        Note over Agent: 1. Extract payment requirement
+        Note over Agent: 2. Build SPL transfer + sign
+        Note over Agent: 3. POST /api/v1/pay
+
+        Agent->>Gateway: Submit signed payment
+        Gateway-->>Agent: tx_id (confirmed)
+
+        Agent->>Backend: Retry resource request
+        Backend->>Gateway: GET /api/v1/verify
+        Gateway-->>Backend: { purchased: true }
+        Backend-->>Agent: 200 OK + result
+    end
 ```
 
 Two calls to your endpoint, one call to StablePay. The payment happens between them, transparently.

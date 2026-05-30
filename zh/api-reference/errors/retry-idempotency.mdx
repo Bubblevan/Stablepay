@@ -8,19 +8,25 @@ icon: 'rotate-right'
 
 并非所有失败都可以安全重试。使用以下决策树：
 
-```
-收到错误
-  │
-  ├── HTTP 402 ──▶ 不是错误。提取支付挑战并继续支付。
-  │
-  ├── HTTP 409 ──▶ 在 POST /api/v1/pay 时：支付已存在。视为成功。
-  │                其他端点：修复你的幂等键后重试。
-  │
-  ├── HTTP 429 / 500 / 503 ──▶ 可以安全地使用指数退避重试。
-  │
-  ├── HTTP 401 (code 10004) ──▶ 刷新 timestamp + nonce，重新签名，重试一次。
-  │
-  └── HTTP 400 / 403 / 404 ──▶ 不要重试。先修复根本原因。
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "lineColor": "#64748b"}}}%%
+
+flowchart TD
+    ERR[收到错误]
+
+    ERR -->|HTTP 402| OK402[不是错误。<br/>提取支付挑战并继续支付]
+    ERR -->|HTTP 409| CHK409{哪个端点？}
+    CHK409 -->|POST /api/v1/pay| OK409[支付已存在。<br/>视为成功]
+    CHK409 -->|其他端点| FIX409[修复幂等键后重试]
+    ERR -->|HTTP 429/500/503| RETRY[可以安全地使用<br/>指数退避重试]
+    ERR -->|HTTP 401<br/>code 10004| SIGN[刷新 timestamp + nonce<br/>重新签名，重试一次]
+    ERR -->|HTTP 400/403/404| NO[不要重试。<br/>先修复根本原因]
+
+    style OK402 fill:#dcfce7,stroke:#16A34A
+    style OK409 fill:#dcfce7,stroke:#16A34A
+    style RETRY fill:#fef3c7,stroke:#f59e0b
+    style SIGN fill:#fef3c7,stroke:#f59e0b
+    style NO fill:#fee2e2,stroke:#dc2626
 ```
 
 ## 重试策略
@@ -140,23 +146,22 @@ headers["X-Idempotency-Key"] = orderId;
 
 ### 工作原理
 
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Client as 客户端
+    participant Server as 服务端
+
+    Client->>Server: X-StablePay-Timestamp: now()<br/>X-StablePay-Nonce: random()
+    Note over Server: 1. |timestamp - now| ≤ 5 分钟？
+    Note over Server: 否 → 10004，拒绝
+    Note over Server: 2. 此 nonce 之前见过？
+    Note over Server: 是 → 10004，拒绝<br/>（nonce 在 Redis 中缓存在窗口期间）
+    Note over Server: 3. 验证 Ed25519 签名
+    Note over Server: 失败 → 10004，拒绝
+    Server-->>Client: 4. 所有检查通过 → 处理请求
 ```
-客户端                              服务端
-  │                                    │
-  │  X-StablePay-Timestamp: now()      │
-  │  X-StablePay-Nonce: random()       │
-  ├───────────────────────────────────►│
-  │                                    ├─ 1. |timestamp - now| ≤ 5 分钟？
-  │                                    │    否 → 10004，拒绝
-  │                                    │
-  │                                    ├─ 2. 此 nonce 之前见过？
-  │                                    │    是 → 10004，拒绝
-  │                                    │    （nonce 在 Redis 中缓存在窗口期间）
-  │                                    │
-  │                                    ├─ 3. 验证 Ed25519 签名
-  │                                    │    失败 → 10004，拒绝
-  │                                    │
-  │                                    └─ 4. 所有检查通过 → 处理请求
 ```
 
 ### Nonce 格式

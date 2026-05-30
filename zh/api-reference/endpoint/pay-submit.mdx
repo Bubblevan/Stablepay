@@ -78,14 +78,18 @@ body 必须**预序列化 JSON 且键顺序固定**，使 SHA256 哈希具有确
 
 ### 字段关系
 
-```
-signed_tx_base64  ──sha256──▶  signed_tx_hash_sha256
-                                      │
-agent_did | skill_did | amount_minor | currency | signed_tx_hash_sha256
-                                      │
-                               （业务签名负载）
-                                      │
-                              钱包签名 ──▶  signature 字段
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325"}}}%%
+
+flowchart LR
+    TX[("signed_tx_base64")] -->|sha256| HASH[("signed_tx_hash_sha256")]
+    HASH --> CONCAT["agent_did | skill_did |<br/>amount_minor | currency |<br/>signed_tx_hash_sha256"]
+    CONCAT --> SIGN["钱包签名<br/>此负载"]
+    SIGN --> FIELD[("signature 字段")]
+
+    style TX fill:#f0faf5,stroke:#16A34A
+    style HASH fill:#f0faf5,stroke:#16A34A
+    style FIELD fill:#dcfce7,stroke:#16A34A,stroke-width:2px
 ```
 
 ## 响应

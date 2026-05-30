@@ -23,28 +23,22 @@ did:solana:<base58-编码的-ed25519-公钥>
 
 ## 注册流程
 
-```
-┌──────────┐     ┌──────────────┐     ┌──────────────┐
-│  插件     │────▶│ API 网关      │────▶│ DID 服务      │
-│          │     │ ai.wenfu.cn  │     │              │
-└──────────┘     └──────────────┘     └──────────────┘
-     │                                        │
-     │  POST /api/v1/did/register            │
-     │  {                                     │
-     │    user_type: "agent"|"developer",     │
-     │    public_key: "<base58>",             │
-     │    wallet_address: "<base58>",         │
-     │    wallet_id: "...",                   │
-     │    wallet_name: "..."                  │
-     │  }                                     │
-     │                                        │
-     │              响应:                      │
-     │  {                                     │
-     │    did: "did:solana:...",              │
-     │    wallet_address: "...",              │
-     │    created_at: "..."                   │
-     │  }                                     │
-     │◄───────────────────────────────────────┤
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Plugin as 插件<br/>(OWS 钱包)
+    participant Gateway as API 网关<br/>ai.wenfu.cn
+    participant DID as DID 服务
+
+    Plugin->>Gateway: POST /api/v1/did/register
+    Note over Plugin,Gateway: { user_type, public_key, wallet_address, wallet_id, wallet_name }
+
+    Gateway->>DID: 验证并存储公钥
+    DID-->>Gateway: DID 记录已创建
+
+    Gateway-->>Plugin: { did: "did:solana:...", wallet_address, created_at }
+    Note over Plugin: 加密并持久化<br/>到本地状态
 ```
 
 ## 在 TUI 中注册

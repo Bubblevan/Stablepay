@@ -8,19 +8,25 @@ icon: 'rotate-right'
 
 Not all failures are safe to retry. Apply this decision tree:
 
-```
-Error received
-  │
-  ├── HTTP 402 ──▶ Not an error. Extract payment challenge and proceed with payment.
-  │
-  ├── HTTP 409 ──▶ On POST /api/v1/pay: payment already exists. Treat as success.
-  │                On other endpoints: fix your idempotency key and retry.
-  │
-  ├── HTTP 429 / 500 / 503 ──▶ Safe to retry with exponential backoff.
-  │
-  ├── HTTP 401 (code 10004) ──▶ Refresh timestamp + nonce, re-sign, retry once.
-  │
-  └── HTTP 400 / 403 / 404 ──▶ Do NOT retry. Fix the root cause first.
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "lineColor": "#64748b"}}}%%
+
+flowchart TD
+    ERR[Error received]
+
+    ERR -->|HTTP 402| OK402[Not an error.<br/>Extract payment challenge<br/>and proceed]
+    ERR -->|HTTP 409| CHK409{On which endpoint?}
+    CHK409 -->|POST /api/v1/pay| OK409[Payment already exists.<br/>Treat as success]
+    CHK409 -->|Other endpoints| FIX409[Fix idempotency key<br/>and retry]
+    ERR -->|HTTP 429/500/503| RETRY[Safe to retry<br/>with exponential backoff]
+    ERR -->|HTTP 401<br/>code 10004| SIGN[Refresh timestamp + nonce<br/>re-sign, retry once]
+    ERR -->|HTTP 400/403/404| NO[Do NOT retry.<br/>Fix the root cause first]
+
+    style OK402 fill:#dcfce7,stroke:#16A34A
+    style OK409 fill:#dcfce7,stroke:#16A34A
+    style RETRY fill:#fef3c7,stroke:#f59e0b
+    style SIGN fill:#fef3c7,stroke:#f59e0b
+    style NO fill:#fee2e2,stroke:#dc2626
 ```
 
 ## Retry strategy
@@ -140,23 +146,22 @@ Every DID-authenticated request includes a timestamp and nonce to prevent interc
 
 ### How it works
 
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: X-StablePay-Timestamp: now()<br/>X-StablePay-Nonce: random()
+    Note over Server: 1. Is |timestamp - now| ≤ 5 min?
+    Note over Server: No → 10004, reject
+    Note over Server: 2. Has this nonce been seen before?
+    Note over Server: Yes → 10004, reject<br/>(cached in Redis for window duration)
+    Note over Server: 3. Verify Ed25519 signature
+    Note over Server: Fail → 10004, reject
+    Server-->>Client: 4. All checks passed → process request
 ```
-Client                              Server
-  │                                    │
-  │  X-StablePay-Timestamp: now()      │
-  │  X-StablePay-Nonce: random()       │
-  ├───────────────────────────────────►│
-  │                                    ├─ 1. Is |timestamp - now| ≤ 5 min?
-  │                                    │    No → 10004, reject
-  │                                    │
-  │                                    ├─ 2. Has this nonce been seen before?
-  │                                    │    Yes → 10004, reject
-  │                                    │    (nonces cached in Redis for window duration)
-  │                                    │
-  │                                    ├─ 3. Verify Ed25519 signature
-  │                                    │    Fail → 10004, reject
-  │                                    │
-  │                                    └─ 4. All checks passed → process request
 ```
 
 ### Nonce format
