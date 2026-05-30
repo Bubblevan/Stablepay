@@ -92,24 +92,26 @@ curl -H "X-StablePay-DID: did:solana:<your-did>" \
 
 ## Settlement timing
 
-Payments settle directly on Solana:
+Payments settle directly on Solana. USDC is **yours** as soon as the chain confirms the transfer — typically 5-30 seconds after the buyer submits payment.
+
+When it becomes **visible in queries** depends on the async pipeline:
 
 ```
 Buyer Agent pays
-  → Solana transaction submitted (5s)
-    → Confirmed on-chain (5-30s)
-      → RocketMQ event → Verification Service (async, <5s normally)
-        → Purchase record written
-          → Visible in sales/revenue queries
+  → Solana transaction submitted (~5s)
+    → Chain confirmed — USDC is in your wallet now
+      → RocketMQ event → Verification Service (async, normally <5s)
+        → Purchase record written to MySQL
+          → Visible in sales/revenue API queries
 ```
 
 <Info>
-  USDC goes directly from buyer wallet to your wallet on-chain. There is no intermediary holding account. You can verify independently on any Solana block explorer.
+  **Chain confirmation = your money. API visibility = your dashboard.** The two happen at slightly different times. For independent verification of any transaction, use [Solana Explorer](/settlement#verify-on-solana-explorer) with the `tx_hash`. For full reconciliation guidance, see [Settlement & reconciliation](/settlement).
 </Info>
 
 ## Tracking multiple skills
 
-If you publish multiple skills, you can use different `skill_did` values for each (by creating separate developer wallets), or use the same DID across all skills and differentiate by metadata.
+If you publish multiple skills, you can use different `skill_did` values for each (by creating separate developer wallets), or use the same DID across all skills and differentiate by metadata. For the trade-offs between these two strategies, see [Multi-skill DID strategy](/settlement#multi-skill-did-strategy).
 
 Query each skill separately:
 

@@ -44,7 +44,8 @@
                 "group": "Marketplace",
                 "pages": [
                   "moltbay",
-                  "revenue"
+                  "revenue",
+                  "settlement"
                 ]
               }
             ]
@@ -132,7 +133,8 @@
                 "group": "市场",
                 "pages": [
                   "zh/moltbay",
-                  "zh/revenue"
+                  "zh/revenue",
+                  "zh/settlement"
                 ]
               }
             ]
