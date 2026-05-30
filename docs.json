@@ -36,6 +36,7 @@
                 "group": "Payment integration",
                 "pages": [
                   "integrating-payment",
+                  "backend-verification",
                   "x402-format"
                 ]
               },

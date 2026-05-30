@@ -1,0 +1,343 @@
+---
+title: "Backend verification"
+description: "Prevent payment bypass with server-side purchase verification"
+icon: 'shield-check'
+---
+
+## Why backend verification matters
+
+The [skill.md payment block](/integrating-payment#approach-1-skillmd-payment-block) is fast to set up, but has a weakness: a user can edit `skill.md` to remove the payment block and access your service for free.
+
+**Backend verification closes this loophole.** Your server checks every request against StablePay's purchase records. If the caller hasn't paid, your server returns HTTP 402 — and the StablePay plugin automatically intercepts it, handles payment, and retries. The user can't bypass this because the check happens on your server, not in the skill files they can edit.
+
+<Info>
+  This is the same mechanism that protects paid APIs on the web. It's why platforms like Stripe don't just put a "please pay" banner on your checkout page — they verify server-side.
+</Info>
+
+## How it works
+
+Your backend makes **one API call** per request to check purchase status:
+
+```
+Agent requests your API ─────────────────────────────┐
+   │                                                  │
+   ▼                                                  │
+Your backend:                                         │
+  GET /api/v1/verify?agent_did=...&skill_did=...      │
+   │                                                  │
+   ├── purchased: true ──▶ Serve the resource (200)    │
+   │                                                  │
+   └── purchased: false ─▶ Return 402 + challenge     │
+                              │                       │
+                              ▼                       │
+                    Plugin intercepts 402:            │
+                    1. Extracts payment requirement   │
+                    2. Builds SPL transfer + signs    │
+                    3. POST /api/v1/pay               │
+                    4. Retries your API ──────────────┘
+
+Your backend checks again → purchased: true → 200
+```
+
+Two calls to your endpoint, one call to StablePay. The payment happens between them, transparently.
+
+## Implementation
+
+The logic is the same in every language:
+
+1. Extract `agent_did` from the incoming request
+2. Call `GET /api/v1/verify?agent_did=...&skill_did=...`
+3. If `purchased: true` → serve the resource
+4. If `purchased: false` → return HTTP 402 with an x402 payment challenge
+
+<Tabs>
+  <Tab title="Node.js / Express">
+    ```javascript
+    const express = require("express");
+    const app = express();
+
+    const STABLEPAY_GATEWAY = "https://ai.wenfu.cn";
+    const MY_SKILL_DID = "did:solana:AbCdEf..."; // your developer DID
+    const PRICE_USDC = "1.00";
+
+    async function checkPurchase(agentDid, skillDid) {
+      const url = `${STABLEPAY_GATEWAY}/api/v1/verify?agent_did=${encodeURIComponent(agentDid)}&skill_did=${encodeURIComponent(skillDid)}`;
+      const res = await fetch(url, {
+        headers: { "X-API-Key": process.env.STABLEPAY_API_KEY }
+      });
+      const body = await res.json();
+      return body.data?.purchased === true;
+    }
+
+    function buildPaymentChallenge(skillDid, amount) {
+      // amount in minor units: 1.00 USDC = "1000000"
+      const amountMinor = String(Math.round(parseFloat(amount) * 1_000_000));
+      return {
+        x402Version: 1,
+        accepts: [{
+          scheme: "exact",
+          network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+          payTo: skillDid,
+          asset: "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+          maxAmountRequired: amountMinor,
+          maxTimeoutSeconds: 60,
+          description: `Pay ${amount} USDC to access this skill`,
+          extra: {
+            skillDid,
+            currency: "USDC",
+            facilitatorUrl: `${STABLEPAY_GATEWAY}/api/v1/pay`
+          }
+        }]
+      };
+    }
+
+    app.get("/execute", async (req, res) => {
+      const agentDid = req.query.agent_did;
+      if (!agentDid) {
+        return res.status(400).json({ error: "agent_did is required" });
+      }
+
+      const purchased = await checkPurchase(agentDid, MY_SKILL_DID);
+      if (!purchased) {
+        return res.status(402).json(buildPaymentChallenge(MY_SKILL_DID, PRICE_USDC));
+      }
+
+      // Purchased — serve the resource
+      res.json({ result: "Skill executed successfully", agent_did: agentDid });
+    });
+
+    app.listen(8787, () => console.log("Skill backend listening on :8787"));
+    ```
+  </Tab>
+  <Tab title="Go / Hertz">
+    ```go
+    package main
+
+    import (
+        "context"
+        "encoding/json"
+        "fmt"
+        "net/http"
+        "net/url"
+        "os"
+        "strconv"
+
+        "github.com/cloudwego/hertz/pkg/app"
+        "github.com/cloudwego/hertz/pkg/app/server"
+    )
+
+    const gatewayBase = "https://ai.wenfu.cn"
+    const mySkillDID = "did:solana:AbCdEf..."
+    const priceUSDC = "1.00"
+
+    type VerifyResponse struct {
+        Code int `json:"code"`
+        Data struct {
+            Purchased bool `json:"purchased"`
+        } `json:"data"`
+    }
+
+    func checkPurchase(ctx context.Context, agentDID, skillDID string) (bool, error) {
+        u := fmt.Sprintf("%s/api/v1/verify?agent_did=%s&skill_did=%s",
+            gatewayBase, url.QueryEscape(agentDID), url.QueryEscape(skillDID))
+
+        req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+        req.Header.Set("X-API-Key", os.Getenv("STABLEPAY_API_KEY"))
+
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            return false, err
+        }
+        defer resp.Body.Close()
+
+        var v VerifyResponse
+        json.NewDecoder(resp.Body).Decode(&v)
+        return v.Data.Purchased, nil
+    }
+
+    func buildPaymentChallenge(skillDID, amount string) map[string]interface{} {
+        f, _ := strconv.ParseFloat(amount, 64)
+        amountMinor := strconv.Itoa(int(f * 1_000_000))
+        return map[string]interface{}{
+            "x402Version": 1,
+            "accepts": []map[string]interface{}{{
+                "scheme":            "exact",
+                "network":           "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                "payTo":             skillDID,
+                "asset":             "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                "maxAmountRequired": amountMinor,
+                "maxTimeoutSeconds": 60,
+                "description":       fmt.Sprintf("Pay %s USDC to access this skill", amount),
+                "extra": map[string]string{
+                    "skillDid":       skillDID,
+                    "currency":       "USDC",
+                    "facilitatorUrl": gatewayBase + "/api/v1/pay",
+                },
+            }},
+        }
+    }
+
+    func handleExecute(c context.Context, ctx *app.RequestContext) {
+        agentDID := ctx.Query("agent_did")
+        if agentDID == "" {
+            ctx.JSON(400, map[string]string{"error": "agent_did is required"})
+            return
+        }
+
+        purchased, err := checkPurchase(c, agentDID, mySkillDID)
+        if err != nil {
+            ctx.JSON(500, map[string]string{"error": "verification failed"})
+            return
+        }
+
+        if !purchased {
+            ctx.JSON(402, buildPaymentChallenge(mySkillDID, priceUSDC))
+            return
+        }
+
+        ctx.JSON(200, map[string]interface{}{
+            "result":    "Skill executed successfully",
+            "agent_did": agentDID,
+        })
+    }
+
+    func main() {
+        h := server.Default()
+        h.GET("/execute", handleExecute)
+        h.Spin()
+    }
+    ```
+  </Tab>
+  <Tab title="Python / FastAPI">
+    ```python
+    import os
+    from fastapi import FastAPI, Query, HTTPException
+    from fastapi.responses import JSONResponse
+    import httpx
+
+    GATEWAY = "https://ai.wenfu.cn"
+    MY_SKILL_DID = "did:solana:AbCdEf..."
+    PRICE_USDC = "1.00"
+
+    app = FastAPI()
+
+    async def check_purchase(agent_did: str, skill_did: str) -> bool:
+        url = f"{GATEWAY}/api/v1/verify"
+        params = {"agent_did": agent_did, "skill_did": skill_did}
+        headers = {"X-API-Key": os.getenv("STABLEPAY_API_KEY")}
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            data = resp.json()
+            return data.get("data", {}).get("purchased", False)
+
+    def build_payment_challenge(skill_did: str, amount: str) -> dict:
+        amount_minor = str(int(float(amount) * 1_000_000))
+        return {
+            "x402Version": 1,
+            "accepts": [{
+                "scheme": "exact",
+                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                "payTo": skill_did,
+                "asset": "USDC:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                "maxAmountRequired": amount_minor,
+                "maxTimeoutSeconds": 60,
+                "description": f"Pay {amount} USDC to access this skill",
+                "extra": {
+                    "skillDid": skill_did,
+                    "currency": "USDC",
+                    "facilitatorUrl": f"{GATEWAY}/api/v1/pay"
+                }
+            }]
+        }
+
+    @app.get("/execute")
+    async def execute(agent_did: str = Query(..., description="Agent DID")):
+        purchased = await check_purchase(agent_did, MY_SKILL_DID)
+
+        if not purchased:
+            return JSONResponse(
+                status_code=402,
+                content=build_payment_challenge(MY_SKILL_DID, PRICE_USDC)
+            )
+
+        return {"result": "Skill executed successfully", "agent_did": agent_did}
+    ```
+  </Tab>
+  <Tab title="curl (manual test)">
+    ```bash
+    # Step 1: Check purchase status
+    curl -H "X-API-Key: $STABLEPAY_API_KEY" \
+      "https://ai.wenfu.cn/api/v1/verify?agent_did=did:solana:<buyer>&skill_did=did:solana:<yours>"
+
+    # Response when NOT purchased:
+    # { "code": 0, "data": { "purchased": false } }
+
+    # Step 2: Your server should return HTTP 402:
+    # HTTP/1.1 402 Payment Required
+    # {
+    #   "x402Version": 1,
+    #   "accepts": [{ "maxAmountRequired": "1000000", ... }]
+    # }
+
+    # Step 3: Agent's plugin handles payment → retries → now purchased: true
+    curl -H "X-API-Key: $STABLEPAY_API_KEY" \
+      "https://ai.wenfu.cn/api/v1/verify?agent_did=did:solana:<buyer>&skill_did=did:solana:<yours>"
+
+    # Response after payment:
+    # { "code": 0, "data": { "purchased": true, "purchase_time": "..." } }
+    ```
+  </Tab>
+</Tabs>
+
+## Key patterns
+
+### Always check on every request
+
+Don't cache purchase status. Check every time. The call to `/api/v1/verify` takes under 500ms and is free. Caching "purchased = true" for a user is fine as a performance optimization, but never skip the check entirely.
+
+### Use API Key auth for server-to-server calls
+
+Your backend calls StablePay, not the user's agent. Use `X-API-Key` authentication — it's simpler than DID signing and doesn't require wallet access on your server. Contact the StablePay team to obtain one.
+
+### Return a proper x402 challenge
+
+The plugin's `extractPaymentRequirement()` parses the 402 response automatically. If your challenge is malformed (missing `skillDid`, wrong `maxAmountRequired` type), the plugin will throw an error instead of processing payment. Test your 402 response body against the [x402 format reference](/x402-format).
+
+### Handle the async purchase record delay
+
+Purchase records are written asynchronously via RocketMQ. After `POST /api/v1/pay` succeeds, the record may take up to 5 seconds (edge case: 30s) to appear in the Verification Service. The plugin retries up to 6 times with 1.5s delays automatically. If you're building a custom client, add similar retry logic.
+
+## Testing your integration
+
+1. Start your backend with the code above
+2. In OpenClaw TUI, ensure your agent wallet is set up and has USDC
+3. Ask your agent: "Access my skill at http://127.0.0.1:8787/execute"
+4. The first request should get a 402 — the plugin will handle payment automatically
+5. After payment (chain confirmation + purchase record), the retry should get 200
+
+You can also test manually:
+
+```bash
+# Simulate an unpaid agent
+curl "http://127.0.0.1:8787/execute?agent_did=did:solana:unpaid-agent"
+
+# Expected: HTTP 402 with x402 challenge in the body
+```
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Integrating x402 payments" icon="credit-card" href="/integrating-payment">
+    Overview of both integration approaches (skill.md vs backend).
+  </Card>
+  <Card title="x402 format reference" icon="file-code" href="/x402-format">
+    Complete specification of the payment challenge response format.
+  </Card>
+  <Card title="Verify Purchase endpoint" icon="circle-check" href="/api-reference/endpoint/verify-purchase">
+    API reference for GET /api/v1/verify.
+  </Card>
+  <Card title="Error codes" icon="circle-exclamation" href="/api-reference/errors/error-codes">
+    What each HTTP status and error code means.
+  </Card>
+</CardGroup>
