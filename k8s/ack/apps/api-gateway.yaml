@@ -18,7 +18,7 @@ spec:
       containers:
         - name: api-gateway
           image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/api-gateway:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: http

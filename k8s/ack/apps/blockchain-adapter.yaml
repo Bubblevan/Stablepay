@@ -18,7 +18,7 @@ spec:
       containers:
         - name: blockchain-adapter
           image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/blockchain-adapter:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command:
             - ./blockchain-adapter
             - -config

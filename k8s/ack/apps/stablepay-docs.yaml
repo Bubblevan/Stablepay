@@ -18,7 +18,7 @@ spec:
       containers:
         - name: docs
           image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/stablepay-docs:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
               name: http
