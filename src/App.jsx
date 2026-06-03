@@ -424,6 +424,9 @@ When the user requests the premium capability:
               ))}
             </ul>
           </div>
+          <a href="https://ai.wenfu.cn/docs/" target="_blank" rel="noopener noreferrer" className="docs-link">
+            {t.developers.viewDocs} →
+          </a>
         </div>
 
         <div className="panel code-panel">
@@ -493,6 +496,10 @@ function QuickStart() {
   return (
     <section className="section" id="quickstart">
       <div className="container">
+        <div className="section-heading narrow">
+          <div className="eyebrow">{t.quickStart.eyebrow}</div>
+          <h2>{t.quickStart.title}</h2>
+        </div>
         {/* Step 1: Install Plugin */}
         <div className="quickstart-step">
           <h3>{t.quickStart.install.title}</h3>
@@ -629,7 +636,6 @@ export default function App() {
         <Features />
         <HowItWorks />
         <Developers />
-        <Protocols />
         <QuickStart />
         <FAQ />
       </main>

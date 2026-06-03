@@ -34,7 +34,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .section {
-  padding: 84px 0;
+  padding: 24px 0;
 }
 
 .site-header {
@@ -449,6 +449,26 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   background: rgba(0, 0, 0, 0.03);
 }
 
+.docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  transition: all 0.2s ease;
+}
+
+.docs-link:hover {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
 .code-panel {
   overflow: hidden;
 }
@@ -493,7 +513,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 
 /* QuickStart Section Styles */
 .quickstart-step {
-  margin-bottom: 48px;
+  margin-bottom: 32px;
 }
 
 .quickstart-step h3 {

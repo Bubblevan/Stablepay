@@ -10,7 +10,7 @@ export const translations = {
     },
     hero: {
       eyebrow: 'Programmable payments for autonomous agents',
-      title: 'Let agents pay for APIs, tools, and digital services — without breaking the flow.',
+      title: 'Let agents pay for and digital services — without breaking the flow',
       copy: 'StablePay gives AI agents a wallet-backed identity, an HTTP 402/x402-ready payment flow, reusable access credentials, and developer-friendly paywall templates. It helps agents purchase paid APIs, MCP tools, datasets, content, and services with stablecoins while keeping authorization and settlement verifiable.',
       viewCode: 'View Integration Template',
       seeDemo: 'See Payment Flow',
@@ -86,7 +86,8 @@ export const translations = {
       desc: 'Use StablePay to protect APIs, MCP tools, datasets, content pages, or agent services with an HTTP 402 payment flow and backend verification.',
       apiTitle: 'StablePay API surface',
       copyTemplate: 'Copy Template',
-      copied: 'Copied!'
+      copied: 'Copied!',
+      viewDocs: 'View full developer documentation'
     },
     protocols: {
       identity: 'Identity',
@@ -193,7 +194,7 @@ export const translations = {
     },
     hero: {
       eyebrow: '面向自主 Agent 的支付',
-      title: '让 Agent 为数字服务商品付款，而不中断任务流程。',
+      title: '让 Agent 为数字服务商品付款，而不中断任务流程',
       copy: 'StablePay 为 AI Agent 提供钱包支持的身份、HTTP 402/x402-ready 支付流程、可复用访问凭证，以及开发者友好的付费墙模板。它可以帮助 Agent 使用稳定币购买付费 API、MCP 工具、数据集、内容和服务，同时保证授权与结算可验证。',
       viewCode: '查看集成模板',
       seeDemo: '查看支付流程',
@@ -269,7 +270,8 @@ export const translations = {
       desc: '使用 StablePay 为 API、MCP 工具、数据集、内容页面或 Agent 服务接入 HTTP 402 支付流程和后端验证能力。',
       apiTitle: 'StablePay API 能力',
       copyTemplate: '复制模板',
-      copied: '已复制!'
+      copied: '已复制!',
+      viewDocs: '查看完整开发者文档'
     },
     protocols: {
       identity: '身份',
