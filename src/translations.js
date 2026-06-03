@@ -1,123 +1,182 @@
 export const translations = {
   en: {
     nav: {
-      marketplace: 'Marketplace',
+      marketplace: 'Resource Marketplace',
       features: 'Features',
       howItWorks: 'How It Works',
       protocols: 'Protocols',
+      quickStart: 'Quick Start',
       developers: 'Developers'
     },
     hero: {
-      eyebrow: 'Stablecoin checkout for the AI skill economy',
-      title: 'Let your Agent buy premium skills — without breaking the flow.',
-      copy: 'StablePay gives AI agents a wallet-backed identity, a clean HTTP 402 payment flow, and a developer-friendly paywall template. Inspired by the protocol storytelling of MoltBay, but focused on Solana payments, skill monetization, and ClawHub/OpenClaw demo scenarios.',
-      viewCode: 'View Code Template',
-      seeDemo: 'See Demo Flow',
+      eyebrow: 'Programmable payments for autonomous agents',
+      title: 'Let agents pay for APIs, tools, and digital services — without breaking the flow.',
+      copy: 'StablePay gives AI agents a wallet-backed identity, an HTTP 402/x402-ready payment flow, reusable access credentials, and developer-friendly paywall templates. It helps agents purchase paid APIs, MCP tools, datasets, content, and services with stablecoins while keeping authorization and settlement verifiable.',
+      viewCode: 'View Integration Template',
+      seeDemo: 'See Payment Flow',
       stats: {
-        payment: 'payment-first UX',
-        solana: 'USDC / USDT focus',
-        integration: 'developer integration target'
+        payment: 'agent-native checkout',
+        solana: 'USDC settlement',
+        integration: 'x402-ready integration'
       }
     },
     audience: {
-      forUsers: 'For Agent Users',
-      userTitle: 'Buy skills in conversation',
-      userDesc: 'Create a wallet, bind X, top up USDC, and let your agent auto-buy low-cost skills or ask for confirmation on higher-value tasks.',
-      userList: ['Wallet + DID onboarding', 'Auto-buy threshold', 'Balance and transaction history'],
-      forDevelopers: 'For Skill Developers',
-      devTitle: 'Monetize with a simple template',
-      devDesc: 'Copy the payment snippet, replace your skill DID and price, and optionally verify purchases on the backend before executing premium actions.',
-      devList: ['Copy-paste payment template', 'Revenue and sales placeholders', 'Optional verify API integration']
+      forUsers: 'For Agent Operators',
+      userTitle: 'Give agents a payment account',
+      userDesc: 'Create a wallet-backed identity, configure spending limits, top up stablecoins, and let your agent pay for approved resources during its workflow.',
+      userList: ['Wallet + DID onboarding', 'Spending limits and confirmations', 'Balance, access, and transaction history'],
+      forDevelopers: 'For Resource Providers',
+      devTitle: 'Charge for APIs, tools, and services',
+      devDesc: 'Add a payment requirement to your API, MCP server, data endpoint, content page, or agent service. StablePay handles payment, access verification, and reusable credentials.',
+      devList: ['Copy-paste paywall template', 'HTTP 402 / x402-style payment flow', 'Verification API for backend access control']
     },
     skills: {
-      eyebrow: 'Demo marketplace',
-      title: 'Placeholder skills your agent could discover and buy',
-      desc: 'These cards are intentionally mock data. Keep them as placeholders for now, or replace them with your real skills later.',
+      eyebrow: 'Resource Marketplace',
+      title: 'Paid resources your agent could discover and use',
+      desc: 'APIs, MCP tools, datasets, content, and services that agents can discover, pay for, and access programmatically.',
       startingAt: 'Starting at',
       items: [
-        { icon: '✍️', name: 'Writing Copilot', handle: '@writer_agent', title: 'Long-form articles, briefs, and launch copy', tags: ['copywriting', 'blog', 'content'], price: '$1.00', metric: '3.2k installs' },
-        { icon: '📊', name: 'Data Scout', handle: '@data_scout', title: 'Charts, dashboards, and lightweight reports', tags: ['analysis', 'visualization', 'reports'], price: '$2.00', metric: '2.4k installs' },
-        { icon: '🧠', name: 'Research Pilot', handle: '@research_pilot', title: 'Fast research summaries with source links', tags: ['research', 'summary', 'sources'], price: '$3.00', metric: '1.6k installs' },
-        { icon: '🎨', name: 'Design Draft', handle: '@design_draft', title: 'Simple logos, banners, and product visuals', tags: ['branding', 'visuals', 'design'], price: '$5.00', metric: '1.1k installs' },
+        { icon: '🔌', name: 'API Data Feed', handle: '@market_api', title: 'Real-time structured data for agent workflows', tags: ['api', 'data', 'automation'], price: '$1.00', metric: '3.2k calls' },
+        { icon: '🧰', name: 'MCP Tool Server', handle: '@tool_server', title: 'Paid tools exposed through an agent-readable interface', tags: ['mcp', 'tools', 'agent'], price: '$2.00', metric: '2.4k sessions' },
+        { icon: '📚', name: 'Research Dataset', handle: '@data_vault', title: 'Curated datasets and source-backed research packages', tags: ['dataset', 'research', 'sources'], price: '$3.00', metric: '1.6k purchases' },
+        { icon: '🤖', name: 'Agent Service', handle: '@service_agent', title: 'Specialized agent capabilities available on demand', tags: ['service', 'workflow', 'automation'], price: '$5.00', metric: '1.1k uses' },
       ]
     },
     features: {
       eyebrow: 'Core features',
-      title: 'Your payment layer for agent commerce',
+      title: 'A payment and access layer for agent commerce',
       items: [
-        { title: 'did:solana identity', text: 'Create a wallet-backed DID for every user or developer and keep the signing key local.' },
-        { title: 'HTTP 402 payments', text: 'Trigger programmable paywalls for AI skills with a standard machine-friendly payment flow.' },
-        { title: 'X verification + reward', text: 'Bind an X account, reduce abuse, and demonstrate a registration reward flow in the product story.' },
-        { title: 'Fast integration', text: 'Developers copy a template, replace the DID and price, and publish a paid skill in minutes.' },
-        { title: 'Developer verification API', text: 'Backends can verify purchases before executing premium actions so the paywall is harder to bypass.' },
-        { title: 'Agent-native UX', text: 'Low-ticket skills auto-buy, higher amounts request confirmation, and results stay conversational.' },
+        { title: 'Wallet-backed agent identity', text: 'Create a DID for every agent, user, or provider, with signing keys kept local and ownership easy to verify.' },
+        { title: 'HTTP 402 / x402 payments', text: 'Expose machine-readable payment requirements so agents can understand pricing, pay, and continue the request flow.' },
+        { title: 'Reusable access credentials', text: 'After payment, issue access credentials so repeated calls can be verified off-chain without paying every time.' },
+        { title: 'Spending controls', text: 'Set auto-pay thresholds, confirmation rules, and budget limits for safer autonomous agent payments.' },
+        { title: 'Developer verification API', text: 'Backends can verify payment status or access credentials before serving paid APIs, tools, data, or services.' },
+        { title: 'Agent-native UX', text: 'Agents can pay, retry, access, and report results inside the same workflow instead of sending users through checkout pages.' },
       ]
     },
     howItWorks: {
       eyebrow: 'How it works',
-      title: 'StablePay in four demo steps'
+      title: 'StablePay in four steps'
     },
     steps: [
       {
-        title: 'Create a wallet DID',
-        text: 'StablePay creates a Solana wallet and a did:solana identity for your agent or developer profile.',
+        title: 'Create an agent identity',
+        text: 'StablePay creates a wallet-backed DID for an agent, user, or resource provider.',
         code: 'did:solana:4fK9x2Hy...'
       },
       {
-        title: 'Verify with X',
-        text: 'Post a verification tweet, paste the URL, and claim a small reward to prove ownership and reduce spam.',
-        code: 'Verify & Claim'
+        title: 'Configure payment rules',
+        text: 'Set stablecoin balance, spending limits, auto-pay thresholds, and confirmation rules for agent purchases.',
+        code: 'limit: 10 USDC / session'
       },
       {
         title: 'Pay via HTTP 402',
-        text: 'When a premium skill returns Payment Required, StablePay signs and completes the purchase flow.',
+        text: 'When a paid API, tool, dataset, or service returns Payment Required, StablePay signs and completes the payment flow.',
         code: '402 -> signed pay -> 200'
       },
       {
-        title: 'Deliver results',
-        text: 'The skill executes, developers get paid, and the user sees the updated balance and history.',
-        code: 'balance: 47 USDC'
+        title: 'Reuse access',
+        text: 'After payment, StablePay can verify reusable access credentials so later requests avoid repeated on-chain payment.',
+        code: 'access: reusable'
       }
     ],
     developers: {
       eyebrow: 'Developer zone',
-      title: 'Copy the template, replace placeholders, publish a paid skill',
-      desc: 'This block is designed as the page anchor you can demo live. It matches your product direction: no dashboard, no login wall, just a clear template developers can paste into their skill docs.',
-      apiTitle: 'Placeholder API surface',
+      title: 'Add payment to your agent-facing resource',
+      desc: 'Use StablePay to protect APIs, MCP tools, datasets, content pages, or agent services with an HTTP 402 payment flow and backend verification.',
+      apiTitle: 'StablePay API surface',
       copyTemplate: 'Copy Template',
       copied: 'Copied!'
     },
     protocols: {
       identity: 'Identity',
       didSolana: 'did:solana',
-      identityDesc: 'Wallet-backed decentralized identifiers for users and developers, with local signing and clean ownership semantics.',
-      identityList: ['Wallet creation', 'Signature verification', 'X-bound trust layer'],
+      identityDesc: 'Wallet-backed decentralized identifiers for agents, users, and providers, with local signing and clean ownership semantics.',
+      identityList: ['Wallet creation', 'Signature verification', 'Agent ownership semantics'],
       payments: 'Payments',
-      http402: 'HTTP 402 + Solana',
-      paymentsDesc: 'A machine-friendly paywall that can be triggered automatically, settled in stablecoins, and optionally verified by developer backends.',
-      paymentsList: ['Programmable paywalls', 'Instant settlement narrative', 'Verification API story']
+      http402: 'HTTP 402 / x402 + Solana',
+      paymentsDesc: 'A machine-friendly payment layer for paid APIs, tools, data, content, and services, settled in stablecoins and verifiable by backend systems.',
+      paymentsList: ['Programmable payment requirements', 'Stablecoin settlement', 'Access verification API']
+    },
+    quickStart: {
+      eyebrow: 'Get Started',
+      title: 'Quick Start Guide',
+      install: {
+        title: '1. Install Plugin & Configure',
+        desc: 'Install the StablePay plugin in OpenClaw:'
+      },
+      env: {
+        desc: 'After installation, create the environment file:',
+        notes: [
+          'STABLEPAY_PLUGIN_MASTER_KEY: A randomly generated key for AES-256-GCM encryption of local state file. Stores wallet info (wallet ID, name, DID, public key, address), payment policy, and configuration.',
+          'STABLEPAY_FEE_PAYER_SOL: Platform hot wallet public key for gas fee sponsorship.'
+        ]
+      },
+      ows: {
+        title: '2. Install OWS Wallet',
+        desc: 'OWS (Open Wallet Standard) is required for local wallet creation and transaction signing. Install Rustup first, then install ows-signer:'
+      },
+      wallet: {
+        title: '3. Create or Bind Agent Wallet',
+        desc: 'The plugin can create an OWS wallet. Main tool: stablepay_create_local_wallet. Suggested conversation flow:',
+        steps: [
+          'Check current StablePay plugin methods and runtime status',
+          'Create an OWS wallet for me',
+          'Query USDC balance and set spending limits (auto-pay threshold: 0.6 USDC, max per purchase: 10 USDC)',
+          'Register buyer DID for this wallet'
+        ]
+      },
+      did: {
+        title: '4. Register Buyer DID',
+        desc: 'After wallet creation, the plugin automatically submits wallet public key, address, name, and signing runtime to the DID service. Returns did:solana:<pubkey> identifier for payment and verification flows.'
+      },
+      merchant: {
+        title: '5. Try the Merchant Demo',
+        desc: 'Clone the merchant example to test end-to-end payment flow:',
+        note: 'Check showmethemoney-pro and merchant-backend. The merchant backend verifies StablePay purchases before executing premium actions.'
+      }
     },
     faq: {
-      eyebrow: 'FAQ',
-      title: 'Demo notes',
+      eyebrow: 'Quick Start',
+      title: 'Start using StablePay with OpenClaw',
       faqs: [
         {
-          q: 'Is this page production-ready?',
-          a: 'It is a polished demo landing page. The API calls and skill cards are placeholders that can later be wired to your real backend.',
+          q: 'How do I install the StablePay OpenClaw plugin?',
+          a: 'Install the plugin in OpenClaw with: openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install. After installation, create ~/.openclaw/.env and configure the local encryption key and platform fee payer settings required by the plugin.',
         },
         {
-          q: 'Why does the page have a MoltBay-like structure?',
-          a: 'You asked for a reference from moltbay.com, so this demo mirrors its dark, protocol-first marketing style while rewriting the story for StablePay.',
+          q: 'What does the local master key do?',
+          a: 'STABLEPAY_PLUGIN_MASTER_KEY is used to encrypt and decrypt the local StablePay state file. The encrypted file stores wallet metadata, DID information, payment policy, spending limits, and runtime configuration. Keep this key local and never publish it in frontend code, documentation screenshots, or public repositories.',
         },
         {
-          q: 'What can I change first?',
-          a: 'Replace the placeholder skills, swap demo URLs with real endpoints, and update the code template card with your final payment contract or API.',
+          q: 'How do I create or bind an agent wallet?',
+          a: 'In OpenClaw, ask the agent to inspect the installed StablePay plugin tools and runtime status, then create or bind an OWS wallet. The plugin can create a wallet through the OWS SDK runtime and use the Solana address as the wallet-backed identity for StablePay payments.',
+        },
+        {
+          q: 'How do I configure spending limits?',
+          a: 'After the wallet is ready, query the USDC balance through Solana RPC and configure a payment policy. For example, you can set an auto-pay threshold of 0.6 USDC and a maximum single purchase limit of 10 USDC so small agent purchases can complete automatically while larger payments still require confirmation.',
+        },
+        {
+          q: 'How does DID registration work?',
+          a: 'StablePay registers the buyer identity by submitting the wallet public key, wallet address, wallet name, and signing runtime to the DID service. After registration, the agent receives a did:solana identifier that can be used in payment, verification, and access-control flows.',
+        },
+        {
+          q: 'How can I try a paid resource end to end?',
+          a: 'Clone the merchant example repository, start the merchant backend, and run the protected ShowMeTheMoney Pro flow. The merchant backend verifies the StablePay purchase before executing the premium action, so users can see the full payment-to-access path.',
+        },
+        {
+          q: 'What happens when an agent reaches a paid resource?',
+          a: 'The resource returns HTTP 402 Payment Required. StablePay builds the payment request, signs it through the configured wallet runtime, submits the payment, verifies the result, and then allows the protected API, tool, or service to execute.',
+        },
+        {
+          q: 'Is StablePay only for OpenClaw skills?',
+          a: 'No. OpenClaw is the first integration scenario. StablePay is designed as a general agent payment layer for paid APIs, MCP tools, datasets, content, services, and other agent-accessible resources.',
         },
       ]
     },
     footer: {
-      demo: 'Demo landing page',
-      desc: 'Built for demo use. Replace placeholder copy, skills, and URLs when your backend is ready.',
+      demo: 'StablePay Agent Payment',
+      desc: 'Programmable payments and access verification for agent-facing APIs, tools, data, content, and services.',
       template: 'Template',
       features: 'Features',
       flow: 'Flow'
@@ -125,123 +184,182 @@ export const translations = {
   },
   zh: {
     nav: {
-      marketplace: '技能市场',
+      marketplace: '资源市场',
       features: '功能特性',
       howItWorks: '工作原理',
       protocols: '协议',
+      quickStart: '快速开始',
       developers: '开发者'
     },
     hero: {
-      eyebrow: 'AI技能经济的稳定币结账',
-      title: '让你的Agent购买高级技能——不中断流程。',
-      copy: 'StablePay为AI代理提供钱包支持的身份、干净的HTTP 402支付流程，以及开发者友好的付费墙模板。受MoltBay协议故事启发，但专注于Solana支付、技能货币化和ClawHub/OpenClaw演示场景。',
-      viewCode: '查看代码模板',
-      seeDemo: '查看演示流程',
+      eyebrow: '面向自主 Agent 的支付',
+      title: '让 Agent 为数字服务商品付款，而不中断任务流程。',
+      copy: 'StablePay 为 AI Agent 提供钱包支持的身份、HTTP 402/x402-ready 支付流程、可复用访问凭证，以及开发者友好的付费墙模板。它可以帮助 Agent 使用稳定币购买付费 API、MCP 工具、数据集、内容和服务，同时保证授权与结算可验证。',
+      viewCode: '查看集成模板',
+      seeDemo: '查看支付流程',
       stats: {
-        payment: '支付优先UX',
-        solana: 'USDC/USDT重点',
-        integration: '开发者集成目标'
+        payment: 'Agent 原生结账',
+        solana: 'USDC 结算',
+        integration: 'x402-ready 集成'
       }
     },
     audience: {
-      forUsers: '面向Agent用户',
-      userTitle: '在对话中购买技能',
-      userDesc: '创建钱包、绑定X、充值USDC，让你的代理自动购买低成本技能，或在更高价值任务上请求确认。',
-      userList: ['钱包+DID入职', '自动购买阈值', '余额和交易历史'],
-      forDevelopers: '面向技能开发者',
-      devTitle: '使用简单模板货币化',
-      devDesc: '复制支付代码片段，替换你的技能DID和价格，并在执行高级操作前可选地在后端验证购买。',
-      devList: ['复制粘贴支付模板', '收入和销售占位符', '可选的验证API集成']
+      forUsers: '面向 Agent 使用方',
+      userTitle: '给 Agent 一个可控的支付账户',
+      userDesc: '创建钱包支持的身份，配置消费限额，充值稳定币，并让你的 Agent 在任务流程中为已授权资源付款。',
+      userList: ['钱包 + DID 初始化', '消费限额与确认规则', '余额、访问权和交易历史'],
+      forDevelopers: '面向资源提供方',
+      devTitle: '为 API、工具和服务收费',
+      devDesc: '你可以给 API、MCP Server、数据接口、内容页面或 Agent 服务添加支付要求。StablePay 负责支付、访问验证和可复用凭证。',
+      devList: ['复制粘贴付费墙模板', 'HTTP 402 / x402 风格支付流程', '用于后端访问控制的验证 API']
     },
     skills: {
-      eyebrow: '演示市场',
-      title: '你的代理可以发现和购买的占位符技能',
-      desc: '这些卡片故意使用模拟数据。现在保留为占位符，或稍后用你的真实技能替换。',
+      eyebrow: '资源市场',
+      title: 'Agent 可以发现并使用的付费资源',
+      desc: 'API、MCP 工具、数据集、内容和服务，Agent 可以通过程序化方式进行发现、支付和访问。',
       startingAt: '起价',
       items: [
-        { icon: '✍️', name: '写作助手', handle: '@writer_agent', title: '长篇文章、简介和发布文案', tags: ['文案写作', '博客', '内容'], price: '$1.00', metric: '3.2k 安装' },
-        { icon: '📊', name: '数据侦察员', handle: '@data_scout', title: '图表、仪表板和轻量级报告', tags: ['分析', '可视化', '报告'], price: '$2.00', metric: '2.4k 安装' },
-        { icon: '🧠', name: '研究助手', handle: '@research_pilot', title: '快速研究摘要与来源链接', tags: ['研究', '摘要', '来源'], price: '$3.00', metric: '1.6k 安装' },
-        { icon: '🎨', name: '设计草稿', handle: '@design_draft', title: '简单标志、横幅和产品视觉', tags: ['品牌', '视觉', '设计'], price: '$5.00', metric: '1.1k 安装' },
+        { icon: '🔌', name: 'API 数据源', handle: '@market_api', title: '面向 Agent 工作流的实时结构化数据', tags: ['API', '数据', '自动化'], price: '$1.00', metric: '3.2k 次调用' },
+        { icon: '🧰', name: 'MCP 工具服务', handle: '@tool_server', title: '通过 Agent 可读接口暴露的付费工具', tags: ['MCP', '工具', 'Agent'], price: '$2.00', metric: '2.4k 次会话' },
+        { icon: '📚', name: '研究数据集', handle: '@data_vault', title: '经过整理的数据集与带来源的研究包', tags: ['数据集', '研究', '来源'], price: '$3.00', metric: '1.6k 次购买' },
+        { icon: '🤖', name: 'Agent 服务', handle: '@service_agent', title: '可按需调用的专用 Agent 能力', tags: ['服务', '工作流', '自动化'], price: '$5.00', metric: '1.1k 次使用' },
       ]
     },
     features: {
       eyebrow: '核心功能',
-      title: '你的代理商务支付层',
+      title: '面向 Agent Commerce 的支付与访问层',
       items: [
-        { title: 'did:solana 身份', text: '为每位用户或开发者创建钱包支持的 DID，并将签名密钥保存在本地。' },
-        { title: 'HTTP 402 支付', text: '通过标准的机器友好支付流程，为 AI 技能触发可编程付费墙。' },
-        { title: 'X 验证 + 奖励', text: '绑定 X 账户、减少滥用，并在产品故事中演示注册奖励流程。' },
-        { title: '快速集成', text: '开发者复制模板、替换 DID 和价格，几分钟内即可发布付费技能。' },
-        { title: '开发者验证 API', text: '后端在执行高级操作前可验证购买，使付费墙更难被绕过。' },
-        { title: 'Agent 原生 UX', text: '低价技能自动购买，高额操作请求确认，结果保持对话式呈现。' },
+        { title: '钱包支持的 Agent 身份', text: '为每个 Agent、用户或资源提供方创建 DID，将签名密钥保存在本地，并让所有权易于验证。' },
+        { title: 'HTTP 402 / x402 支付', text: '暴露机器可读的支付要求，让 Agent 能理解价格、完成付款，并继续原有请求流程。' },
+        { title: '可复用访问凭证', text: '支付成功后签发访问凭证，后续重复调用可以链下验证，无需每次都重新支付。' },
+        { title: '消费控制', text: '设置自动付款阈值、确认规则和预算上限，让自主 Agent 支付更安全。' },
+        { title: '开发者验证 API', text: '后端可以在提供付费 API、工具、数据或服务前，验证支付状态或访问凭证。' },
+        { title: 'Agent 原生体验', text: 'Agent 可以在同一任务流中完成支付、重试、访问和结果汇报，而不是跳转到传统结账页面。' },
       ]
     },
     howItWorks: {
       eyebrow: '工作原理',
-      title: 'StablePay的四个演示步骤'
+      title: 'StablePay 的四个步骤'
     },
     steps: [
       {
-        title: '创建钱包DID',
-        text: 'StablePay为你的代理或开发者配置文件创建一个Solana钱包和did:solana身份。',
+        title: '创建 Agent 身份',
+        text: 'StablePay 为 Agent、用户或资源提供方创建一个钱包支持的 DID。',
         code: 'did:solana:4fK9x2Hy...'
       },
       {
-        title: '使用X验证',
-        text: '发布验证推文，粘贴URL，并领取小额奖励以证明所有权并减少垃圾信息。',
-        code: '验证并领取'
+        title: '配置支付规则',
+        text: '设置稳定币余额、消费限额、自动付款阈值和确认规则。',
+        code: 'limit: 10 USDC / session'
       },
       {
-        title: '通过HTTP 402支付',
-        text: '当高级技能返回Payment Required时，StablePay签署并完成购买流程。',
-        code: '402 -> 签署支付 -> 200'
+        title: '通过 HTTP 402 支付',
+        text: '当付费 API、工具、数据集或服务返回 Payment Required 时，StablePay 签名并完成支付流程。',
+        code: '402 -> 签名支付 -> 200'
       },
       {
-        title: '交付结果',
-        text: '技能执行，开发者获得报酬，用户看到更新的余额和历史。',
-        code: '余额: 47 USDC'
+        title: '复用访问权',
+        text: '支付成功后，StablePay 可以验证可复用访问凭证，后续请求不必重复进行链上支付。',
+        code: 'access: reusable'
       }
     ],
     developers: {
       eyebrow: '开发者专区',
-      title: '复制模板，替换占位符，发布付费技能',
-      desc: '此区块设计为你可以现场演示的页面锚点。它符合你的产品方向：无仪表板、无登录墙，只是开发者可以粘贴到技能文档中的清晰模板。',
-      apiTitle: '占位符API表面',
+      title: '为 Agent 可访问资源添加支付能力',
+      desc: '使用 StablePay 为 API、MCP 工具、数据集、内容页面或 Agent 服务接入 HTTP 402 支付流程和后端验证能力。',
+      apiTitle: 'StablePay API 能力',
       copyTemplate: '复制模板',
       copied: '已复制!'
     },
     protocols: {
       identity: '身份',
       didSolana: 'did:solana',
-      identityDesc: '为用户和开发者提供钱包支持的去中心化标识，具有本地签名和干净的所有权语义。',
-      identityList: ['钱包创建', '签名验证', 'X绑定信任层'],
+      identityDesc: '为 Agent、用户和资源提供方提供钱包支持的去中心化标识，具备本地签名和清晰的所有权语义。',
+      identityList: ['钱包创建', '签名验证', 'Agent 所有权语义'],
       payments: '支付',
-      http402: 'HTTP 402 + Solana',
-      paymentsDesc: '一个机器友好的付费墙，可以自动触发，以稳定币结算，并可选地由开发者后端验证。',
-      paymentsList: ['可编程付费墙', '即时结算叙述', '验证API故事']
+      http402: 'HTTP 402 / x402 + Solana',
+      paymentsDesc: '面向付费 API、工具、数据、内容和服务的机器友好支付层，可用稳定币结算，并由后端系统进行验证。',
+      paymentsList: ['可编程支付要求', '稳定币结算', '访问验证 API']
+    },
+    quickStart: {
+      eyebrow: '快速开始',
+      title: '快速上手指南',
+      install: {
+        title: '1. 安装插件与配置',
+        desc: '在 OpenClaw 中安装 StablePay 插件：'
+      },
+      env: {
+        desc: '安装完成后，创建环境配置文件：',
+        notes: [
+          'STABLEPAY_PLUGIN_MASTER_KEY: 随机生成的密钥，用于 AES-256-GCM 加密本地状态文件。存储钱包信息（钱包 ID、名称、DID、公钥、地址）、支付策略和配置。',
+          'STABLEPAY_FEE_PAYER_SOL: 平台热钱包公钥，用于补贴 gas 费用。'
+        ]
+      },
+      ows: {
+        title: '2. 安装 OWS 钱包',
+        desc: 'OWS (Open Wallet Standard) 是本地钱包创建和交易签名的必需组件。先安装 Rustup，然后安装 ows-signer：'
+      },
+      wallet: {
+        title: '3. 创建或绑定 Agent 钱包',
+        desc: '插件可以创建 OWS 钱包。主要工具：stablepay_create_local_wallet。建议对话流程：',
+        steps: [
+          '检查当前 StablePay 插件方法和运行时状态',
+          '为我创建一个 OWS 钱包',
+          '查询 USDC 余额并设置支付限额（自动购买阈值：0.6 USDC，单次上限：10 USDC）',
+          '为该钱包注册买家 DID'
+        ]
+      },
+      did: {
+        title: '4. 注册买家 DID',
+        desc: '钱包创建后，插件会自动提交钱包公钥、地址、名称和签名运行时给 DID 服务。返回 did:solana:<公钥> 标识符，用于后续支付和验证流程。'
+      },
+      merchant: {
+        title: '5. 体验商家示例',
+        desc: '克隆商家示例仓库，测试端到端支付流程：',
+        note: '查看 showmethemoney-pro 和 merchant-backend。商家后端会在执行高级动作前验证 StablePay 支付。'
+      }
     },
     faq: {
-      eyebrow: '常见问题',
-      title: '演示说明',
+      eyebrow: '快速上手',
+      title: '在 OpenClaw 中开始使用 StablePay',
       faqs: [
         {
-          q: '这个页面是否生产就绪？',
-          a: '这是一个精美的演示落地页。API调用和技能卡片是占位符，可以稍后连接到您的真实后端。'
+          q: '如何安装 StablePay OpenClaw 插件？',
+          a: '在 OpenClaw 中执行安装命令：openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install。安装完成后，创建 ~/.openclaw/.env 文件，并配置插件需要读取的本地加密密钥和平台 fee payer 设置。'
         },
         {
-          q: '为什么页面有类似MoltBay的结构？',
-          a: '您要求参考moltbay.com，所以这个演示镜像其黑暗、协议优先的营销风格，同时为StablePay重写故事。'
+          q: '本地 master key 是做什么的？',
+          a: 'STABLEPAY_PLUGIN_MASTER_KEY 用于加密和解密本地 StablePay 状态文件。该加密文件会保存钱包信息、DID 信息、支付策略、消费限额和运行时配置。这个密钥只能保存在本地，不应该出现在前端代码、公开文档截图或公开仓库中。'
         },
         {
-          q: '我可以先改变什么？',
-          a: '替换占位符技能，用真实端点交换演示URL，并用您的最终支付合约或API更新代码模板卡片。'
+          q: '如何创建或绑定 Agent 钱包？',
+          a: '在 OpenClaw 对话中，可以先让 Agent 检查当前安装的 StablePay 插件工具和运行时状态，然后创建或绑定一个 OWS 钱包。插件可以通过 OWS SDK runtime 创建钱包，并使用 Solana 地址作为 StablePay 支付中的钱包身份。'
+        },
+        {
+          q: '如何配置支付限额？',
+          a: '钱包准备好之后，可以通过 Solana RPC 查询 USDC 余额，并配置支付策略。例如，将自动购买阈值设置为 0.6 USDC，将单次购买上限设置为 10 USDC。这样低额 Agent 支付可以自动完成，高额支付仍然需要用户确认。'
+        },
+        {
+          q: 'DID 注册是如何完成的？',
+          a: 'StablePay 会把钱包公钥、钱包地址、钱包名称和签名运行时提交给 DID 服务，注册买家身份。注册成功后，Agent 会获得一个 did:solana 标识，用于后续支付、验证和访问控制流程。'
+        },
+        {
+          q: '如何完整体验一次付费资源调用？',
+          a: '可以克隆商家示例仓库，启动 merchant backend，然后运行 ShowMeTheMoney Pro 保护动作。商家后端会在执行高级动作前验证 StablePay 支付结果，从而展示从支付到访问授权的完整链路。'
+        },
+        {
+          q: 'Agent 访问付费资源时会发生什么？',
+          a: '付费资源会返回 HTTP 402 Payment Required。StablePay 随后构造支付请求，通过配置的钱包运行时完成签名，提交支付，验证结果，并在支付成功后放行受保护的 API、工具或服务。'
+        },
+        {
+          q: 'StablePay 只能用于 OpenClaw 技能吗？',
+          a: '不是。OpenClaw 是第一个集成场景。StablePay 的定位是更一般化的 Agent Payment 层，可用于付费 API、MCP 工具、数据集、内容、服务和其他 Agent 可访问资源。'
         }
       ]
     },
     footer: {
-      demo: '演示落地页',
-      desc: '为演示使用而构建。当你的后端准备就绪时，替换占位符副本、技能和URL。',
+      demo: 'StablePay Agent Payment',
+      desc: '面向 Agent 可访问 API、工具、数据、内容和服务的可编程支付与访问验证层。',
       template: '模板',
       features: '功能',
       flow: '流程'

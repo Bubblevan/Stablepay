@@ -7,6 +7,7 @@ const navItems = [
   { key: 'features', href: '#features' },
   { key: 'howItWorks', href: '#how-it-works' },
   { key: 'protocols', href: '#protocols' },
+  { key: 'quickStart', href: '#quickstart' },
   { key: 'developers', href: '#developers' },
 ]
 
@@ -135,11 +136,7 @@ function Header() {
     <header className="site-header">
       <div className="container header-inner">
         <a className="brand" href="#top" aria-label="StablePay home">
-          <span className="brand-badge">S</span>
-          <span>
-            <strong>StablePay</strong>
-            <small>AI Payments on Solana</small>
-          </span>
+          <img src="/logo.svg" alt="StablePay" className="brand-logo" />
         </a>
         <nav className="nav">
           {navItems.map((item) => (
@@ -360,20 +357,46 @@ function Developers() {
   const [copied, setCopied] = useState(false)
 
   const copyTemplate = async () => {
-    const template = `## 💰 StablePay Payment
+    const template = `---
+name: {{SKILL_NAME}}
+description: {{DESCRIPTION}}
+---
 
-This Skill requires {PRICE} USDC to unlock.
+# {{SKILL_NAME}}
 
-Payment endpoint:
-https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
+{{DESCRIPTION}}
 
-Verify purchase:
-https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
+## Merchant configuration
 
-Recommended flow:
-1. Return HTTP 402 for unpaid access
-2. Let StablePay handle signing + payment
-3. Re-run the original request after purchase`
+- skill_name: \`{{SKILL_NAME}}\`
+- skill_did: \`{{SKILL_DID}}\`
+- default_price_usdc: \`{{PRICE_USDC}}\`
+- currency: \`USDC\`
+- stablepay_gateway_base_url: \`https://ai.wenfu.cn\`
+- merchant_backend_base_url: \`{{MERCHANT_BACKEND_BASE_URL}}\`
+- verify_endpoint: \`https://ai.wenfu.cn/api/v1/verify\`
+- premium_action_endpoint: \`{{PREMIUM_ACTION_ENDPOINT}}\`
+
+## Protected premium workflow
+
+When the user requests the premium capability:
+
+1. Call the merchant backend premium action endpoint
+2. If the backend returns 200, return the premium result
+3. If the backend returns 402 Payment Required:
+   - Parse x402 response from accepts[0]
+   - Call stablepay_pay_via_gateway with extracted values:
+     - skill_did from accepts[0].extra.skillDid
+     - price from accepts[0].maxAmountRequired (divide by 1,000,000)
+     - currency from accepts[0].extra.currency
+     - facilitator_url from accepts[0].extra.facilitatorUrl
+4. Retry the premium action after successful payment
+
+## Verification rules
+
+- Never treat local plugin state as proof of purchase
+- Always rely on backend verification or confirmed StablePay purchase
+- Never bypass merchant backend verification for protected actions`
 
     try {
       await navigator.clipboard.writeText(template)
@@ -408,20 +431,19 @@ Recommended flow:
             <span>skill.md</span>
             <button type="button" onClick={copyTemplate}>{copied ? t.developers.copied : t.developers.copyTemplate}</button>
           </div>
-          <pre>{`## 💰 StablePay Payment
+          <pre>{`---
+name: {{SKILL_NAME}}
+description: {{DESCRIPTION}}
+---
 
-This Skill requires {PRICE} USDC to unlock.
+# {{SKILL_NAME}}
 
-Payment endpoint:
-https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
+## Merchant configuration
 
-Verify purchase:
-https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
-
-Recommended flow:
-1. Return HTTP 402 for unpaid access
-2. Let StablePay handle signing + payment
-3. Re-run the original request after purchase`}</pre>
+- skill_did: {{SKILL_DID}}
+- default_price_usdc: {{PRICE_USDC}}
+- stablepay_gateway_base_url: https://ai.wenfu.cn
+- verify_endpoint: https://ai.wenfu.cn/api/v1/verify`}</pre>
         </div>
       </div>
     </section>
@@ -464,6 +486,89 @@ function Protocols() {
   )
 }
 
+function QuickStart() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
+  return (
+    <section className="section" id="quickstart">
+      <div className="container">
+        {/* Step 1: Install Plugin */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.install.title}</h3>
+          <p>{t.quickStart.install.desc}</p>
+          <div className="code-block">
+            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install`}</pre>
+          </div>
+          <p>{t.quickStart.env.desc}</p>
+          <div className="code-block">
+            <pre>{`touch ~/.openclaw/.env`}</pre>
+          </div>
+          <div className="code-block">
+            <pre>{`STABLEPAY_PLUGIN_MASTER_KEY=xetOOUSS6rzAwK1NhuCSCvKRNMgu6r0HWtjGSltmDUY=
+STABLEPAY_FEE_PAYER_SOL=FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`}</pre>
+          </div>
+          <ul className="config-notes">
+            {t.quickStart.env.notes.map((note, i) => (
+              <li key={i}>{note}</li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Step 2: Install OWS Wallet */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.ows.title}</h3>
+          <p>{t.quickStart.ows.desc}</p>
+          <div className="code-block">
+            <pre>{`# Install Rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Activate configuration
+source ~/.cargo/env
+
+# Verify installation
+rustc --version`}</pre>
+          </div>
+          <div className="code-block">
+            <pre>{`# Install OWS binary
+cargo install ows-signer
+
+# Verify installation
+ows --version`}</pre>
+          </div>
+        </div>
+
+        {/* Step 3: Create Wallet */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.wallet.title}</h3>
+          <p>{t.quickStart.wallet.desc}</p>
+          <ol className="conversation-flow">
+            {t.quickStart.wallet.steps.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Step 4: Register DID */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.did.title}</h3>
+          <p>{t.quickStart.did.desc}</p>
+        </div>
+
+        {/* Step 5: Merchant Setup */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.merchant.title}</h3>
+          <p>{t.quickStart.merchant.desc}</p>
+          <div className="code-block">
+            <pre>{`git clone https://github.com/Bubblevan/showmethemoney-skills.git`}</pre>
+          </div>
+          <p>{t.quickStart.merchant.note}</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function FAQ() {
   const { language } = useLanguage()
   const t = translations[language]
@@ -471,10 +576,6 @@ function FAQ() {
   return (
     <section className="section faq-section">
       <div className="container">
-        <div className="section-heading narrow">
-          <div className="eyebrow">{t.faq.eyebrow}</div>
-          <h2>{t.faq.title}</h2>
-        </div>
         <div className="faq-list">
           {t.faq.faqs.map((item, index) => (
             <details className="panel faq-item" key={index}>
@@ -529,6 +630,7 @@ export default function App() {
         <HowItWorks />
         <Developers />
         <Protocols />
+        <QuickStart />
         <FAQ />
       </main>
       {/* <Footer /> */}

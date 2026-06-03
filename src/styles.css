@@ -1,22 +1,19 @@
 :root {
-  color-scheme: dark;
-  --bg: #07111f;
-  --bg-soft: #0d1830;
-  --panel: rgba(10, 22, 43, 0.78);
-  --panel-border: rgba(152, 189, 255, 0.18);
-  --text: #edf3ff;
-  --muted: #a7b7d8;
-  --accent: #71d0ff;
-  --accent-2: #6d7dff;
-  --success: #8bf1c9;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-soft: #f8fafc;
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-border: rgba(34, 197, 94, 0.25);
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #16A34A;
+  --accent-2: #15803D;
+  --success: #22C55E;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  background:
-    radial-gradient(circle at top left, rgba(109, 125, 255, 0.18), transparent 28%),
-    radial-gradient(circle at 80% 15%, rgba(113, 208, 255, 0.18), transparent 24%),
-    linear-gradient(180deg, #07111f 0%, #040913 100%);
+  background: #ffffff;
   color: var(--text);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -45,8 +42,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   top: 0;
   z-index: 20;
   backdrop-filter: blur(16px);
-  background: rgba(6, 12, 24, 0.7);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(34, 197, 94, 0.15);
 }
 
 .header-inner,
@@ -81,15 +78,10 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   font-size: 0.75rem;
 }
 
-.brand-badge {
-  width: 40px;
+.brand-logo {
   height: 40px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-  color: #02111f;
-  font-weight: 800;
+  width: auto;
+  display: block;
 }
 
 .nav {
@@ -113,8 +105,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 600;
@@ -123,8 +115,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .language-toggle:hover {
-  border-color: rgba(113, 208, 255, 0.3);
-  background: rgba(113, 208, 255, 0.05);
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.05);
   color: var(--accent);
 }
 
@@ -179,7 +171,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   content: "";
   width: 28px;
   height: 1px;
-  background: rgba(113, 208, 255, 0.8);
+  background: rgba(34, 197, 94, 0.8);
 }
 
 .hero-actions {
@@ -201,13 +193,13 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .button.primary {
-  background: linear-gradient(135deg, var(--accent), #9be7ff);
-  color: #02111f;
+  background: linear-gradient(135deg, var(--accent), #4ade80);
+  color: #052e16;
 }
 
 .button.secondary {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .hero-stats {
@@ -228,8 +220,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 
 .hero-stats div {
   padding: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .hero-stats strong {
@@ -270,7 +262,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 .terminal-body {
   padding: 22px;
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(4, 9, 19, 0.88), rgba(8, 17, 31, 0.98));
+  background: linear-gradient(180deg, rgba(15, 30, 20, 0.95), rgba(10, 25, 15, 0.98));
   min-height: 360px;
 }
 
@@ -278,8 +270,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   display: inline-block;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(113, 208, 255, 0.1);
-  color: var(--accent);
+  background: rgba(34, 197, 94, 0.15);
+  color: #22C55E;
   font-size: 0.82rem;
   margin-bottom: 18px;
 }
@@ -310,14 +302,14 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   display: inline-flex;
   padding: 7px 12px;
   border-radius: 999px;
-  background: rgba(113, 208, 255, 0.12);
+  background: rgba(34, 197, 94, 0.12);
   color: var(--accent);
   font-size: 0.85rem;
   font-weight: 700;
 }
 
 .pill.alt {
-  background: rgba(139, 241, 201, 0.12);
+  background: rgba(74, 222, 128, 0.12);
   color: var(--success);
 }
 
@@ -393,7 +385,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   place-items: center;
   border-radius: 18px;
   font-size: 1.4rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .skill-name {
@@ -422,7 +414,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 .tag {
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(0, 0, 0, 0.04);
   font-size: 0.82rem;
 }
 
@@ -439,7 +431,7 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .step-number {
-  color: rgba(113, 208, 255, 0.65);
+  color: rgba(34, 197, 94, 0.65);
   font-size: 0.9rem;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -449,12 +441,12 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   display: inline-block;
   margin-top: 18px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .api-list {
   margin-top: 24px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .code-panel {
@@ -476,8 +468,8 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 .code-header button {
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .faq-list {
@@ -494,8 +486,65 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
 }
 
 .site-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(34, 197, 94, 0.15);
   padding: 36px 0 56px;
+  background: #f8fafc;
+}
+
+/* QuickStart Section Styles */
+.quickstart-step {
+  margin-bottom: 48px;
+}
+
+.quickstart-step h3 {
+  font-size: 1.4rem;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.quickstart-step p {
+  color: var(--muted);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.code-block {
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.code-block pre {
+  margin: 0;
+  color: #4ade80;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+.config-notes {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.config-notes li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.conversation-flow {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.conversation-flow li {
+  margin-bottom: 12px;
+  line-height: 1.6;
 }
 
 .footer-inner {
