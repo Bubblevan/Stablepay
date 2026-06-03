@@ -17,7 +17,6 @@ const CURRENCY = process.env.CURRENCY || "USDC";
 const MESSAGE = process.env.MESSAGE;
 
 // 该 secret 只在商户后端内部使用，不会暴露给客户端，仅用于生成访问 proof
-// 在实际部署时请务必替换为一个随机长字符串
 const MERCHANT_PROOF_SECRET =
   process.env.MERCHANT_PROOF_SECRET || "replaces-this-with-a-long-random-secret";
 
@@ -26,6 +25,69 @@ const ENABLE_DEBUG_ROUTES = process.env.ENABLE_DEBUG_ROUTES === "1";
 
 // 可选：内部服务的调用地址
 const INTERNAL_BASE_URL = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:8184";
+
+// Facilitator 配置（x402 标准）
+const FACILITATOR_URL = process.env.FACILITATOR_URL || "https://ai.wenfu.cn";
+
+// USDC 合约地址 (Solana Mainnet)
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+// 报告商店配置
+const REPORT_STORE_URL = process.env.REPORT_STORE_URL || "http://127.0.0.1:8788";
+
+// 内置报告列表（购买 skill 后解锁）
+const UNLOCKED_REPORTS = [
+  {
+    id: "ai-agent-job-2025",
+    title: "AI Agent 岗位分析报告 2025",
+    description: "深入分析 2025 年 AI Agent 领域的岗位需求、技能要求、薪资水平和发展趋势",
+    price: "2.00",
+    currency: "USDC",
+    author: "StablePay Research",
+    tags: ["AI", "Agent", "求职", "行业分析"]
+  },
+  {
+    id: "industry-briefing-q1",
+    title: "2025 Q1 行业研究简报",
+    description: "涵盖 AI、区块链、Web3 领域的最新趋势和投资机会",
+    price: "1.50",
+    currency: "USDC",
+    author: "StablePay Research",
+    tags: ["行业研究", "AI", "区块链", "Web3"]
+  },
+  {
+    id: "resume-optimization-guide",
+    title: "简历优化建议报告",
+    description: "针对技术岗位的简历优化建议，包含模板和案例分析",
+    price: "1.00",
+    currency: "USDC",
+    author: "StablePay Research",
+    tags: ["求职", "简历", "技术岗位"]
+  },
+  {
+    id: "vitality-research",
+    title: "生命力研究：为什么有些人看起来生命力很强",
+    description: "基于萨特《恶心》的存在主义解读，探讨生命力的本质与来源",
+    price: "1.50",
+    currency: "USDC",
+    author: "StablePay Research",
+    tags: ["哲学", "心理学", "存在主义", "个人成长"]
+  }
+];
+
+// 从 SKILL_DID 提取收款地址
+function getSellerAddress() {
+  // did:solana:4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7 -> 4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7
+  if (SKILL_DID && SKILL_DID.startsWith("did:solana:")) {
+    return SKILL_DID.replace("did:solana:", "");
+  }
+  return SKILL_DID || "";
+}
+
+// USDC 金额转换 (6位精度)
+function usdcToMinorUnits(amount) {
+  return Math.round(parseFloat(amount) * 1_000_000).toString();
+}
 
 async function readJson(response) {
   const text = await response.text();
@@ -37,14 +99,80 @@ async function readJson(response) {
   }
 }
 
-function writeJson(res, status, payload) {
+function writeJson(res, status, payload, headers = {}) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  Object.entries(headers).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
   res.end(JSON.stringify(payload, null, 2));
 }
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+// 日志工具
+function logRequest(method, path, params, status, duration, extra = {}) {
+  const timestamp = new Date().toLocaleTimeString();
+  const paramsStr = Object.keys(params).length > 0
+    ? '?' + Object.entries(params).map(([k, v]) => `${k}=${v}`).join('&')
+    : '';
+
+  console.log(`[${timestamp}] ${method} ${path}${paramsStr} -> ${status} (${duration}ms)`);
+
+  if (extra.agentDid) {
+    console.log(`  Agent: ${extra.agentDid}`);
+  }
+  if (extra.purchased !== undefined) {
+    console.log(`  Purchased: ${extra.purchased}`);
+  }
+  if (extra.paymentSignature) {
+    console.log(`  Payment-Signature: detected`);
+  }
+  if (extra.error) {
+    console.log(`  Error: ${extra.error}`);
+  }
+}
+
+// 构建 x402 标准的 Payment-Required 响应头
+function buildX402PaymentRequired() {
+  const sellerAddress = getSellerAddress();
+  const paymentDetails = {
+    x402Version: 1,
+    accepts: [
+      {
+        scheme: "exact",
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        maxAmountRequired: usdcToMinorUnits(PRICE),
+        payTo: sellerAddress,
+        asset: USDC_MINT,
+        description: MESSAGE || `购买 ${SKILL_NAME}`,
+        resource: "/execute",
+        maxTimeoutSeconds: 300,
+        extra: {
+          facilitatorUrl: FACILITATOR_URL,
+          currency: CURRENCY,
+          skillDid: SKILL_DID,
+          skillName: SKILL_NAME,
+        }
+      }
+    ],
+    error: "Payment Required"
+  };
+
+  return Buffer.from(JSON.stringify(paymentDetails)).toString("base64");
+}
+
+// 构建 x402 标准的 Payment-Response 响应头
+function buildX402PaymentResponse(txId, txHash) {
+  const response = {
+    x402Version: 1,
+    txId,
+    txHash,
+    settledAt: nowIso(),
+  };
+  return Buffer.from(JSON.stringify(response)).toString("base64");
 }
 
 function buildProof({ agentDid, skillDid, requestText }) {
@@ -100,6 +228,33 @@ async function fetchPayRequirement(agentDid) {
   return { status: response.status, body: await readJson(response) };
 }
 
+// x402 标准：解析 Payment-Signature header
+function parsePaymentSignature(headerValue) {
+  if (!headerValue) return null;
+  try {
+    const decoded = Buffer.from(headerValue, "base64").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+// 提交支付到 Facilitator 进行结算
+async function settlePaymentViaFacilitator(paymentData) {
+  const url = new URL("/api/v1/pay", FACILITATOR_URL);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": STABLEPAY_API_KEY,
+    },
+    body: JSON.stringify(paymentData),
+  });
+
+  return { status: response.status, body: await readJson(response) };
+}
+
 // -------- 可选：内部接口调用（调试用） --------
 
 async function fetchRevenue(skillDid) {
@@ -131,15 +286,17 @@ async function fetchAgentBalance(agentDid) {
   return { status: response.status, body: await readJson(response) };
 }
 
-// -------- 核心业务接口：执行与验证购买 --------
+// -------- x402 核心业务接口 --------
 
-async function handleExecute(req, res, url) {
-  // 校验技能 / 验证购买状态 / 返回访问证明
+async function handleExecute(req, res, url, headers, startTime) {
   const agentDid = url.searchParams.get("agent_did");
   const requestText =
     url.searchParams.get("q") ||
     url.searchParams.get("prompt") ||
     "default-premium-request";
+
+  const params = { q: requestText };
+  if (agentDid) params.agent_did = agentDid.substring(0, 20) + "...";
 
   if (!agentDid) {
     writeJson(res, 400, {
@@ -147,7 +304,34 @@ async function handleExecute(req, res, url) {
       message: "agent_did is required",
       expected: "GET /execute?agent_did=<did>&q=<optional_text>",
     });
+    logRequest("GET", "/execute", params, 400, Date.now() - startTime, {
+      error: "missing agent_did"
+    });
     return;
+  }
+
+  // x402 标准：检查 Payment-Signature header（支付凭证）
+  const paymentSignature = headers["payment-signature"] || headers["X-Payment-Signature"];
+  const paymentData = parsePaymentSignature(paymentSignature);
+
+  // 如果提供了 Payment-Signature，先尝试结算支付
+  if (paymentData) {
+    console.log("[x402] Payment-Signature detected, attempting settlement...");
+    const settleResult = await settlePaymentViaFacilitator({
+      agent_did: agentDid,
+      skill_did: SKILL_DID,
+      price: usdcToMinorUnits(PRICE),
+      currency: CURRENCY,
+      signature: paymentData.signature,
+      sign_nonce: paymentData.nonce,
+      sign_timestamp: paymentData.timestamp,
+    });
+
+    if (settleResult.status >= 200 && settleResult.status < 300) {
+      console.log("[x402] Payment settled successfully:", settleResult.body);
+    } else {
+      console.log("[x402] Payment settlement failed:", settleResult.body);
+    }
   }
 
   const verify = await fetchVerify(agentDid);
@@ -155,8 +339,12 @@ async function handleExecute(req, res, url) {
   if (verify.status >= 400) {
     writeJson(res, 502, {
       code: "verify_failed",
-      message: "failed to verify purchase state with stablepay gateway",
-      gateway_verify: verify,
+      message: "failed to verify purchase state with facilitator",
+      facilitator_verify: verify,
+    });
+    logRequest("GET", "/execute", params, 502, Date.now() - startTime, {
+      agentDid: agentDid.substring(0, 20) + "...",
+      error: `verify failed: ${verify.status}`
     });
     return;
   }
@@ -164,23 +352,39 @@ async function handleExecute(req, res, url) {
   const purchased = Boolean(verify.body?.data?.purchased || verify.body?.purchased);
 
   if (!purchased) {
-    const requirement = await fetchPayRequirement(agentDid);
-    const pr = requirement.body?.data || requirement.body || {};
+    // x402 标准：返回 402 并设置 Payment-Required header
+    const paymentRequiredHeader = buildX402PaymentRequired();
+    const sellerAddress = getSellerAddress();
 
     writeJson(res, 402, {
-      code: 402,
-      message: "Payment Required",
-      agent_did: agentDid,
-      skill_did: pr.skill_did || SKILL_DID,
-      skill_name: pr.skill_name || SKILL_NAME,
-      price: pr.price || PRICE,
-      currency: pr.currency || CURRENCY,
-      payment_endpoint: pr.payment_endpoint || "/api/v1/pay",
-      merchant_backend: {
-        endpoint: "/execute",
-        request_text: requestText,
-      },
-      payment_requirement: requirement.body,
+      x402Version: 1,
+      accepts: [
+        {
+          scheme: "exact",
+          network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+          maxAmountRequired: usdcToMinorUnits(PRICE),
+          payTo: sellerAddress,
+          asset: USDC_MINT,
+          description: MESSAGE || `购买 ${SKILL_NAME}`,
+          resource: "/execute",
+          maxTimeoutSeconds: 300,
+          extra: {
+            facilitatorUrl: FACILITATOR_URL,
+            currency: CURRENCY,
+            skillDid: SKILL_DID,
+            skillName: SKILL_NAME,
+          }
+        }
+      ],
+      error: "Payment Required"
+    }, {
+      "Payment-Required": paymentRequiredHeader,
+      "Accept-Payment": "x402, stablepay-v1",
+    });
+    logRequest("GET", "/execute", params, 402, Date.now() - startTime, {
+      agentDid: agentDid.substring(0, 20) + "...",
+      purchased: false,
+      paymentSignature: !!paymentData
     });
     return;
   }
@@ -191,9 +395,45 @@ async function handleExecute(req, res, url) {
     requestText,
   });
 
+  // x402 标准：返回 Payment-Response header
+  const txId = verify.body?.data?.tx_id || verify.body?.tx_id;
+  const txHash = verify.body?.data?.tx_hash || verify.body?.tx_hash;
+  const paymentResponseHeader = txId ? buildX402PaymentResponse(txId, txHash) : null;
+
+  const responseHeaders = {};
+  if (paymentResponseHeader) {
+    responseHeaders["Payment-Response"] = paymentResponseHeader;
+  }
+
+  // 构建解锁报告商店的信息
+  const unlockedStore = {
+    membership_active: true,
+    message: "恭喜！您已解锁 Premium Research Store（付费报告商店）。现在可以单独购买研究报告。",
+    report_store: {
+      base_url: REPORT_STORE_URL,
+      browse_endpoint: "/reports",
+      purchase_endpoint: "/execute",
+      available_reports: UNLOCKED_REPORTS.map(r => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        price: r.price,
+        currency: r.currency,
+        author: r.author,
+        tags: r.tags
+      }))
+    },
+    next_steps: [
+      "1. 查看可购买的报告列表",
+      "2. 选择感兴趣的研究报告",
+      "3. 单独付费解锁完整内容"
+    ]
+  };
+
   writeJson(res, 200, {
     ok: true,
     product: "showmethemoney-pro",
+    x402Version: 1,
     protected_result: {
       kind: "merchant-generated-proof",
       message: "Show me the money: premium access granted",
@@ -206,33 +446,50 @@ async function handleExecute(req, res, url) {
       verified_by_backend: true,
       verified_at: nowIso(),
     },
+    // 关键：解锁报告商店的信息
+    unlocked_store: unlockedStore,
     verify_snapshot: verify.body,
+  }, responseHeaders);
+
+  logRequest("GET", "/execute", params, 200, Date.now() - startTime, {
+    agentDid: agentDid.substring(0, 20) + "...",
+    purchased: true,
+    proofId: proof.proof_id,
+    unlockedReports: UNLOCKED_REPORTS.length
   });
 }
 
 const server = createServer(async (req, res) => {
+  const startTime = Date.now();
   try {
     const url = new URL(
       req.url || "/",
       `http://${req.headers.host || `127.0.0.1:${PORT}`}`,
     );
 
+    // 收集 headers
+    const headers = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      headers[key.toLowerCase()] = value;
+    }
+
     if (req.method === "GET" && url.pathname === "/healthz") {
       writeJson(res, 200, {
         ok: true,
         service: "showmethemoney-pro-backend",
+        x402Version: 1,
         skill_name: SKILL_NAME,
         skill_did: SKILL_DID,
-        price: PRICE,
-        currency: CURRENCY,
+        facilitator_url: FACILITATOR_URL,
         gateway_base_url: GATEWAY_BASE_URL,
       });
+      logRequest("GET", "/healthz", {}, 200, Date.now() - startTime);
       return;
     }
 
-    // 唯一的业务核心接口
+    // x402 标准核心业务接口
     if (req.method === "GET" && url.pathname === "/execute") {
-      await handleExecute(req, res, url);
+      await handleExecute(req, res, url, headers, startTime);
       return;
     }
 
@@ -284,7 +541,8 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`showmethemoney pro backend listening on http://127.0.0.1:${PORT}`);
+  console.log(`showmethemoney pro backend (x402 compliant) listening on http://127.0.0.1:${PORT}`);
+  console.log(`facilitator=${FACILITATOR_URL}`);
   console.log(`skill_did=${SKILL_DID}`);
   console.log(`skill_name=${SKILL_NAME}`);
   console.log(`price=${PRICE} ${CURRENCY}`);

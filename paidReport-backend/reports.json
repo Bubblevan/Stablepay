@@ -2,6 +2,7 @@
   "reports": [
     {
       "id": "ai-agent-job-2025",
+      "skillDid": "did:solana:4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7",
       "title": "AI Agent 岗位分析报告 2025",
       "description": "深入分析 2025 年 AI Agent 领域的岗位需求、技能要求、薪资水平和发展趋势",
       "price": "2.00",
@@ -12,6 +13,7 @@
     },
     {
       "id": "industry-briefing-q1",
+      "skillDid": "did:solana:4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7",
       "title": "2025 Q1 行业研究简报",
       "description": "涵盖 AI、区块链、Web3 领域的最新趋势和投资机会",
       "price": "1.50",
@@ -22,6 +24,7 @@
     },
     {
       "id": "resume-optimization-guide",
+      "skillDid": "did:solana:4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7",
       "title": "简历优化建议报告",
       "description": "针对技术岗位的简历优化建议，包含模板和案例分析",
       "price": "1.00",
@@ -32,6 +35,7 @@
     },
     {
       "id": "vitality-research",
+      "skillDid": "did:solana:4p8F5YAJM8fdrNyvWfb3p6XHx8rboFVV3xn279VXo2j7",
       "title": "生命力研究：为什么有些人看起来生命力很强",
       "description": "基于萨特《恶心》的存在主义解读，探讨生命力的本质与来源",
       "price": "1.50",
