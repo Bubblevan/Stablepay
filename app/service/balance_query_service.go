@@ -37,7 +37,7 @@ func (s *BalanceQueryService) GetBalance(ctx context.Context, query *BalanceQuer
 		return nil, fmt.Errorf("wallet address is required")
 	}
 
-	// 确定币种和 mint 地址
+	// 确定币种�? mint 地址
 	currency, mintAddress, decimals := s.resolveCurrencyAndMint(query)
 
 	// 查询余额
@@ -54,13 +54,13 @@ func (s *BalanceQueryService) GetBalance(ctx context.Context, query *BalanceQuer
 	}, nil
 }
 
-// resolveCurrencyAndMint 解析币种和 mint 地址
+// resolveCurrencyAndMint 解析币种�? mint 地址
 // 优先级：1. MintAddress 参数 2. Currency 参数
 func (s *BalanceQueryService) resolveCurrencyAndMint(query *BalanceQuery) (currency, mintAddress string, decimals uint8) {
 	// 默认精度
-	decimals = 6 // Token 默认 6 位
+	decimals = 6 // Token 默认 6 �?
 
-	// 如果提供了 MintAddress，尝试推断币种
+	// 如果提供�? MintAddress，尝试推断币�?
 	if query.MintAddress != "" {
 		mintAddress = query.MintAddress
 		currency = s.inferCurrencyByMint(mintAddress)
@@ -74,13 +74,12 @@ func (s *BalanceQueryService) resolveCurrencyAndMint(query *BalanceQuery) (curre
 	}
 
 	if currency == "SOL" {
-		mintAddress = "" // SOL 不需要 mint 地址
+		mintAddress = "" // SOL has no mint address
 		decimals = 9
 		return
 	}
 
-	isMainnet := s.solanaGateway.GetNetwork() == "mainnet" || s.solanaGateway.GetNetwork() == "mainnet-beta"
-	mintAddress = gateway.GetTokenMintByCurrency(currency, isMainnet)
+	mintAddress = gateway.GetTokenMintByCurrency(currency, gateway.IsMainnet(s.solanaGateway.GetNetwork()))
 
 	return
 }

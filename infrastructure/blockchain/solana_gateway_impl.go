@@ -1,5 +1,5 @@
 // Package blockchain 实现领域网关接口
-// 职责：将原有的 Solana 客户端包装为实现 domain/gateway 接口的形式
+// Wraps Solana RPC client as domain/gateway implementation.
 package blockchain
 
 import (
@@ -84,7 +84,7 @@ func (s *SolanaGatewayImpl) GetTokenBalance(ctx context.Context, walletAddress, 
 		return 0, nil
 	}
 
-	// 解析金额（字符串转 uint64）
+	// 解析金额（字符串�? uint64�?
 	var amount uint64
 	_, err = fmt.Sscanf(result.Value.Amount, "%d", &amount)
 	if err != nil {
@@ -94,7 +94,7 @@ func (s *SolanaGatewayImpl) GetTokenBalance(ctx context.Context, walletAddress, 
 	return amount, nil
 }
 
-// GetRecentBlockhash 获取最新 blockhash
+// GetRecentBlockhash 获取最�? blockhash
 func (s *SolanaGatewayImpl) GetRecentBlockhash(ctx context.Context) (string, error) {
 	result, err := s.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *SolanaGatewayImpl) GetRecentBlockhash(ctx context.Context) (string, err
 	return result.Value.Blockhash.String(), nil
 }
 
-// SendTransaction 发送交易
+// SendTransaction 发送交�?
 func (s *SolanaGatewayImpl) SendTransaction(ctx context.Context, signedTx string) (string, error) {
 	// 反序列化交易
 	tx := &solana.Transaction{}
@@ -151,7 +151,7 @@ func sendPreflightFailedBlockhash(err error) bool {
 	return strings.Contains(msg, "blockhash not found") || strings.Contains(msg, "blockhashnotfound")
 }
 
-// GetTransactionStatus 查询交易状态
+// GetTransactionStatus 查询交易状�?
 func (s *SolanaGatewayImpl) GetTransactionStatus(ctx context.Context, txHash string) (*vo.TxStatusVO, error) {
 	sig, err := solana.SignatureFromBase58(txHash)
 	if err != nil {
@@ -165,7 +165,7 @@ func (s *SolanaGatewayImpl) GetTransactionStatus(ctx context.Context, txHash str
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
 
-	// 交易未找到
+	// 交易未找�?
 	if result == nil {
 		return &vo.TxStatusVO{
 			TxHash: txHash,
@@ -173,7 +173,7 @@ func (s *SolanaGatewayImpl) GetTransactionStatus(ctx context.Context, txHash str
 		}, nil
 	}
 
-	// 构建值对象
+	// 构建值对�?
 	status := "confirmed"
 	var fee uint64
 	if result.Meta != nil {
@@ -221,11 +221,11 @@ func (s *SolanaGatewayImpl) WaitForConfirmation(ctx context.Context, txHash stri
 	return s.GetTransactionStatus(ctx, txHash)
 }
 
-// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码）
-// fromAddress 作为 fee payer 和 token 所有者（热钱包地址）
-// amount 为最小单位（e.g. 1 USDC = 1_000_000）
+// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码�?
+// fromAddress 作为 fee payer �? token 所有者（热钱包地址�?
+// amount 为最小单位（e.g. 1 USDC = 1_000_000�?
 func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress, toAddress, currency string, amount uint64) (string, error) {
-	isMainnet := s.network == "mainnet"
+	isMainnet := gateway.IsMainnet(s.network)
 	mintAddress := gateway.GetTokenMintByCurrency(currency, isMainnet)
 	if mintAddress == "" {
 		return "", fmt.Errorf("unsupported currency: %s", currency)
@@ -244,7 +244,7 @@ func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress,
 		return "", fmt.Errorf("invalid mint address: %w", err)
 	}
 
-	// 计算发送方和接收方的 ATA 地址
+	// 计算发送方和接收方�? ATA 地址
 	fromATA, _, err := solana.FindAssociatedTokenAddress(fromPubKey, mintPubKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to find source ATA: %w", err)
@@ -256,7 +256,7 @@ func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress,
 
 	var instructions []solana.Instruction
 
-	// 检查接收方 ATA 是否存在，不存在则创建
+	// 检查接收方 ATA 是否存在，不存在则创�?
 	accountInfo, err := s.client.GetAccountInfo(ctx, toATA)
 	if err != nil && err != rpc.ErrNotFound {
 		return "", fmt.Errorf("failed to check destination ATA: %w", err)
@@ -282,13 +282,13 @@ func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress,
 	}
 	instructions = append(instructions, transferIx)
 
-	// 获取最新 blockhash
+	// 获取最�? blockhash
 	blockhashResult, err := s.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 
-	// 构建交易（fromAddress 作为 fee payer）
+	// 构建交易（fromAddress 作为 fee payer�?
 	tx, err := solana.NewTransaction(
 		instructions,
 		blockhashResult.Value.Blockhash,
@@ -298,7 +298,7 @@ func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress,
 		return "", fmt.Errorf("failed to build transaction: %w", err)
 	}
 
-	// 序列化为 base64（未签名）
+	// 序列化为 base64（未签名�?
 	txBytes, err := tx.MarshalBinary()
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal transaction: %w", err)
@@ -307,7 +307,7 @@ func (s *SolanaGatewayImpl) BuildSPLTransferTx(ctx context.Context, fromAddress,
 	return base64.StdEncoding.EncodeToString(txBytes), nil
 }
 
-// GetExplorerURL 获取浏览器链接
+// GetExplorerURL 获取浏览器链�?
 func (s *SolanaGatewayImpl) GetExplorerURL(txHash string) string {
 	baseURL := "https://explorer.solana.com"
 	if s.network == "devnet" {
@@ -319,27 +319,27 @@ func (s *SolanaGatewayImpl) GetExplorerURL(txHash string) string {
 }
 
 // GetFeePayerAddress 获取 fee payer 地址
-// 注意：这里返回空字符串，实际应该从 hot wallet 获取
+// 注意：这里返回空字符串，实际应该�? hot wallet 获取
 func (s *SolanaGatewayImpl) GetFeePayerAddress() string {
-	// TODO: 从 hot wallet 获取地址
+	// TODO: �? hot wallet 获取地址
 	return ""
 }
 
-// EstimateFee 估算交易手续费
+// EstimateFee 估算交易手续�?
 func (s *SolanaGatewayImpl) EstimateFee(ctx context.Context) (int64, error) {
-	// Solana Devnet 默认费用为 5000 lamports per signature
+	// Solana Devnet 默认费用�? 5000 lamports per signature
 	// 在较新的 RPC 版本中，费用计算方式有所变化
-	// 这里返回默认值
+	// 这里返回默认�?
 	return 5000, nil
 }
 
-// ValidatePartiallySignedTransaction 验证部分签名的交易
+// ValidatePartiallySignedTransaction 验证部分签名的交�?
 func (s *SolanaGatewayImpl) ValidatePartiallySignedTransaction(base64Tx string) error {
 	tx := &solana.Transaction{}
 	if err := tx.UnmarshalBase64(base64Tx); err != nil {
 		return fmt.Errorf("invalid transaction format: %w", err)
 	}
-	// 检查交易是否有至少一个签名
+	// 检查交易是否有至少一个签�?
 	if len(tx.Signatures) == 0 {
 		return fmt.Errorf("transaction has no signatures")
 	}

@@ -10,9 +10,9 @@ import (
 	"github.com/stablepay/blockchain-adapter/domain/vo"
 )
 
-// SolanaGateway Solana 区块链网关接口
+// SolanaGateway Solana 区块链网关接�?
 // 职责：定义与 Solana 区块链交互的抽象
-// 实现：由 Infrastructure 层的 blockchain 包实现
+// 实现：由 Infrastructure 层的 blockchain 包实�?
 type SolanaGateway interface {
 	// GetNetwork 获取当前网络类型
 	GetNetwork() string
@@ -23,35 +23,35 @@ type SolanaGateway interface {
 	// GetTokenBalance 查询 Token 余额
 	GetTokenBalance(ctx context.Context, walletAddress, mintAddress string) (uint64, error)
 
-	// GetRecentBlockhash 获取最新 blockhash
+	// GetRecentBlockhash 获取最�? blockhash
 	GetRecentBlockhash(ctx context.Context) (string, error)
 
-	// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码）
-	// fromAddress: 发送方地址（热钱包地址，作为 fee payer 和 token owner）
+	// BuildSPLTransferTx 构建 SPL Token 转账交易（未签名，base64 编码�?
+	// fromAddress: 发送方地址（热钱包地址，作�? fee payer �? token owner�?
 	// toAddress: 接收方地址
-	// currency: 币种字符串（"USDC" | "USDT"）
-	// amount: token 金额（最小单位，e.g. 1 USDC = 1_000_000）
+	// currency: 币种字符串（"USDC" | "USDT"�?
+	// amount: token 金额（最小单位，e.g. 1 USDC = 1_000_000�?
 	BuildSPLTransferTx(ctx context.Context, fromAddress, toAddress, currency string, amount uint64) (string, error)
 
 	// SendTransaction 发送已签名交易
 	SendTransaction(ctx context.Context, signedTx string) (string, error)
 
-	// GetTransactionStatus 查询交易状态
+	// GetTransactionStatus 查询交易状�?
 	GetTransactionStatus(ctx context.Context, txHash string) (*vo.TxStatusVO, error)
 
 	// WaitForConfirmation 等待交易确认
 	WaitForConfirmation(ctx context.Context, txHash string, timeout time.Duration) (*vo.TxStatusVO, error)
 
-	// GetExplorerURL 获取交易浏览器链接
+	// GetExplorerURL 获取交易浏览器链�?
 	GetExplorerURL(txHash string) string
 	
-	// GetFeePayerAddress 获取 fee payer 地址（hot wallet 地址）
+	// GetFeePayerAddress 获取 fee payer 地址（hot wallet 地址�?
 	GetFeePayerAddress() string
 	
-	// EstimateFee 估算交易手续费
+	// EstimateFee 估算交易手续�?
 	EstimateFee(ctx context.Context) (int64, error)
 	
-	// ValidatePartiallySignedTransaction 验证部分签名的交易
+	// ValidatePartiallySignedTransaction 验证部分签名的交�?
 	ValidatePartiallySignedTransaction(base64Tx string) error
 }
 
@@ -71,7 +71,7 @@ type TransactionBuilderGateway interface {
 	// BuildSOLTransferTx 构建 SOL 转账交易
 	BuildSOLTransferTx(from, to string, amountLamports uint64, recentBlockHash string) (string, error)
 	
-	// BuildSOLTransferTxWithFeePayer 构建带 FeePayer 的 SOL 转账
+	// BuildSOLTransferTxWithFeePayer 构建�? FeePayer �? SOL 转账
 	BuildSOLTransferTxWithFeePayer(from, to, feePayer string, amountLamports uint64, recentBlockHash string) (string, error)
 	
 	// BuildUnsignedTransaction 构建未签名的 SPL Token 转账交易
@@ -90,8 +90,8 @@ type TransactionBuilderGateway interface {
 	ValidateTransfer(from, to string, amountLamports, balance uint64) error
 }
 
-// HotWalletGateway 热钱包网关接口
-// 职责：定义热钱包操作的抽象
+// HotWalletGateway 热钱包网关接�?
+// 职责：定义热钱包操作的抽�?
 type HotWalletGateway interface {
 	// GetAddress 获取热钱包地址
 	GetAddress() string
@@ -99,15 +99,15 @@ type HotWalletGateway interface {
 	// GetPublicKey 获取公钥
 	GetPublicKey() string
 	
-	// SignTransaction 使用热钱包签名交易（领域实体方式）
+	// SignTransaction 使用热钱包签名交易（领域实体方式�?
 	SignTransaction(tx *entity.TransactionEntity) error
 	
-	// SignBase64Transaction 签名 Base64 编码的交易
+	// SignBase64Transaction 签名 Base64 编码的交�?
 	// 参数：base64 编码的部分签名交易（用户已签名）
 	// 返回：base64 编码的完整签名交易（用户 + 热钱包签名）
 	SignBase64Transaction(base64Tx string) (string, error)
 	
-	// Validate 验证热钱包配置
+	// Validate 验证热钱包配�?
 	Validate() error
 }
 
@@ -118,6 +118,11 @@ const (
 	USDCMainnet = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 	USDTMainnet = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 )
+
+// IsMainnet reports whether network is Solana mainnet (mainnet or mainnet-beta).
+func IsMainnet(network string) bool {
+	return network == "mainnet" || network == "mainnet-beta"
+}
 
 // GetTokenMintByCurrency 根据币种获取 Mint 地址
 func GetTokenMintByCurrency(currency string, isMainnet bool) string {

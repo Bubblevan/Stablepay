@@ -11,18 +11,18 @@ import (
 	"github.com/gagliardetto/solana-go"
 )
 
-// TransactionBuilderImpl 交易构建器实现
+// TransactionBuilderImpl builds unsigned Solana transactions.
 type TransactionBuilderImpl struct {
 	client  *solanaRPCClient
 	network string
 }
 
-// solanaRPCClient 简化的 RPC 客户端包装
+// solanaRPCClient is a thin RPC client wrapper.
 type solanaRPCClient struct {
-	// 实际项目中应该包含 *rpc.Client
+	// 实际项目中应该包�? *rpc.Client
 }
 
-// NewTransactionBuilder 创建交易构建器
+// NewTransactionBuilder 创建交易构建�?
 func NewTransactionBuilder(network string) gateway.TransactionBuilderGateway {
 	return &TransactionBuilderImpl{
 		network: network,
@@ -47,7 +47,7 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTx(from, to string, amountLampo
 	}
 
 	// 创建 System Program Transfer 指令
-	// 指令数据: [2, amount(8 bytes)] - 2 是 Transfer 指令类型
+	// 指令数据: [2, amount(8 bytes)] - 2 �? Transfer 指令类型
 	data := make([]byte, 12)
 	data[0] = 2 // Transfer instruction type
 	binary.LittleEndian.PutUint64(data[4:], amountLamports)
@@ -75,7 +75,7 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTx(from, to string, amountLampo
 	return tx.ToBase64()
 }
 
-// BuildSOLTransferTxWithFeePayer 构建带 FeePayer 的 SOL 转账
+// BuildSOLTransferTxWithFeePayer 构建�? FeePayer �? SOL 转账
 func (t *TransactionBuilderImpl) BuildSOLTransferTxWithFeePayer(from, to, feePayer string, amountLamports uint64, recentBlockHash string) (string, error) {
 	fromPubKey, err := solana.PublicKeyFromBase58(from)
 	if err != nil {
@@ -98,7 +98,7 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTxWithFeePayer(from, to, feePay
 	}
 
 	// 创建 System Program Transfer 指令
-	// 指令数据: [2, amount(8 bytes)] - 2 是 Transfer 指令类型
+	// 指令数据: [2, amount(8 bytes)] - 2 �? Transfer 指令类型
 	data := make([]byte, 12)
 	data[0] = 2 // Transfer instruction type
 	binary.LittleEndian.PutUint64(data[4:], amountLamports)
@@ -149,7 +149,7 @@ func (t *TransactionBuilderImpl) BuildUnsignedTransaction(req *gateway.BuildTran
 	}
 
 	// 获取代币 Mint 地址
-	mintAddress := gateway.GetTokenMintByCurrency(req.Currency, t.network == "mainnet")
+	mintAddress := gateway.GetTokenMintByCurrency(req.Currency, gateway.IsMainnet(t.network))
 	if mintAddress == "" {
 		return "", fmt.Errorf("unsupported currency: %s", req.Currency)
 	}
@@ -174,7 +174,7 @@ func (t *TransactionBuilderImpl) BuildUnsignedTransaction(req *gateway.BuildTran
 	tokenProgramID := solana.TokenProgramID
 
 	// 构建 SPL Token Transfer 指令数据
-	// 指令格式: [3, amount(8 bytes)]  - 3 是 Transfer 指令类型
+	// 指令格式: [3, amount(8 bytes)]  - 3 �? Transfer 指令类型
 	data := make([]byte, 9)
 	data[0] = 3 // Transfer instruction type
 	binary.LittleEndian.PutUint64(data[1:], uint64(req.AmountMinor))
@@ -213,7 +213,7 @@ func (t *TransactionBuilderImpl) DeserializeBase64Tx(base64Tx string) (*entity.T
 		return nil, fmt.Errorf("failed to unmarshal transaction: %w", err)
 	}
 
-	// 转换为领域实体
+	// 转换为领域实�?
 	return &entity.TransactionEntity{
 		// 填充相关字段
 	}, nil
@@ -221,8 +221,8 @@ func (t *TransactionBuilderImpl) DeserializeBase64Tx(base64Tx string) (*entity.T
 
 // SerializeToBase64 序列化交易为 Base64
 func (t *TransactionBuilderImpl) SerializeToBase64(tx *entity.TransactionEntity) (string, error) {
-	// 实际项目中需要将 TransactionEntity 转换回 solana.Transaction
-	// 这里简化处理
+	// 实际项目中需要将 TransactionEntity 转换�? solana.Transaction
+	// 这里简化处�?
 	return "", fmt.Errorf("SerializeToBase64 not implemented")
 }
 
