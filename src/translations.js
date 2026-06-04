@@ -1,16 +1,12 @@
 export const translations = {
   en: {
     nav: {
-      marketplace: 'Resource Marketplace',
-      features: 'Features',
-      howItWorks: 'How It Works',
-      protocols: 'Protocols',
-      quickStart: 'Quick Start',
-      developers: 'Developers'
+      forAIUsers: "I'm AI User",
+      forAIDevelopers: "I'm AI Developer"
     },
     hero: {
       eyebrow: 'Programmable payments for autonomous agents',
-      title: 'Let agents pay for and digital services — without breaking the flow',
+      title: 'Let your AI Agent pay for and access digital services',
       copy: 'StablePay gives AI agents a wallet-backed identity, an HTTP 402/x402-ready payment flow, reusable access credentials, and developer-friendly paywall templates. It helps agents purchase paid APIs, MCP tools, datasets, content, and services with stablecoins while keeping authorization and settlement verifiable.',
       viewCode: 'View Integration Template',
       seeDemo: 'See Payment Flow',
@@ -21,14 +17,14 @@ export const translations = {
       }
     },
     audience: {
-      forUsers: 'For Agent Operators',
-      userTitle: 'Give agents a payment account',
-      userDesc: 'Create a wallet-backed identity, configure spending limits, top up stablecoins, and let your agent pay for approved resources during its workflow.',
-      userList: ['Wallet + DID onboarding', 'Spending limits and confirmations', 'Balance, access, and transaction history'],
-      forDevelopers: 'For Resource Providers',
-      devTitle: 'Charge for APIs, tools, and services',
-      devDesc: 'Add a payment requirement to your API, MCP server, data endpoint, content page, or agent service. StablePay handles payment, access verification, and reusable credentials.',
-      devList: ['Copy-paste paywall template', 'HTTP 402 / x402-style payment flow', 'Verification API for backend access control']
+      forUsers: 'For AI Users',
+      userTitle: 'Enable your AI with a payment wallet',
+      userDesc: 'Create a wallet-backed identity for your AI agent, configure spending limits, top up stablecoins, and let your AI autonomously pay for services and resources it needs.',
+      userList: ['AI wallet + DID setup', 'Spending limits and confirmations', 'Balance tracking and payment history'],
+      forDevelopers: 'For AI Developers',
+      devTitle: 'Monetize your AI services and APIs',
+      devDesc: 'Add programmable payments to your AI service, API, MCP server, or agent tool. StablePay handles the payment flow, access verification, and credential management for you.',
+      devList: ['Quick-start paywall templates', 'HTTP 402 / x402 payment protocol', 'Backend verification API']
     },
     skills: {
       eyebrow: 'Resource Marketplace',
@@ -185,17 +181,13 @@ export const translations = {
   },
   zh: {
     nav: {
-      marketplace: '资源市场',
-      features: '功能特性',
-      howItWorks: '工作原理',
-      protocols: '协议',
-      quickStart: '快速开始',
-      developers: '开发者'
+      forAIUsers: '我是AI用户',
+      forAIDevelopers: '我是AI开发者'
     },
     hero: {
       eyebrow: '面向自主 Agent 的支付',
-      title: '让 Agent 为数字服务商品付款，而不中断任务流程',
-      copy: 'StablePay 为 AI Agent 提供钱包支持的身份、HTTP 402/x402-ready 支付流程、可复用访问凭证，以及开发者友好的付费墙模板。它可以帮助 Agent 使用稳定币购买付费 API、MCP 工具、数据集、内容和服务，同时保证授权与结算可验证。',
+      title: '让你的 AI Agent 自主购买并支付',
+      copy: 'StablePay 为 AI Agent 提供钱包支持的身份、HTTP 402/x402-ready 支付流程、可复用访问凭证，以及开发者友好的付费模板。通过帮助 Agent 使用稳定币购买付费 API、MCP 工具、数据集、内容和服务，同时保证授权与结算可验证。',
       viewCode: '查看集成模板',
       seeDemo: '查看支付流程',
       stats: {
@@ -205,14 +197,14 @@ export const translations = {
       }
     },
     audience: {
-      forUsers: '面向 Agent 使用方',
-      userTitle: '给 Agent 一个可控的支付账户',
-      userDesc: '创建钱包支持的身份，配置消费限额，充值稳定币，并让你的 Agent 在任务流程中为已授权资源付款。',
-      userList: ['钱包 + DID 初始化', '消费限额与确认规则', '余额、访问权和交易历史'],
-      forDevelopers: '面向资源提供方',
-      devTitle: '为 API、工具和服务收费',
-      devDesc: '你可以给 API、MCP Server、数据接口、内容页面或 Agent 服务添加支付要求。StablePay 负责支付、访问验证和可复用凭证。',
-      devList: ['复制粘贴付费墙模板', 'HTTP 402 / x402 风格支付流程', '用于后端访问控制的验证 API']
+      forUsers: '面向AI用户',
+      userTitle: '为AI配备支付钱包',
+      userDesc: '为你的AI Agent创建钱包身份，配置消费限额，充值稳定币，让你的AI自主支付所需服务和资源。',
+      userList: ['AI钱包 + DID设置', '消费限额和确认规则', '余额追踪和支付历史'],
+      forDevelopers: '面向AI开发者',
+      devTitle: '将你的AI服务变现',
+      devDesc: '为你的AI服务、API、MCP服务器或Agent工具添加可编程支付。StablePay处理支付流程、访问验证和凭证管理。',
+      devList: ['快速启动付费墙模板', 'HTTP 402 / x402支付协议', '后端验证API']
     },
     skills: {
       eyebrow: '资源市场',
@@ -240,7 +232,7 @@ export const translations = {
     },
     howItWorks: {
       eyebrow: '工作原理',
-      title: 'StablePay 的四个步骤'
+      title: 'StablePay 的四步骤'
     },
     steps: [
       {

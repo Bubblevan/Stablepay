@@ -3,12 +3,8 @@ import { useLanguage } from './LanguageContext'
 import { translations } from './translations'
 
 const navItems = [
-  { key: 'marketplace', href: '#skills' },
-  { key: 'features', href: '#features' },
-  { key: 'howItWorks', href: '#how-it-works' },
-  { key: 'protocols', href: '#protocols' },
-  { key: 'quickStart', href: '#quickstart' },
-  { key: 'developers', href: '#developers' },
+  { key: 'forAIUsers', href: '#quickstart' },
+  { key: 'forAIDevelopers', href: 'https://ai.wenfu.cn/docs/', external: true },
 ]
 
 const skills = [
@@ -140,7 +136,11 @@ function Header() {
         </a>
         <nav className="nav">
           {navItems.map((item) => (
-            <a key={item.href} href={item.href}>
+            <a
+              key={item.key}
+              href={item.href}
+              {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            >
               {t.nav[item.key]}
             </a>
           ))}
@@ -527,18 +527,9 @@ STABLEPAY_FEE_PAYER_SOL=FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`}</pre>
           <h3>{t.quickStart.ows.title}</h3>
           <p>{t.quickStart.ows.desc}</p>
           <div className="code-block">
-            <pre>{`# Install Rustup
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Activate configuration
-source ~/.cargo/env
-
-# Verify installation
-rustc --version`}</pre>
-          </div>
-          <div className="code-block">
-            <pre>{`# Install OWS binary
-cargo install ows-signer
+            <pre>{`# Install OWS
+npm install -g @open-wallet-standard/core
+ows wallet create --name my-agent
 
 # Verify installation
 ows --version`}</pre>
@@ -635,9 +626,9 @@ export default function App() {
         <Skills />
         <Features />
         <HowItWorks />
-        <Developers />
         <QuickStart />
         <FAQ />
+        <Developers />
       </main>
       {/* <Footer /> */}
     </>
