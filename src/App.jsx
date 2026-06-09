@@ -4,6 +4,7 @@ import { translations } from './translations'
 
 const navItems = [
   { key: 'forAIUsers', href: '#quickstart' },
+  { key: 'walletGuide', href: '#wallet-guide' },
   { key: 'forAIDevelopers', href: 'https://ai.wenfu.cn/docs/', external: true },
 ]
 
@@ -505,63 +506,72 @@ function QuickStart() {
           <h3>{t.quickStart.install.title}</h3>
           <p>{t.quickStart.install.desc}</p>
           <div className="code-block">
-            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install`}</pre>
-          </div>
-          <p>{t.quickStart.env.desc}</p>
-          <div className="code-block">
-            <pre>{`touch ~/.openclaw/.env`}</pre>
-          </div>
-          <div className="code-block">
-            <pre>{`STABLEPAY_PLUGIN_MASTER_KEY=xetOOUSS6rzAwK1NhuCSCvKRNMgu6r0HWtjGSltmDUY=
-STABLEPAY_FEE_PAYER_SOL=FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`}</pre>
-          </div>
-          <ul className="config-notes">
-            {t.quickStart.env.notes.map((note, i) => (
-              <li key={i}>{note}</li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Step 2: Install OWS Wallet */}
-        <div className="quickstart-step">
-          <h3>{t.quickStart.ows.title}</h3>
-          <p>{t.quickStart.ows.desc}</p>
-          <div className="code-block">
-            <pre>{`# Install OWS
-npm install -g @open-wallet-standard/core
-ows wallet create --name my-agent
-
-# Verify installation
-ows --version`}</pre>
+            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.18 --force --dangerously-force-unsafe-install`}</pre>
           </div>
         </div>
 
-        {/* Step 3: Create Wallet */}
+        {/* Step 2: Chat to Initialize */}
         <div className="quickstart-step">
           <h3>{t.quickStart.wallet.title}</h3>
           <p>{t.quickStart.wallet.desc}</p>
-          <ol className="conversation-flow">
-            {t.quickStart.wallet.steps.map((step, i) => (
-              <li key={i}>{step}</li>
-            ))}
-          </ol>
         </div>
 
-        {/* Step 4: Register DID */}
+        {/* Step 3: Conversation Example */}
         <div className="quickstart-step">
-          <h3>{t.quickStart.did.title}</h3>
-          <p>{t.quickStart.did.desc}</p>
+          <h3>{t.quickStart.example.title}</h3>
+          <p>{t.quickStart.example.desc}</p>
+          <div className="conversation-example">
+            <div className="chat-bubble user">
+              <span className="chat-label">User:</span>
+              <p>{t.quickStart.example.user1}</p>
+            </div>
+            <div className="chat-bubble agent">
+              <span className="chat-label">OpenClaw:</span>
+              <pre>{t.quickStart.example.agent1}</pre>
+            </div>
+            <div className="chat-bubble user">
+              <span className="chat-label">User:</span>
+              <p>{t.quickStart.example.user2}</p>
+            </div>
+            <div className="chat-bubble agent">
+              <span className="chat-label">OpenClaw:</span>
+              <pre>{t.quickStart.example.agent2}</pre>
+            </div>
+            <div className="chat-bubble user">
+              <span className="chat-label">User:</span>
+              <p>{t.quickStart.example.user3}</p>
+            </div>
+            <div className="chat-bubble agent">
+              <span className="chat-label">OpenClaw:</span>
+              <pre>{t.quickStart.example.agent3}</pre>
+            </div>
+          </div>
         </div>
 
-        {/* Step 5: Merchant Setup */}
+        {/* Step 3: Merchant Setup - Hidden for now
         <div className="quickstart-step">
           <h3>{t.quickStart.merchant.title}</h3>
           <p>{t.quickStart.merchant.desc}</p>
           <div className="code-block">
             <pre>{`git clone https://github.com/Bubblevan/showmethemoney-skills.git`}</pre>
           </div>
+          <p>{t.quickStart.merchant.step1}</p>
+          <div className="code-block">
+            <pre>{`cp -r ./showmethemoney-skills/showmethemoney-pro ~/.openclaw/workspace/skills/`}</pre>
+          </div>
+          <p>{t.quickStart.merchant.step2}</p>
+          <div className="code-block">
+            <pre>{[
+      'cd ./showmethemoney-skills/merchant-backend',
+      'npm install',
+      'npm run dev'
+    ].join('\n')}</pre>
+          </div>
+          <p>{t.quickStart.merchant.step3}</p>
+          <p>{t.quickStart.merchant.finalStep}</p>
           <p>{t.quickStart.merchant.note}</p>
         </div>
+        */}
       </div>
     </section>
   )
@@ -581,6 +591,71 @@ function FAQ() {
               <p>{item.a}</p>
             </details>
           ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WalletGuide() {
+  const { language } = useLanguage()
+  const t = translations[language]
+
+  return (
+    <section className="section" id="wallet-guide">
+      <div className="container">
+        <div className="section-heading narrow">
+          <div className="eyebrow">{t.walletGuide.eyebrow}</div>
+          <h2>{t.walletGuide.title}</h2>
+          <p>{t.walletGuide.subtitle}</p>
+        </div>
+
+        <div className="wallet-guide-grid">
+          {/* USDC Card */}
+          <div className="wallet-guide-card panel">
+            <div className="guide-icon">💵</div>
+            <h3>{t.walletGuide.usdc.title}</h3>
+            <p>{t.walletGuide.usdc.desc}</p>
+            <div className="guide-highlight">
+              <strong>{t.walletGuide.usdc.highlight}</strong>
+            </div>
+          </div>
+
+          {/* Wallet Card */}
+          <div className="wallet-guide-card panel featured">
+            <div className="guide-icon">👛</div>
+            <h3>{t.walletGuide.wallet.title}</h3>
+            <p>{t.walletGuide.wallet.desc}</p>
+            <ul className="guide-list">
+              {t.walletGuide.wallet.points.map((point, i) => (
+                <li key={i}>{point}</li>
+              ))}
+            </ul>
+            <div className="guide-address-example">
+              <code>{t.walletGuide.wallet.example}</code>
+            </div>
+          </div>
+
+          {/* DID Card */}
+          <div className="wallet-guide-card panel">
+            <div className="guide-icon">🆔</div>
+            <h3>{t.walletGuide.did.title}</h3>
+            <p>{t.walletGuide.did.desc}</p>
+            <div className="guide-did-example">
+              <code>{t.walletGuide.did.example}</code>
+            </div>
+          </div>
+
+          {/* Signature Card */}
+          <div className="wallet-guide-card panel">
+            <div className="guide-icon">✍️</div>
+            <h3>{t.walletGuide.signature.title}</h3>
+            <p>{t.walletGuide.signature.desc}</p>
+            <div className="guide-alert">
+              <span>⚠️</span>
+              <p>{t.walletGuide.signature.warning}</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -626,6 +701,7 @@ export default function App() {
         <Skills />
         <Features />
         <HowItWorks />
+        <WalletGuide />
         <QuickStart />
         <FAQ />
         <Developers />

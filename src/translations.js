@@ -2,7 +2,38 @@ export const translations = {
   en: {
     nav: {
       forAIUsers: "I'm AI User",
-      forAIDevelopers: "I'm AI Developer"
+      forAIDevelopers: "I'm AI Developer",
+      walletGuide: 'Wallet Guide'
+    },
+    walletGuide: {
+      eyebrow: 'Before You Start',
+      title: 'Wallet & Crypto Basics',
+      subtitle: 'Essential concepts for using StablePay effectively',
+      usdc: {
+        title: 'What is USDC?',
+        desc: 'USDC is a digital dollar (stablecoin) that maintains a 1:1 value with the US Dollar. Unlike volatile cryptocurrencies like Bitcoin, 1 USDC always equals approximately $1 USD.',
+        highlight: 'StablePay uses USDC for all payments because it\'s stable, fast, and widely accepted.'
+      },
+      wallet: {
+        title: 'Your Solana Wallet',
+        desc: 'A wallet is your digital identity on the blockchain. It has a public address (like a bank account number) and private keys (like your password).',
+        points: [
+          'Public Address: Share this to receive payments',
+          'Private Key / Seed Phrase: NEVER share this with anyone',
+          'Stored locally: Your keys stay on your device, not our servers'
+        ],
+        example: 'Solana Address: 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+      },
+      did: {
+        title: 'Your DID Identity',
+        desc: 'DID (Decentralized Identifier) is your unique identity in StablePay. It\'s derived from your wallet and looks like this:',
+        example: 'did:solana:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+      },
+      signature: {
+        title: 'Transaction Signing',
+        desc: 'When you make a payment, you "sign" the transaction with your private key. This proves you authorized the payment.',
+        warning: 'Every payment requires your confirmation. Review the amount and recipient before signing.'
+      }
     },
     hero: {
       eyebrow: 'Programmable payments for autonomous agents',
@@ -100,36 +131,35 @@ export const translations = {
       title: 'Quick Start Guide',
       install: {
         title: '1. Install Plugin & Configure',
-        desc: 'Install the StablePay plugin in OpenClaw:'
-      },
-      env: {
-        desc: 'After installation, create the environment file:',
-        notes: [
-          'STABLEPAY_PLUGIN_MASTER_KEY: A randomly generated key for AES-256-GCM encryption of local state file. Stores wallet info (wallet ID, name, DID, public key, address), payment policy, and configuration.',
-          'STABLEPAY_FEE_PAYER_SOL: Platform hot wallet public key for gas fee sponsorship.'
-        ]
-      },
-      ows: {
-        title: '2. Install OWS Wallet',
-        desc: 'OWS (Open Wallet Standard) is required for local wallet creation and transaction signing. Install Rustup first, then install ows-signer:'
+        desc: 'Install the StablePay plugin in OpenClaw by entering the command below:'
       },
       wallet: {
-        title: '3. Create or Bind Agent Wallet',
-        desc: 'The plugin can create an OWS wallet. Main tool: stablepay_create_local_wallet. Suggested conversation flow:',
+        title: '2. Chat with OpenClaw to Initialize',
+        desc: 'After installing the plugin, simply chat with OpenClaw to start initialization. OpenClaw will automatically guide you through wallet creation and configuration:',
         steps: [
-          'Check current StablePay plugin methods and runtime status',
-          'Create an OWS wallet for me',
-          'Query USDC balance and set spending limits (auto-pay threshold: 0.6 USDC, max per purchase: 10 USDC)',
-          'Register buyer DID for this wallet'
+          "Help me initialize StablePay plugin",
+          "(OpenClaw will automatically detect status and ask questions, e.g., No wallet detected. Would you like to create a new wallet?)",
+          "(After confirming, OpenClaw will create a wallet and ask if you want to configure payment limits)",
+          "(Once configured, you can start using it)"
         ]
       },
-      did: {
-        title: '4. Register Buyer DID',
-        desc: 'After wallet creation, the plugin automatically submits wallet public key, address, name, and signing runtime to the DID service. Returns did:solana:<pubkey> identifier for payment and verification flows.'
+      example: {
+        title: 'Conversation Example',
+        desc: 'Here is a real initialization conversation example:',
+        user1: 'Help me initialize StablePay plugin',
+        agent1: 'No wallet detected. Would you like to create a new wallet?\n\nCreate command:\nstablepay_create_local_wallet --user_id your_name\n\nConfirm creation?',
+        user2: 'Create one',
+        agent2: 'Wallet created successfully!\nNew wallet info:\nAddress: 6Hhpdd8NWDN5D3rt8cGYoR24Fwfcrb2QC4s6Fz6qTqJB\nDID: did:solana:6Hhpdd8NWDN5D3rt8cGYoR24Fwfcrb2QC4s6Fz6qTqJB\nWallet name: stablepay-your_name\n\nWould you like to configure payment limits next?',
+        user3: 'Configure it',
+        agent3: 'Configuration complete!\nPayment limits:\nSingle purchase limit: 10 USDC\nAuto-pay threshold: 1 USDC (below this auto-confirms, above requires manual approval)\nCurrency: USDC\n\nConfiguration complete. You can now:\n\n1. Query balance\nstablepay_query_balance --did did:solana:...\n\n2. Execute paid skill\nstablepay_execute_paid_skill_demo\n\n3. Pay via gateway\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. Query sales records\nstablepay_query_sales --skill_did xxx'
       },
       merchant: {
         title: '5. Try the Merchant Demo',
         desc: 'Clone the merchant example to test end-to-end payment flow:',
+        step1: 'Copy the skills',
+        step2: 'Run the merchant backend',
+        step3: 'Return to OpenClaw and continue the conversation',
+        finalStep: 'Check the ShowMeTheMoney skill in your skills list and follow the flow to try the merchant paid demo.',
         note: 'Check showmethemoney-pro and merchant-backend. The merchant backend verifies StablePay purchases before executing premium actions.'
       }
     },
@@ -169,6 +199,14 @@ export const translations = {
           q: 'Is StablePay only for OpenClaw skills?',
           a: 'No. OpenClaw is the first integration scenario. StablePay is designed as a general agent payment layer for paid APIs, MCP tools, datasets, content, services, and other agent-accessible resources.',
         },
+        {
+          q: 'Does it work on Windows, Linux, and Mac?',
+          a: 'Yes, all platforms are supported. Windows users will automatically fall back to CLI mode if SDK loading fails. Linux and Mac usually work directly with SDK mode.',
+        },
+        {
+          q: 'What is the difference between OWS CLI and OWS SDK?',
+          a: 'OWS SDK is a JavaScript library that the plugin can import and call directly; OWS CLI is a command-line tool that requires running ows commands in the terminal. The plugin prefers SDK, and if SDK is unavailable (e.g., on Windows), it automatically falls back to CLI mode. If using CLI mode, you need to install globally: npm install -g @open-wallet-standard/core.',
+        },
       ]
     },
     footer: {
@@ -182,7 +220,38 @@ export const translations = {
   zh: {
     nav: {
       forAIUsers: '我是AI用户',
-      forAIDevelopers: '我是AI开发者'
+      forAIDevelopers: '我是AI开发者',
+      walletGuide: '钱包指南'
+    },
+    walletGuide: {
+      eyebrow: '开始之前',
+      title: '钱包与加密货币基础',
+      subtitle: '使用 StablePay 前需要了解的基本概念',
+      usdc: {
+        title: '什么是 USDC？',
+        desc: 'USDC 是一种数字美元（稳定币），与美元保持 1:1 的价值锚定。与比特币等波动较大的加密货币不同，1 USDC 始终约等于 1 美元。',
+        highlight: 'StablePay 使用 USDC 进行所有支付，因为它稳定、快速且被广泛接受。'
+      },
+      wallet: {
+        title: '你的 Solana 钱包',
+        desc: '钱包是你在区块链上的数字身份。它有一个公开地址（类似银行卡号）和私钥（类似你的密码）。',
+        points: [
+          '公开地址：分享此地址用于接收付款',
+          '私钥 / 助记词：切勿与任何人分享',
+          '本地存储：你的密钥保存在设备上，而非我们的服务器'
+        ],
+        example: 'Solana 地址：7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+      },
+      did: {
+        title: '你的 DID 身份',
+        desc: 'DID（去中心化标识符）是你在 StablePay 中的唯一身份。它从你的钱包派生，格式如下：',
+        example: 'did:solana:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+      },
+      signature: {
+        title: '交易签名',
+        desc: '当你进行支付时，你会用私钥对交易进行"签名"。这证明你授权了该笔支付。',
+        warning: '每笔支付都需要你的确认。签名前请仔细核对金额和收款方。'
+      }
     },
     hero: {
       eyebrow: '面向自主 Agent 的支付',
@@ -280,36 +349,35 @@ export const translations = {
       title: '快速上手指南',
       install: {
         title: '1. 安装插件与配置',
-        desc: '在 OpenClaw 中安装 StablePay 插件：'
-      },
-      env: {
-        desc: '安装完成后，创建环境配置文件：',
-        notes: [
-          'STABLEPAY_PLUGIN_MASTER_KEY: 随机生成的密钥，用于 AES-256-GCM 加密本地状态文件。存储钱包信息（钱包 ID、名称、DID、公钥、地址）、支付策略和配置。',
-          'STABLEPAY_FEE_PAYER_SOL: 平台热钱包公钥，用于补贴 gas 费用。'
-        ]
-      },
-      ows: {
-        title: '2. 安装 OWS 钱包',
-        desc: 'OWS (Open Wallet Standard) 是本地钱包创建和交易签名的必需组件。先安装 Rustup，然后安装 ows-signer：'
+        desc: '在 OpenClaw 中安装 StablePay 插件：（请在终端中输入）'
       },
       wallet: {
-        title: '3. 创建或绑定 Agent 钱包',
-        desc: '插件可以创建 OWS 钱包。主要工具：stablepay_create_local_wallet。建议对话流程：',
+        title: '2. 与 OpenClaw 对话初始化',
+        desc: '安装插件后，直接与 OpenClaw 对话即可开始初始化。OpenClaw 会自动引导你完成钱包创建和配置：',
         steps: [
-          '检查当前 StablePay 插件方法和运行时状态',
-          '为我创建一个 OWS 钱包',
-          '查询 USDC 余额并设置支付限额（自动购买阈值：0.6 USDC，单次上限：10 USDC）',
-          '为该钱包注册买家 DID'
+          '帮我初始化 StablePay 插件',
+          '（OpenClaw 会自动检测状态并提问，如：检测到没有钱包，需要创建一个新钱包吗？）',
+          '（确认创建后，OpenClaw 会创建钱包并询问是否配置支付限额）',
+          '（配置完成后即可开始使用）'
         ]
       },
-      did: {
-        title: '4. 注册买家 DID',
-        desc: '钱包创建后，插件会自动提交钱包公钥、地址、名称和签名运行时给 DID 服务。返回 did:solana:<公钥> 标识符，用于后续支付和验证流程。'
+      example: {
+        title: '对话示例',
+        desc: '以下是一个真实的初始化对话示例：',
+        user1: '帮我初始化 StablePay 插件',
+        agent1: '检测到没有钱包。需要创建一个新钱包吗？\n\n创建命令：\nstablepay_create_local_wallet --user_id your_name\n\n确认创建吗？',
+        user2: '创建一个',
+        agent2: '钱包创建成功！\n新钱包信息：\n地址：123456789abcdefghijklmnopqrsduvwxyz\nDID：did:solana:123456789abcdefghijklmnopqrsduvwxyz\n钱包名：stablepay-your_name\n\n接下来需要配置支付限额吗？',
+        user3: '配置一下',
+        agent3: '配置完成！\n支付限额设置：\n单次购买上限：10 USDC\n自动支付阈值：1 USDC（低于此金额自动确认，高于需手动确认）\n货币：USDC\n\n配置完成了。现在你可以：\n\n1. 查询余额\nstablepay_query_balance --did did:solana:...\n\n2. 执行付费技能\nstablepay_execute_paid_skill_demo\n\n3. 通过网关支付\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. 查询销售记录\nstablepay_query_sales --skill_did xxx'
       },
       merchant: {
-        title: '5. 体验商家示例',
+        title: '3. 体验商家示例（可选）',
         desc: '克隆商家示例仓库，测试端到端支付流程：',
+        step1: '拷贝skills',
+        step2: '运行商家客户端',
+        step3: '回到OpenClaw并对话',
+        finalStep: '请查看你技能列表里的 showmethemoney 技能，并按照流程体验一次商家的付费示例服务。',
         note: '查看 showmethemoney-pro 和 merchant-backend。商家后端会在执行高级动作前验证 StablePay 支付。'
       }
     },
@@ -348,6 +416,14 @@ export const translations = {
         {
           q: 'StablePay 只能用于 OpenClaw 技能吗？',
           a: '不是。OpenClaw 是第一个集成场景。StablePay 的定位是更一般化的 Agent Payment 层，可用于付费 API、MCP 工具、数据集、内容、服务和其他 Agent 可访问资源。'
+        },
+        {
+          q: 'Windows、Linux、Mac 都能用吗？',
+          a: '都可以。Windows 用户如果 SDK 加载失败，会自动回退到 CLI 模式。Linux 和 Mac 通常 SDK 模式可以直接工作。'
+        },
+        {
+          q: 'OWS CLI 和 OWS SDK 有什么区别？',
+          a: 'OWS SDK 是 JavaScript 库，插件可以直接 import 调用；OWS CLI 是命令行工具，需要在终端执行 ows 命令。插件优先使用 SDK，如果 SDK 不可用（如 Windows 环境），会自动回退到 CLI 模式。如果使用 CLI 模式，需要全局安装：npm install -g @open-wallet-standard/core。'
         }
       ]
     },
