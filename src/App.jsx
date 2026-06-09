@@ -505,21 +505,17 @@ function QuickStart() {
           <h3>{t.quickStart.install.title}</h3>
           <p>{t.quickStart.install.desc}</p>
           <div className="code-block">
-            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install`}</pre>
+            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.18 --force --dangerously-force-unsafe-install`}</pre>
           </div>
-          <p>{t.quickStart.env.desc}</p>
+          {/* <p>{t.quickStart.env.desc}</p>
           <div className="code-block">
             <pre>{`touch ~/.openclaw/.env`}</pre>
-          </div>
-          <div className="code-block">
-            <pre>{`STABLEPAY_PLUGIN_MASTER_KEY=xetOOUSS6rzAwK1NhuCSCvKRNMgu6r0HWtjGSltmDUY=
-STABLEPAY_FEE_PAYER_SOL=FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`}</pre>
           </div>
           <ul className="config-notes">
             {t.quickStart.env.notes.map((note, i) => (
               <li key={i}>{note}</li>
             ))}
-          </ul>
+          </ul> */}
         </div>
 
         {/* Step 2: Install OWS Wallet */}
@@ -527,21 +523,7 @@ STABLEPAY_FEE_PAYER_SOL=FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`}</pre>
           <h3>{t.quickStart.ows.title}</h3>
           <p>{t.quickStart.ows.desc}</p>
           <div className="code-block">
-            <pre>{`# Install Rustup
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Activate configuration
-source ~/.cargo/env
-
-# Verify installation
-rustc --version`}</pre>
-          </div>
-          <div className="code-block">
-            <pre>{`# Install OWS binary
-cargo install ows-signer
-
-# Verify installation
-ows --version`}</pre>
+            <pre>{`curl -fsSL https://docs.openwallet.sh/install.sh | bash`}</pre>
           </div>
         </div>
 
@@ -549,11 +531,11 @@ ows --version`}</pre>
         <div className="quickstart-step">
           <h3>{t.quickStart.wallet.title}</h3>
           <p>{t.quickStart.wallet.desc}</p>
-          <ol className="conversation-flow">
-            {t.quickStart.wallet.steps.map((step, i) => (
-              <li key={i}>{step}</li>
-            ))}
-          </ol>
+          {t.quickStart.wallet.steps.map((step, index) => (
+            <div className="code-block" key={index}>
+              <pre>{step}</pre>
+            </div>
+          ))}
         </div>
 
         {/* Step 4: Register DID */}
@@ -569,6 +551,20 @@ ows --version`}</pre>
           <div className="code-block">
             <pre>{`git clone https://github.com/Bubblevan/showmethemoney-skills.git`}</pre>
           </div>
+          <p>{t.quickStart.merchant.step1}</p>
+          <div className="code-block">
+            <pre>{`cp -r ./showmethemoney-skills/showmethemoney-pro ~/.openclaw/workspace/skills/`}</pre>
+          </div>
+          <p>{t.quickStart.merchant.step2}</p>
+          <div className="code-block">
+            <pre>{[
+      'cd ./showmethemoney-skills/merchant-backend',
+      'npm install',
+      'npm run dev'
+    ].join('\n')}</pre>
+          </div>
+          <p>{t.quickStart.merchant.step3}</p>
+          <p>{t.quickStart.merchant.finalStep}</p>
           <p>{t.quickStart.merchant.note}</p>
         </div>
       </div>

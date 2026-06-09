@@ -10,7 +10,7 @@ export const translations = {
     },
     hero: {
       eyebrow: 'Programmable payments for autonomous agents',
-      title: 'Let agents pay for and digital services — without breaking the flow',
+      title: 'Let agents pay for digital services and products — without breaking the flow',
       copy: 'StablePay gives AI agents a wallet-backed identity, an HTTP 402/x402-ready payment flow, reusable access credentials, and developer-friendly paywall templates. It helps agents purchase paid APIs, MCP tools, datasets, content, and services with stablecoins while keeping authorization and settlement verifiable.',
       viewCode: 'View Integration Template',
       seeDemo: 'See Payment Flow',
@@ -104,7 +104,7 @@ export const translations = {
       title: 'Quick Start Guide',
       install: {
         title: '1. Install Plugin & Configure',
-        desc: 'Install the StablePay plugin in OpenClaw:'
+        desc: 'Install the StablePay plugin in OpenClaw by entering the command below:'
       },
       env: {
         desc: 'After installation, create the environment file:',
@@ -115,7 +115,7 @@ export const translations = {
       },
       ows: {
         title: '2. Install OWS Wallet',
-        desc: 'OWS (Open Wallet Standard) is required for local wallet creation and transaction signing. Install Rustup first, then install ows-signer:'
+        desc: 'OWS (Open Wallet Standard) is required for local wallet creation and transaction signing. Install it using the terminal.'
       },
       wallet: {
         title: '3. Create or Bind Agent Wallet',
@@ -124,16 +124,20 @@ export const translations = {
           'Check current StablePay plugin methods and runtime status',
           'Create an OWS wallet for me',
           'Query USDC balance and set spending limits (auto-pay threshold: 0.6 USDC, max per purchase: 10 USDC)',
-          'Register buyer DID for this wallet'
+          'Register a buyer DID for this wallet'
         ]
       },
       did: {
         title: '4. Register Buyer DID',
-        desc: 'After wallet creation, the plugin automatically submits wallet public key, address, name, and signing runtime to the DID service. Returns did:solana:<pubkey> identifier for payment and verification flows.'
+        desc: 'After wallet creation, the plugin automatically submits wallet public key, address, name, and signing runtime to the DID service. It returns a did:solana:<pubkey> identifier for payment and verification flows.'
       },
       merchant: {
         title: '5. Try the Merchant Demo',
         desc: 'Clone the merchant example to test end-to-end payment flow:',
+        step1: 'Copy the skills',
+        step2: 'Run the merchant backend',
+        step3: 'Return to OpenClaw and continue the conversation',
+        finalStep: 'Check the ShowMeTheMoney skill in your skills list and follow the flow to try the merchant paid demo.',
         note: 'Check showmethemoney-pro and merchant-backend. The merchant backend verifies StablePay purchases before executing premium actions.'
       }
     },
@@ -288,7 +292,7 @@ export const translations = {
       title: '快速上手指南',
       install: {
         title: '1. 安装插件与配置',
-        desc: '在 OpenClaw 中安装 StablePay 插件：'
+        desc: '在 OpenClaw 中安装 StablePay 插件：（请在终端中输入）'
       },
       env: {
         desc: '安装完成后，创建环境配置文件：',
@@ -299,7 +303,7 @@ export const translations = {
       },
       ows: {
         title: '2. 安装 OWS 钱包',
-        desc: 'OWS (Open Wallet Standard) 是本地钱包创建和交易签名的必需组件。先安装 Rustup，然后安装 ows-signer：'
+        desc: 'OWS (Open Wallet Standard) 是本地钱包创建和交易签名的必需组件。(请在终端中输入)'
       },
       wallet: {
         title: '3. 创建或绑定 Agent 钱包',
@@ -313,11 +317,15 @@ export const translations = {
       },
       did: {
         title: '4. 注册买家 DID',
-        desc: '钱包创建后，插件会自动提交钱包公钥、地址、名称和签名运行时给 DID 服务。返回 did:solana:<公钥> 标识符，用于后续支付和验证流程。'
+        desc: '钱包创建后，插件会自动提交钱包公钥、地址、名称和签名运行时给 DID 服务。返回 did:solana:<公钥> 标识符，用于后续支付和验证流程。',
       },
       merchant: {
         title: '5. 体验商家示例',
         desc: '克隆商家示例仓库，测试端到端支付流程：',
+        step1: '拷贝skills',
+        step2: '运行商家客户端',
+        step3: '回到龙虾并对话',
+        finalStep: '请查看你技能列表里的 showmethemoney 技能，并按照流程体验一次商家的付费示例服务。',
         note: '查看 showmethemoney-pro 和 merchant-backend。商家后端会在执行高级动作前验证 StablePay 支付。'
       }
     },
