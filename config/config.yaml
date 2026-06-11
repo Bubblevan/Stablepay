@@ -1,0 +1,39 @@
+# StablePay Merchant Server 配置
+# 路径: config/config.yaml
+
+server:
+  # 监听地址
+  host: "0.0.0.0"
+  port: 8787
+  # 服务名称 (用于日志/可观测性)
+  name: "stablepay-merchant-server"
+
+# StablePay API Gateway 配置
+stablepay:
+  # API Gateway 基础地址 (生产环境)
+  gateway_base_url: "https://ai.wenfu.cn"
+  # 内部 API Key (商户后端与 Gateway 通信使用)
+  api_key: "stablepay-dev-key"
+  # Facilitator 地址 (x402 标准支付中介)
+  facilitator_url: "https://ai.wenfu.cn"
+
+# 商户钱包配置
+merchant:
+  # 收款钱包地址 (Solana)
+  seller_address: "2kZGwkLnVdSxjjNueeUQmqBf3tRKMn7y1bbktRZkJWdR"
+  # 生成访问 proof 的密钥 (仅后端内部使用，不上传到客户端)
+  proof_secret: "replace-this-with-a-long-random-secret"
+
+# 数据库配置
+database:
+  # SQLite 文件路径 (开发环境使用文件型 SQLite)
+  path: "./data/merchant.db"
+  # 是否在启动时自动迁移 (建表/种子数据)
+  auto_migrate: true
+  # 是否写入种子数据 (首次启动时)
+  seed_enabled: true
+
+# 区块链配置
+blockchain:
+  solana_network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+  usdc_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
