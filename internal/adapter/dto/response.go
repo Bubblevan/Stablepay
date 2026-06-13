@@ -1,24 +1,18 @@
 // Copyright 2025 StablePay. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package dto (Data Transfer Object) 属于 COLA 架构的 Adapter 层。
+// Package dto (Data Transfer Object) belongs to the COLA-style Adapter layer.
 //
-// DTO 负责：
-// - 定义 API 请求/响应的数据结构（与领域实体解耦）
-// - 实现序列化/反序列化
-// - 参数校验
-//
-// 各层之间的数据传递规范：
-// Adapter(Handler) <-> DTO <-> AppService <-> DomainEntity
+// DTOs define the HTTP API contract. They are intentionally separate from
+// Domain entities and Application read models so that transport shape changes do
+// not leak backward into business rules.
 package dto
 
-import (
-	"time"
-)
+import "time"
 
 // -------------------- 基础响应 --------------------
 
-// BaseResponse 所有 API 响应的基础包装
+// BaseResponse is the common API response envelope used by non-x402 responses.
 type BaseResponse struct {
 	OK        bool   `json:"ok"`
 	Code      string `json:"code,omitempty"`
@@ -26,7 +20,7 @@ type BaseResponse struct {
 	Timestamp string `json:"timestamp,omitempty"`
 }
 
-// Success 构造成功响应
+// Success builds a successful response envelope.
 func Success(msg string) BaseResponse {
 	return BaseResponse{
 		OK:        true,
@@ -35,7 +29,7 @@ func Success(msg string) BaseResponse {
 	}
 }
 
-// Error 构造失败响应
+// Error builds a failed response envelope.
 func Error(code, msg string) BaseResponse {
 	return BaseResponse{
 		OK:        false,
@@ -47,17 +41,17 @@ func Error(code, msg string) BaseResponse {
 
 // -------------------- 健康检查 --------------------
 
-// HealthResp 健康检查响应
+// HealthResp is the health-check response.
 type HealthResp struct {
 	BaseResponse
-	Service    string `json:"service"`
-	Version    string `json:"version,omitempty"`
-	DBReady    bool   `json:"db_ready"`
+	Service string `json:"service"`
+	Version string `json:"version,omitempty"`
+	DBReady bool   `json:"db_ready"`
 }
 
 // -------------------- 数据分页 --------------------
 
-// Pagination 分页信息
+// Pagination describes list pagination.
 type Pagination struct {
 	Total int64 `json:"total"`
 	Page  int   `json:"page"`
@@ -66,13 +60,13 @@ type Pagination struct {
 
 // -------------------- 商品相关 DTO --------------------
 
-// ProductItem 商品列表项（对外暴露的视图）
-// 不包含敏感的内部字段如 proof_secret
+// ProductItem is the public product view returned by HTTP APIs.
 type ProductItem struct {
 	ID          string   `json:"id"`
 	SKUID       string   `json:"sku_id"`
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
+	ImageURL    string   `json:"image_url,omitempty"`
 	Price       string   `json:"price"`
 	Currency    string   `json:"currency"`
 	Author      string   `json:"author,omitempty"`
@@ -81,50 +75,84 @@ type ProductItem struct {
 	CreatedAt   string   `json:"created_at,omitempty"`
 }
 
-// ProductListResp 商品列表响应
+// ProductListResp is returned by GET /api/v1/products.
 type ProductListResp struct {
 	BaseResponse
 	Products   []ProductItem `json:"products"`
 	Pagination *Pagination   `json:"pagination,omitempty"`
 }
 
-// ProductDetailResp 商品详情响应
+// ProductDetailResp is returned by GET /api/v1/products/:id.
 type ProductDetailResp struct {
 	BaseResponse
 	Product *ProductItem `json:"product"`
 }
 
-// -------------------- x402 支付相关 DTO --------------------
+// -------------------- x402 v2 支付相关 DTO --------------------
 
-// X402Accept x402 标准中接受的支付方式
-type X402Accept struct {
-	Scheme            string `json:"scheme"`
-	Network           string `json:"network"`
-	MaxAmountRequired string `json:"maxAmountRequired"`
-	PayTo             string `json:"payTo"`
-	Asset             string `json:"asset"`
-	Description       string `json:"description"`
-	Resource          string `json:"resource"`
-	MaxTimeoutSeconds int    `json:"maxTimeoutSeconds"`
-	Extra             struct {
-		FacilitatorURL string `json:"facilitatorUrl"`
-		Currency       string `json:"currency"`
-		ProductID      string `json:"productId"`
-		SkillDid       string `json:"skillDid"`
-	} `json:"extra"`
+// X402ResourceInfo is the transport view of the protected resource.
+type X402ResourceInfo struct {
+	URL         string   `json:"url"`
+	Description string   `json:"description,omitempty"`
+	MimeType    string   `json:"mimeType,omitempty"`
+	ServiceName string   `json:"serviceName,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	IconURL     string   `json:"iconUrl,omitempty"`
 }
 
-// PaymentRequiredResp 402 Payment Required 响应 (x402 标准)
+// X402PaymentRequirement is one acceptable x402 v2 payment option.
+type X402PaymentRequirement struct {
+	Scheme            string         `json:"scheme"`
+	Network           string         `json:"network"`
+	Amount            string         `json:"amount"`
+	Asset             string         `json:"asset"`
+	PayTo             string         `json:"payTo"`
+	MaxTimeoutSeconds int            `json:"maxTimeoutSeconds"`
+	Extra             map[string]any `json:"extra,omitempty"`
+}
+
+// PaymentRequiredResp is the HTTP 402 body (x402 v2 format).
 type PaymentRequiredResp struct {
-	X402Version int           `json:"x402Version"`
-	Accepts     []X402Accept  `json:"accepts"`
-	Error       string        `json:"error"`
+	X402Version int                      `json:"x402Version"`
+	Error       string                   `json:"error,omitempty"`
+	Resource    X402ResourceInfo         `json:"resource"`
+	Accepts     []X402PaymentRequirement `json:"accepts"`
+	Extensions  map[string]any           `json:"extensions,omitempty"`
 }
 
-// PurchaseExecuteResp 执行购买成功响应
+// -------------------- x402 v1 向后兼容 DTO --------------------
+
+// X402AcceptV1 is the x402 v1 accept item format.
+// Kept for backward compatibility with older OpenClaw plugin versions.
+type X402AcceptV1 struct {
+	Scheme            string         `json:"scheme"`
+	Network           string         `json:"network"`
+	MaxAmountRequired string         `json:"maxAmountRequired"`
+	PayTo             string         `json:"payTo"`
+	Asset             string         `json:"asset"`
+	Description       string         `json:"description"`
+	Resource          string         `json:"resource"`
+	MaxTimeoutSeconds int            `json:"maxTimeoutSeconds"`
+	Extra             map[string]any `json:"extra"`
+}
+
+// PaymentRequiredRespV1 is the x402 v1 402 body format.
+// Included alongside the v2 response for backward compatibility.
+type PaymentRequiredRespV1 struct {
+	X402Version int              `json:"x402Version"`
+	Error       string           `json:"error"`
+	Accepts     []X402AcceptV1   `json:"accepts"`
+}
+
+// -------------------- 购买执行结果 --------------------
+
+// PurchaseExecuteResp is returned when a paid resource is unlocked.
 type PurchaseExecuteResp struct {
 	BaseResponse
-	Product   string      `json:"product"`
-	Access    interface{} `json:"access,omitempty"`
-	Content   interface{} `json:"content,omitempty"`
+	Product       *ProductItem   `json:"product,omitempty"`
+	MerchantProof any            `json:"merchant_proof,omitempty"`
+	GatewayProof  map[string]any `json:"gateway_proof,omitempty"`
+	TxID          string         `json:"tx_id,omitempty"`
+	TxHash        string         `json:"tx_hash,omitempty"`
+	Content       map[string]any `json:"content,omitempty"`
 }

@@ -1,65 +1,69 @@
 // Copyright 2025 StablePay. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package service 实现 COLA 架构的 Application Service（应用服务）。
+// Package service implements COLA-style Application Services.
 //
-// Application Service 职责：
-// 1. 业务流程编排（调用多个 Domain Service / Repository）
-// 2. 事务管理
-// 3. DTO 组装
-// 4. 权限校验
-//
-// 应用服务不包含业务规则，只负责"调度"。
+// Application Service is the use-case orchestration layer. It should answer
+// questions like "what must happen when an Agent executes a paid product?" while
+// delegating domain rules to Domain objects and technical details to ports.
 package service
 
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	domainSvc "github.com/stablepay/merchant-server/internal/domain/service"
+	appPort "github.com/stablepay/merchant-server/internal/application/port"
 	"github.com/stablepay/merchant-server/internal/domain/entity"
 	"github.com/stablepay/merchant-server/internal/domain/repository"
+	domainSvc "github.com/stablepay/merchant-server/internal/domain/service"
 )
 
-// ProductAppService 商品应用服务
+// ProductAppService is the product use-case entry point.
 //
-// 这是 COLA 架构中的"应用服务层"入口。
-// COLA 的 AppService 特点：
-// - 一个 Use Case 对应一个方法
-// - 负责事务边界
-// - 负责 DTO 转换
-// - 不包含业务逻辑
+// It orchestrates repository reads, domain validation, payment verification,
+// x402 payment requirement construction, and merchant proof generation.
 type ProductAppService struct {
-	productRepo    repository.ProductRepository
-	domainService  *domainSvc.ProductDomainService
-	sellerAddress string
-	facilitatorURL string
-	usdcMint      string
-	solanaNetwork string
+	productRepo     repository.ProductRepository
+	domainService   *domainSvc.ProductDomainService
+	paymentVerifier appPort.PaymentVerifier
+
+	merchantPublicBaseURL string
+	sellerAddress         string
+	proofSecret           string
+	facilitatorURL        string
+	usdcMint              string
+	solanaNetwork         string
 }
 
-// NewProductAppService 创建商品应用服务
+// NewProductAppService creates the product application service.
 func NewProductAppService(
 	productRepo repository.ProductRepository,
 	domainService *domainSvc.ProductDomainService,
-	sellerAddress, facilitatorURL, usdcMint, solanaNetwork string,
+	paymentVerifier appPort.PaymentVerifier,
+	merchantPublicBaseURL, sellerAddress, proofSecret, facilitatorURL, usdcMint, solanaNetwork string,
 ) *ProductAppService {
 	return &ProductAppService{
-		productRepo:    productRepo,
-		domainService:  domainService,
-		sellerAddress: sellerAddress,
-		facilitatorURL: facilitatorURL,
-		usdcMint:      usdcMint,
-		solanaNetwork: solanaNetwork,
+		productRepo:           productRepo,
+		domainService:         domainService,
+		paymentVerifier:       paymentVerifier,
+		merchantPublicBaseURL: strings.TrimRight(strings.TrimSpace(merchantPublicBaseURL), "/"),
+		sellerAddress:         strings.TrimSpace(sellerAddress),
+		proofSecret:           strings.TrimSpace(proofSecret),
+		facilitatorURL:        strings.TrimSpace(facilitatorURL),
+		usdcMint:              strings.TrimSpace(usdcMint),
+		solanaNetwork:         strings.TrimSpace(solanaNetwork),
 	}
 }
 
-// ProductListItem 商品列表项（应用层 DTO）
+// ProductListItem is the Application-layer read model returned by product list
+// use cases. Adapter DTOs can map from this model without exposing Domain Entity.
 type ProductListItem struct {
 	ID          string   `json:"id"`
 	SKUID       string   `json:"sku_id"`
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
+	ImageURL    string   `json:"image_url,omitempty"`
 	Price       string   `json:"price"`
 	Currency    string   `json:"currency"`
 	Author      string   `json:"author,omitempty"`
@@ -67,14 +71,9 @@ type ProductListItem struct {
 	Status      string   `json:"status"`
 }
 
-// ListProducts 查询商品列表
+// ListProducts queries active products and returns a stable read model.
 func (s *ProductAppService) ListProducts(ctx context.Context, page, size int) ([]*ProductListItem, int64, error) {
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 || size > 100 {
-		size = 20
-	}
+	page, size = normalizePagination(page, size)
 
 	products, total, err := s.productRepo.FindAll(ctx, page, size)
 	if err != nil {
@@ -83,119 +82,204 @@ func (s *ProductAppService) ListProducts(ctx context.Context, page, size int) ([
 
 	items := make([]*ProductListItem, 0, len(products))
 	for _, p := range products {
-		items = append(items, &ProductListItem{
-			ID:          p.SKUID,
-			SKUID:       p.SKUID,
-			Title:       p.Title,
-			Description: p.Description,
-			Price:       p.Price,
-			Currency:    p.Currency,
-			Author:      p.Author,
-			Tags:        p.Tags,
-			Status:      string(p.Status),
-		})
+		items = append(items, productToListItem(p))
 	}
 
 	return items, total, nil
 }
 
-// GetProductDetail 获取商品详情
+// GetProductDetail returns a single product read model by public SKU ID.
 func (s *ProductAppService) GetProductDetail(ctx context.Context, skuID string) (*ProductListItem, error) {
+	skuID = strings.TrimSpace(skuID)
+	if skuID == "" {
+		return nil, fmt.Errorf("get product detail: sku_id is required")
+	}
+
 	product, err := s.productRepo.FindBySKUID(ctx, skuID)
 	if err != nil {
 		return nil, fmt.Errorf("get product detail: %w", err)
 	}
 
-	return &ProductListItem{
-		ID:          product.SKUID,
-		SKUID:       product.SKUID,
-		Title:       product.Title,
-		Description: product.Description,
-		Price:       product.Price,
-		Currency:    product.Currency,
-		Author:      product.Author,
-		Tags:        product.Tags,
-		Status:      string(product.Status),
-	}, nil
+	return productToListItem(product), nil
 }
 
-// X402PaymentRequirement x402 支付要求（应用层 DTO）
-type X402PaymentRequirement struct {
-	Accepts []X402AcceptItem `json:"accepts"`
+// ExecutePurchaseCommand is the input model for the execute-purchase use case.
+type ExecutePurchaseCommand struct {
+	SKUID            string
+	AgentDID         string
+	PaymentSignature string
 }
 
-// X402AcceptItem x402 接受的支付项
-type X402AcceptItem struct {
-	Scheme            string `json:"scheme"`
-	Network           string `json:"network"`
-	MaxAmountRequired string `json:"maxAmountRequired"`
-	PayTo             string `json:"payTo"`
-	Asset             string `json:"asset"`
-	Description       string `json:"description"`
-	Resource          string `json:"resource"`
-	MaxTimeoutSeconds int    `json:"maxTimeoutSeconds"`
-	Extra             struct {
-		FacilitatorURL string `json:"facilitatorUrl"`
-		Currency       string `json:"currency"`
-		ProductID      string `json:"productId"`
-		SkillDid       string `json:"skillDid"`
-	} `json:"extra"`
-}
-
-// BuildX402PaymentRequirement 构建 x402 Payment Required 信息
-func (s *ProductAppService) BuildX402PaymentRequirement(product *entity.Product) *X402PaymentRequirement {
-	accept := X402AcceptItem{
-		Scheme:            "exact",
-		Network:           s.solanaNetwork,
-		MaxAmountRequired: s.domainService.UsdcToMinorUnits(product.Price),
-		PayTo:             s.sellerAddress,
-		Asset:             s.usdcMint,
-		Description:       fmt.Sprintf("购买 %s", product.Title),
-		Resource:          fmt.Sprintf("/api/v1/products/%s/execute", product.SKUID),
-		MaxTimeoutSeconds: 300,
-	}
-	accept.Extra.FacilitatorURL = s.facilitatorURL
-	accept.Extra.Currency = product.Currency
-	accept.Extra.ProductID = product.SKUID
-	accept.Extra.SkillDid = product.SkillDid
-
-	return &X402PaymentRequirement{
-		Accepts: []X402AcceptItem{accept},
-	}
-}
-
-// ExecutePurchaseResult 购买执行结果
+// ExecutePurchaseResult is the use-case output.
+//
+// Adapter decides how to translate this result into HTTP 200 or HTTP 402. The
+// Application layer does not know about Hertz's RequestContext.
 type ExecutePurchaseResult struct {
-	IsPurchased         bool
-	Proof               map[string]interface{}
-	X402Requirement     *X402PaymentRequirement
+	Purchased       bool
+	Product         *ProductListItem
+	PaymentRequired *domainSvc.X402PaymentRequired
+	MerchantProof   *domainSvc.PurchaseProof
+	GatewayProof    map[string]any
+	TxID            string
+	TxHash          string
+	Content         map[string]any
 }
 
-// ExecutePurchase 执行购买流程
+// ExecutePurchase orchestrates the paid-product access flow.
 //
-// 这是核心 Use Case：
-// 1. 查询商品
-// 2. 检查商品是否可购买
-// 3. 如果需要支付 -> 返回 x402 Payment Required
-// 4. 如果已支付 -> 返回购买成功
-//
-// TODO: 后续步骤实现实际的 Gateway 验证
-func (s *ProductAppService) ExecutePurchase(ctx context.Context, skuID, agentDid string) (*ExecutePurchaseResult, error) {
-	product, err := s.productRepo.FindBySKUID(ctx, skuID)
-	if err != nil {
-		return nil, fmt.Errorf("product not found: %s", skuID)
+// Use case decision chain:
+//  1. Find the product by SKU.
+//  2. Ask Domain whether it can be purchased.
+//  3. Ask the payment verifier whether this Agent already paid.
+//  4. If not paid, build x402 v2 PaymentRequired.
+//  5. If paid, build a merchant access proof and return unlock content.
+func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurchaseCommand) (*ExecutePurchaseResult, error) {
+	cmd.SKUID = strings.TrimSpace(cmd.SKUID)
+	cmd.AgentDID = strings.TrimSpace(cmd.AgentDID)
+	cmd.PaymentSignature = strings.TrimSpace(cmd.PaymentSignature)
+
+	if cmd.SKUID == "" {
+		return nil, fmt.Errorf("execute purchase: sku_id is required")
+	}
+	if cmd.AgentDID == "" {
+		return nil, fmt.Errorf("execute purchase: agent_did is required")
 	}
 
+	product, err := s.productRepo.FindBySKUID(ctx, cmd.SKUID)
+	if err != nil {
+		return nil, fmt.Errorf("execute purchase: %w", err)
+	}
 	if err := s.domainService.CanPurchase(product); err != nil {
+		return nil, fmt.Errorf("execute purchase: %w", err)
+	}
+
+	verification, err := s.verifyPurchase(ctx, product, cmd)
+	if err != nil {
 		return nil, err
 	}
+	if verification == nil || !verification.Purchased {
+		paymentRequired, err := s.buildPaymentRequired(product, missingPaymentError(cmd.PaymentSignature))
+		if err != nil {
+			return nil, err
+		}
+		return &ExecutePurchaseResult{
+			Purchased:       false,
+			Product:         productToListItem(product),
+			PaymentRequired: paymentRequired,
+		}, nil
+	}
 
-	// TODO: 后续步骤 - 调用 Gateway /api/v1/verify 检查是否已购买
-	// 当前骨架：始终返回未购买（402）
-	requirement := s.BuildX402PaymentRequirement(product)
+	proof, err := s.domainService.BuildSignedProof(cmd.AgentDID, product.SKUID, s.proofSecret)
+	if err != nil {
+		return nil, fmt.Errorf("execute purchase: build merchant proof: %w", err)
+	}
 
 	return &ExecutePurchaseResult{
-		IsPurchased:     false,
-		X402Requirement: requirement,
+		Purchased:     true,
+		Product:       productToListItem(product),
+		MerchantProof: proof,
+		GatewayProof:  verification.Proof,
+		TxID:          verification.TxID,
+		TxHash:        verification.TxHash,
+		Content:       buildUnlockedContent(product, proof, verification),
 	}, nil
+}
+
+func (s *ProductAppService) verifyPurchase(ctx context.Context, product *entity.Product, cmd ExecutePurchaseCommand) (*appPort.VerifyPurchaseResult, error) {
+	if s.paymentVerifier == nil {
+		return &appPort.VerifyPurchaseResult{Purchased: false}, nil
+	}
+	result, err := s.paymentVerifier.VerifyPurchase(ctx, appPort.VerifyPurchaseRequest{
+		AgentDID:         cmd.AgentDID,
+		SkillDID:         product.SkillDid,
+		PaymentSignature: cmd.PaymentSignature,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("execute purchase: verify payment: %w", err)
+	}
+	return result, nil
+}
+
+func (s *ProductAppService) buildPaymentRequired(product *entity.Product, reason string) (*domainSvc.X402PaymentRequired, error) {
+	resourceURL := s.resourceURL(product.SKUID)
+	required, err := s.domainService.BuildPaymentRequiredV2(domainSvc.BuildPaymentRequiredInput{
+		Product:        product,
+		ResourceURL:    resourceURL,
+		PayTo:          s.sellerAddress,
+		Asset:          s.usdcMint,
+		Network:        s.solanaNetwork,
+		FacilitatorURL: s.facilitatorURL,
+		ServiceName:    "StablePay Merchant",
+		MimeType:       "application/json",
+		Error:          reason,
+		Extensions: map[string]any{
+			"stablepay": map[string]any{
+				"agentPay": true,
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("execute purchase: build payment required: %w", err)
+	}
+	return required, nil
+}
+
+func (s *ProductAppService) resourceURL(skuID string) string {
+	path := fmt.Sprintf("/api/v1/products/%s/execute", skuID)
+	if s.merchantPublicBaseURL == "" {
+		return path
+	}
+	return s.merchantPublicBaseURL + path
+}
+
+func productToListItem(p *entity.Product) *ProductListItem {
+	if p == nil {
+		return nil
+	}
+	return &ProductListItem{
+		ID:          p.SKUID,
+		SKUID:       p.SKUID,
+		Title:       p.Title,
+		Description: p.Description,
+		ImageURL:    p.ImageURL,
+		Price:       p.Price,
+		Currency:    p.Currency,
+		Author:      p.Author,
+		Tags:        append([]string(nil), p.Tags...),
+		Status:      string(p.Status),
+	}
+}
+
+func normalizePagination(page, size int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	return page, size
+}
+
+func missingPaymentError(paymentSignature string) string {
+	if strings.TrimSpace(paymentSignature) == "" {
+		return domainSvc.X402PaymentSignatureHeader + " header is required"
+	}
+	return "payment is required to access this resource"
+}
+
+func buildUnlockedContent(product *entity.Product, proof *domainSvc.PurchaseProof, verification *appPort.VerifyPurchaseResult) map[string]any {
+	content := map[string]any{
+		"product_id": product.SKUID,
+		"title":      product.Title,
+		"message":    fmt.Sprintf("Unlocked paid content for %s", product.Title),
+		"proof":      proof,
+	}
+	if product.Description != "" {
+		content["description"] = product.Description
+	}
+	if verification != nil {
+		content["tx_id"] = verification.TxID
+		content["tx_hash"] = verification.TxHash
+	}
+	return content
 }

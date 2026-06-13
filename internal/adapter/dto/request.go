@@ -5,7 +5,7 @@ package dto
 
 // -------------------- 商品查询参数 --------------------
 
-// ProductListReq 商品列表查询参数
+// ProductListReq represents query params for GET /api/v1/products.
 type ProductListReq struct {
 	Page     int    `query:"page"`
 	Size     int    `query:"size"`
@@ -13,19 +13,20 @@ type ProductListReq struct {
 	Keyword  string `query:"keyword,omitempty"`
 }
 
-// ProductDetailReq 商品详情查询参数
+// ProductDetailReq represents path/query params for product detail.
 type ProductDetailReq struct {
-	ID string `query:"id"` // 商品 ID
+	ID string `path:"id"`
 }
 
 // -------------------- 购买执行参数 --------------------
 
-// PurchaseExecuteReq 执行购买请求参数
+// PurchaseExecuteReq represents HTTP input for GET /api/v1/products/:id/execute.
+//
+// AgentDID comes from query string for MVP simplicity. PaymentSignature is the
+// x402 v2 PAYMENT-SIGNATURE request header sent by the client after payment.
 type PurchaseExecuteReq struct {
-	AgentDid string `query:"agent_did" validate:"required"`
-	// 可选：x402 Payment-Signature header (Base64 编码的 JSON)
-	// 由客户端在支付后附带，商户后端将其提交给 Gateway 验证
-	PaymentSignature string `header:"Payment-Signature"`
+	AgentDID         string `query:"agent_did" validate:"required"`
+	PaymentSignature string `header:"PAYMENT-SIGNATURE"`
 }
 
 // -------------------- 分页默认值 --------------------

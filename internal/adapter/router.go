@@ -1,15 +1,16 @@
 // Copyright 2025 StablePay. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package adapter 实现 COLA 架构的 Adapter（适配）层。
+// Package adapter implements the COLA-style Adapter layer.
 //
-// 适配层职责：
-// - 处理 HTTP 协议细节（请求/响应编解码）
-// - 路由注册
-// - 参数校验
-// - 中间件（日志、鉴权、限流、恢复等）
+// Adapter responsibilities:
+// - HTTP routing
+// - request/path/query/header parsing
+// - response JSON and headers
+// - middleware hooks for logging/auth/recovery/rate limiting
 //
-// 适配层不直接依赖领域层，而是通过 Application Service 接口调用。
+// Adapter calls Application Services and should not contain product payment
+// business rules.
 package adapter
 
 import (
@@ -18,35 +19,39 @@ import (
 	"github.com/stablepay/merchant-server/internal/adapter/handler"
 )
 
-// Router 负责注册所有 HTTP 路由。
-// 采用 COLA 风格：将路由集中管理，每个 handler 独立文件。
+// Router registers all HTTP routes.
 type Router struct {
-	srv           *server.Hertz
-	healthHandler *handler.HealthHandler
+	srv            *server.Hertz
+	healthHandler  *handler.HealthHandler
+	productHandler *handler.ProductHandler
 }
 
-// NewRouter 创建路由注册器。
-func NewRouter(srv *server.Hertz, hh *handler.HealthHandler) *Router {
+// NewRouter creates a route registrar.
+func NewRouter(srv *server.Hertz, hh *handler.HealthHandler, ph *handler.ProductHandler) *Router {
 	return &Router{
-		srv:           srv,
-		healthHandler: hh,
+		srv:            srv,
+		healthHandler:  hh,
+		productHandler: ph,
 	}
 }
 
-// Register 注册所有路由。
-//
-// 路由设计原则：
-// - 公开 API 使用 /api/v1/ 前缀
-// - 内部/运维接口使用 /healthz, /metrics 等标准路径
-// - 所有路由按模块分组，便于后续添加中间件
+// Register registers operations and public API routes.
 func (r *Router) Register() {
-	// ==================== 运维 & 健康检查 ====================
+	// Operations endpoints. These stay outside /api/v1 so Kubernetes probes and
+	// monitoring tools do not need business API knowledge.
 	r.srv.GET("/healthz", r.healthHandler.Healthz)
+	r.srv.GET("/merchant/healthz", r.healthHandler.Healthz)
 
-	// ==================== API v1 分组 ====================
-	// TODO: 后续步骤中注册商品查询/购买路由
-	// v1 := r.srv.Group("/api/v1")
-	// v1.GET("/products", r.productHandler.ListProducts)
-	// v1.GET("/products/:id", r.productHandler.GetProduct)
-	// v1.GET("/products/:id/execute", r.productHandler.ExecutePurchase)
+	// Public Merchant API. /merchant is the ACK Ingress prefix.
+	r.registerV1("/api/v1")
+	r.registerV1("/merchant/api/v1")
+}
+
+func (r *Router) registerV1(prefix string) {
+	v1 := r.srv.Group(prefix)
+	{
+		v1.GET("/products", r.productHandler.ListProducts)
+		v1.GET("/products/:id", r.productHandler.GetProduct)
+		v1.GET("/products/:id/execute", r.productHandler.ExecutePurchase)
+	}
 }

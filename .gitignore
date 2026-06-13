@@ -23,3 +23,8 @@
 merchant-server.exe
 merchant-server
 *.exe
+
+_adapter_patch/
+_application_patch/
+_domain_patch/
+_infrastructure_patch/

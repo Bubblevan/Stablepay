@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,13 +36,23 @@ type StablePayConfig struct {
 type MerchantConfig struct {
 	SellerAddress string `yaml:"seller_address"`
 	ProofSecret   string `yaml:"proof_secret"`
+	// PublicBaseURL is the externally reachable merchant server base URL used in x402 resource URLs.
+	PublicBaseURL string `yaml:"public_base_url"`
 }
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Path         string `yaml:"path"`
-	AutoMigrate  bool   `yaml:"auto_migrate"`
-	SeedEnabled  bool   `yaml:"seed_enabled"`
+	// Driver 可选 "sqlite"（本地开发）或 "mysql"（生产环境）
+	Driver      string `yaml:"driver"`
+	Path        string `yaml:"path"`
+	AutoMigrate bool   `yaml:"auto_migrate"`
+	SeedEnabled bool   `yaml:"seed_enabled"`
+	// MySQL 连接参数（driver=mysql 时使用）
+	MySQLHost     string `yaml:"mysql_host"`
+	MySQLPort     int    `yaml:"mysql_port"`
+	MySQLUser     string `yaml:"mysql_user"`
+	MySQLPassword string `yaml:"mysql_password"`
+	MySQLDBName   string `yaml:"mysql_db_name"`
 }
 
 // BlockchainConfig 区块链网络配置
@@ -58,7 +70,19 @@ type Config struct {
 	Blockchain BlockchainConfig `yaml:"blockchain"`
 }
 
-// DefaultConfig 返回带默认值的配置
+// MySQLDSN builds a MySQL DSN from the database config.
+// Returns empty string if driver is not "mysql".
+func (d *DatabaseConfig) MySQLDSN() string {
+	if d.Driver != "mysql" {
+		return ""
+	}
+	password := d.MySQLPassword
+	if password == "" {
+		password = os.Getenv("MYSQL_PASSWORD")
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&loc=Local",
+		d.MySQLUser, password, d.MySQLHost, d.MySQLPort, d.MySQLDBName)
+}
 
 // Load 从指定路径加载 YAML 配置文件。
 // 如果 path 为空，依次尝试:
@@ -71,23 +95,104 @@ func Load(path string) (*Config, error) {
 	cfg := defaultConfig()
 
 	resolved := resolvePath(path)
-	if resolved == "" {
-		return cfg, nil // 无配置文件，使用默认值
-	}
-
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil // 配置文件不存在，使用默认值
+	if resolved != "" {
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("read config file %s: %w", resolved, err)
+			}
+		} else if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("parse config file %s: %w", resolved, err)
 		}
-		return nil, fmt.Errorf("read config file %s: %w", resolved, err)
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config file %s: %w", resolved, err)
+	if err := applyEnvOverrides(cfg); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// applyEnvOverrides lets Kubernetes inject runtime configuration without
+// rebuilding the image for each environment.
+func applyEnvOverrides(cfg *Config) error {
+	setString("SERVER_HOST", &cfg.Server.Host)
+	setString("SERVER_NAME", &cfg.Server.Name)
+	if err := setInt("SERVER_PORT", &cfg.Server.Port); err != nil {
+		return err
+	}
+
+	setString("STABLEPAY_GATEWAY_BASE_URL", &cfg.StablePay.GatewayBaseURL)
+	setString("STABLEPAY_API_KEY", &cfg.StablePay.APIKey)
+	setString("STABLEPAY_FACILITATOR_URL", &cfg.StablePay.FacilitatorURL)
+
+	setString("MERCHANT_SELLER_ADDRESS", &cfg.Merchant.SellerAddress)
+	setString("MERCHANT_PROOF_SECRET", &cfg.Merchant.ProofSecret)
+	setString("MERCHANT_PUBLIC_BASE_URL", &cfg.Merchant.PublicBaseURL)
+
+	setString("DB_DRIVER", &cfg.Database.Driver)
+	setString("DB_PATH", &cfg.Database.Path)
+	if err := setBool("DB_AUTO_MIGRATE", &cfg.Database.AutoMigrate); err != nil {
+		return err
+	}
+	if err := setBool("DB_SEED_ENABLED", &cfg.Database.SeedEnabled); err != nil {
+		return err
+	}
+
+	setString("MYSQL_HOST", &cfg.Database.MySQLHost)
+	if err := setInt("MYSQL_PORT", &cfg.Database.MySQLPort); err != nil {
+		return err
+	}
+	setString("MYSQL_USER", &cfg.Database.MySQLUser)
+	setString("MYSQL_PASSWORD", &cfg.Database.MySQLPassword)
+	setStringAny([]string{"MYSQL_DB_NAME", "MYSQL_DBNAME", "MYSQL_DATABASE"}, &cfg.Database.MySQLDBName)
+
+	setString("SOLANA_NETWORK", &cfg.Blockchain.SolanaNetwork)
+	setString("USDC_MINT", &cfg.Blockchain.USDCMint)
+
+	cfg.Database.Driver = strings.ToLower(strings.TrimSpace(cfg.Database.Driver))
+	return nil
+}
+
+func setString(key string, dest *string) {
+	if value, ok := os.LookupEnv(key); ok {
+		*dest = strings.TrimSpace(value)
+	}
+}
+
+func setStringAny(keys []string, dest *string) {
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			*dest = strings.TrimSpace(value)
+			return
+		}
+	}
+}
+
+func setInt(key string, dest *int) error {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("parse env %s as int: %w", key, err)
+	}
+	*dest = parsed
+	return nil
+}
+
+func setBool(key string, dest *bool) error {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("parse env %s as bool: %w", key, err)
+	}
+	*dest = parsed
+	return nil
 }
 
 // resolvePath 解析配置文件路径
@@ -139,11 +244,17 @@ func defaultConfig() *Config {
 		Merchant: MerchantConfig{
 			SellerAddress: "2kZGwkLnVdSxjjNueeUQmqBf3tRKMn7y1bbktRZkJWdR",
 			ProofSecret:   "replace-this-with-a-long-random-secret",
+			PublicBaseURL: "http://127.0.0.1:8787",
 		},
 		Database: DatabaseConfig{
+			Driver:      "sqlite",
 			Path:        "./data/merchant.db",
 			AutoMigrate: true,
 			SeedEnabled: true,
+			MySQLHost:   "127.0.0.1",
+			MySQLPort:   3306,
+			MySQLUser:   "root",
+			MySQLDBName: "stablepay_merchant_db",
 		},
 		Blockchain: BlockchainConfig{
 			SolanaNetwork: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
