@@ -27,6 +27,7 @@ type ProductAppService struct {
 	productRepo     repository.ProductRepository
 	domainService   *domainSvc.ProductDomainService
 	paymentVerifier appPort.PaymentVerifier
+	giftCodeSvc     *GiftCodeService
 
 	merchantPublicBaseURL string
 	sellerAddress         string
@@ -41,12 +42,14 @@ func NewProductAppService(
 	productRepo repository.ProductRepository,
 	domainService *domainSvc.ProductDomainService,
 	paymentVerifier appPort.PaymentVerifier,
+	giftCodeSvc *GiftCodeService,
 	merchantPublicBaseURL, sellerAddress, proofSecret, facilitatorURL, usdcMint, solanaNetwork string,
 ) *ProductAppService {
 	return &ProductAppService{
 		productRepo:           productRepo,
 		domainService:         domainService,
 		paymentVerifier:       paymentVerifier,
+		giftCodeSvc:           giftCodeSvc,
 		merchantPublicBaseURL: strings.TrimRight(strings.TrimSpace(merchantPublicBaseURL), "/"),
 		sellerAddress:         strings.TrimSpace(sellerAddress),
 		proofSecret:           strings.TrimSpace(proofSecret),
@@ -174,6 +177,12 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 		return nil, fmt.Errorf("execute purchase: build merchant proof: %w", err)
 	}
 
+	// Allocate a gift code from the pool (if any remaining).
+	giftCode := ""
+	if s.giftCodeSvc != nil {
+		giftCode = s.giftCodeSvc.Allocate()
+	}
+
 	return &ExecutePurchaseResult{
 		Purchased:     true,
 		Product:       productToListItem(product),
@@ -181,7 +190,7 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 		GatewayProof:  verification.Proof,
 		TxID:          verification.TxID,
 		TxHash:        verification.TxHash,
-		Content:       buildUnlockedContent(product, proof, verification),
+		Content:       buildUnlockedContent(product, proof, verification, giftCode),
 	}, nil
 }
 
@@ -267,7 +276,7 @@ func missingPaymentError(paymentSignature string) string {
 	return "payment is required to access this resource"
 }
 
-func buildUnlockedContent(product *entity.Product, proof *domainSvc.PurchaseProof, verification *appPort.VerifyPurchaseResult) map[string]any {
+func buildUnlockedContent(product *entity.Product, proof *domainSvc.PurchaseProof, verification *appPort.VerifyPurchaseResult, giftCode string) map[string]any {
 	content := map[string]any{
 		"product_id": product.SKUID,
 		"title":      product.Title,
@@ -280,6 +289,9 @@ func buildUnlockedContent(product *entity.Product, proof *domainSvc.PurchaseProo
 	if verification != nil {
 		content["tx_id"] = verification.TxID
 		content["tx_hash"] = verification.TxHash
+	}
+	if giftCode != "" {
+		content["gift_code"] = giftCode
 	}
 	return content
 }

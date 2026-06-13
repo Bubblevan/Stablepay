@@ -220,13 +220,13 @@ func (r *ProductRepoImpl) Save(ctx context.Context, product *entity.Product) err
 		product.UpdatedAt = product.CreatedAt
 	} else {
 		// Update
-		query := `UPDATE products SET sku_id=?, title=?, description=?, price=?, currency=?, author=?, tags=?, status=?, skill_did=?, updated_at=?
+		query := `UPDATE products SET sku_id=?, title=?, description=?, price=?, currency=?, author=?, tags=?, image_url=?, status=?, skill_did=?, updated_at=?
 			WHERE id=?`
 		now := formatTime(time.Now())
 		_, err := r.db.ExecContext(ctx, query,
 			product.SKUID, product.Title, product.Description,
 			product.Price, product.Currency, product.Author,
-			string(tagsJSON), string(product.Status), product.SkillDid,
+			string(tagsJSON), product.ImageURL, string(product.Status), product.SkillDid,
 			now, product.ID,
 		)
 		if err != nil {
@@ -341,6 +341,7 @@ func scanProduct(row productScanner) (*entity.Product, error) {
 		&p.Currency,
 		&p.Author,
 		&tagsJSON,
+		&p.ImageURL,
 		&status,
 		&p.SkillDid,
 		&createdAt,

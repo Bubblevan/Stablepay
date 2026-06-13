@@ -32,6 +32,7 @@ RUN apk add --no-cache tzdata ca-certificates wget \
 
 COPY --from=builder /build/merchant-server /app/merchant-server
 COPY --from=builder /build/config/config.yaml /app/config/config.yaml
+COPY --from=builder /build/data/gift_codes.json /app/data/gift_codes.json
 
 # 非 root 运行
 USER merchant

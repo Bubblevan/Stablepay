@@ -94,6 +94,7 @@ func newTestApp(verifier appPort.PaymentVerifier) *ProductAppService {
 		repo,
 		domainSvc.NewProductDomainService(repo),
 		verifier,
+		nil, // giftCodeSvc (nil = disabled in tests)
 		"https://merchant.example.com",
 		"seller111",
 		"test-proof-secret",

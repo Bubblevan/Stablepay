@@ -80,6 +80,7 @@ func (r *ProductRepoImpl) Migrate(ctx context.Context) error {
 		tags JSON NOT NULL,
 		status VARCHAR(32) NOT NULL DEFAULT 'draft',
 		skill_did VARCHAR(256) NOT NULL DEFAULT '',
+		image_url VARCHAR(1024) NOT NULL DEFAULT '',
 		created_at DATETIME(3) NOT NULL,
 		updated_at DATETIME(3) NOT NULL,
 		UNIQUE INDEX idx_sku_id (sku_id),
@@ -105,7 +106,7 @@ func (r *ProductRepoImpl) FindAll(ctx context.Context, page, size int) ([]*entit
 	}
 
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, sku_id, title, description, price, currency, author, tags, status, skill_did, created_at, updated_at
+		`SELECT id, sku_id, title, description, price, currency, author, tags, image_url, status, skill_did, created_at, updated_at
 		 FROM products WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		entity.ProductStatusActive, size, offset,
 	)
@@ -128,7 +129,7 @@ func (r *ProductRepoImpl) FindAll(ctx context.Context, page, size int) ([]*entit
 // FindBySKUID returns a product by public SKU ID.
 func (r *ProductRepoImpl) FindBySKUID(ctx context.Context, skuID string) (*entity.Product, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, sku_id, title, description, price, currency, author, tags, status, skill_did, created_at, updated_at
+		`SELECT id, sku_id, title, description, price, currency, author, tags, image_url, status, skill_did, created_at, updated_at
 		 FROM products WHERE sku_id = ?`, strings.TrimSpace(skuID))
 	product, err := scanProduct(row)
 	if err == sql.ErrNoRows {
@@ -143,7 +144,7 @@ func (r *ProductRepoImpl) FindBySKUID(ctx context.Context, skuID string) (*entit
 // FindByID returns a product by internal ID.
 func (r *ProductRepoImpl) FindByID(ctx context.Context, id int64) (*entity.Product, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, sku_id, title, description, price, currency, author, tags, status, skill_did, created_at, updated_at
+		`SELECT id, sku_id, title, description, price, currency, author, tags, image_url, status, skill_did, created_at, updated_at
 		 FROM products WHERE id = ?`, id)
 	product, err := scanProduct(row)
 	if err == sql.ErrNoRows {
@@ -165,11 +166,12 @@ func (r *ProductRepoImpl) Save(ctx context.Context, product *entity.Product) err
 	if product.ID == 0 {
 		now := time.Now()
 		result, err := r.db.ExecContext(ctx,
-			`INSERT INTO products (sku_id, title, description, price, currency, author, tags, status, skill_did, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO products (sku_id, title, description, price, currency, author, tags, status, skill_did, image_url, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			product.SKUID, product.Title, product.Description,
 			product.Price, product.Currency, product.Author,
 			string(tagsJSON), string(product.Status), product.SkillDid,
+			product.ImageURL,
 			now, now,
 		)
 		if err != nil {
@@ -185,12 +187,12 @@ func (r *ProductRepoImpl) Save(ctx context.Context, product *entity.Product) err
 	} else {
 		now := time.Now()
 		_, err := r.db.ExecContext(ctx,
-			`UPDATE products SET sku_id=?, title=?, description=?, price=?, currency=?, author=?, tags=?, status=?, skill_did=?, updated_at=?
+			`UPDATE products SET sku_id=?, title=?, description=?, price=?, currency=?, author=?, tags=?, status=?, skill_did=?, image_url=?, updated_at=?
 			 WHERE id=?`,
 			product.SKUID, product.Title, product.Description,
 			product.Price, product.Currency, product.Author,
 			string(tagsJSON), string(product.Status), product.SkillDid,
-			now, product.ID,
+			product.ImageURL, now, product.ID,
 		)
 		if err != nil {
 			return fmt.Errorf("mysql product repo: update: %w", err)
@@ -277,6 +279,7 @@ func scanProduct(row productScanner) (*entity.Product, error) {
 		&tagsJSON,
 		&status,
 		&p.SkillDid,
+		&p.ImageURL,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
