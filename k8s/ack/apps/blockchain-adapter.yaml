@@ -23,10 +23,10 @@ spec:
             - ./blockchain-adapter
             - -config
             - conf/docker.yaml
-          # Pod 经 VPC NAT 出口（如 116.62.178.52）访问公网；国内直连 devnet 多被墙，经 proxy.stablepay.co 转发（须在代理侧放行该出口 IP）
+          # Pod 缁� VPC NAT 鍑哄彛锛堝 116.62.178.52锛夎闂叕缃戯紱鍥藉唴鐩磋繛 devnet 澶氳澧欙紝缁� proxy.stablepay.co 杞彂锛堥』鍦ㄤ唬鐞嗕晶鏀捐璇ュ嚭鍙� IP锛�
           env:
             - name: SOLANA_RPC_ENDPOINT
-              value: "https://proxy.stablepay.co/https://api.devnet.solana.com"
+              value: "https://proxy.stablepay.co/https://api.mainnet-beta.solana.com"
           ports:
             - containerPort: 8083
               name: rpc

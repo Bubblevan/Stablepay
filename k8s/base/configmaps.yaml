@@ -83,7 +83,7 @@ data:
       max_retry_count: 3
       max_amount_usdc: "1000.00"
       poll_interval_seconds: 3
-      max_poll_count: 20
+      max_poll_count: 40
       supported_currencies:
         - USDC
         - USDT

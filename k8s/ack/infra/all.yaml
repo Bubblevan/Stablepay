@@ -13,15 +13,14 @@ stringData:
   mysql-root-password: "root123"
   mysql-user: "stablepay"
   mysql-password: "stablepay123"
-  # 请替换为真实 Solana 热钱包 JSON 内容
   hotwallet.json: |
     {
-      "address": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
-      "did": "did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
-      "public_key": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
-      "private_key": "3LiPaQYYmorCC3zFKdjfu1ie1e4WpcVN1GSYUo4wpHKBkf9TVL5noXurR5ersNRDvWtZQHcQS2kcA6rW4Ncukxgu",
+      "address": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "did": "did:solana:9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "public_key": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "private_key": "53YZtgTB9VLNYKfyipmjbboCgWM7im4TJ4vkjhGKrG7G96JngEQpHWvxCupcU8Kf45F1JKEKKTsXUchnygcfneK7",
       "role": "hot_wallet",
-      "description": "DevNet 测试热钱包"
+      "description": "Mainnet 测试热钱包"
     }
 ---
 apiVersion: v1
@@ -109,7 +108,7 @@ data:
       max_retry_count: 3
       max_amount_usdc: "1000.00"
       poll_interval_seconds: 3
-      max_poll_count: 20
+      max_poll_count: 40
       supported_currencies:
         - USDC
         - USDT
@@ -142,10 +141,10 @@ data:
       host: "0.0.0.0"
       port: 8083
     solana:
-      network: "devnet"
-      rpc_endpoint: "https://api.devnet.solana.com"
+      network: "mainnet-beta"
+      rpc_endpoint: "https://proxy.stablepay.co/https://api.mainnet-beta.solana.com"
       hotwallet_path: "/app/conf/hotwallet.json"
-      ws_endpoint: "wss://api.devnet.solana.com"
+      ws_endpoint: "wss://api.mainnet-beta.solana.com"
     mysql:
       dsn: "stablepay:stablepay123@tcp(stablepay-mysql:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"
 ---
@@ -460,10 +459,12 @@ spec:
               CREATE DATABASE IF NOT EXISTS stablepay_payment_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE DATABASE IF NOT EXISTS stablepay_query_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE DATABASE IF NOT EXISTS stablepay_verification_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE DATABASE IF NOT EXISTS stablepay_merchant_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE USER IF NOT EXISTS 'stablepay'@'%' IDENTIFIED BY 'stablepay123';
               GRANT ALL PRIVILEGES ON stablepay_did_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_payment_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_query_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_verification_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_merchant_db.* TO 'stablepay'@'%';
               FLUSH PRIVILEGES;
               SQL

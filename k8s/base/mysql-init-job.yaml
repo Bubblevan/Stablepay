@@ -31,11 +31,13 @@ spec:
               CREATE DATABASE IF NOT EXISTS stablepay_payment_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE DATABASE IF NOT EXISTS stablepay_query_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE DATABASE IF NOT EXISTS stablepay_verification_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-              
+              CREATE DATABASE IF NOT EXISTS stablepay_merchant_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
               CREATE USER IF NOT EXISTS 'stablepay'@'%' IDENTIFIED BY 'stablepay123';
               GRANT ALL PRIVILEGES ON stablepay_did_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_payment_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_query_db.* TO 'stablepay'@'%';
               GRANT ALL PRIVILEGES ON stablepay_verification_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_merchant_db.* TO 'stablepay'@'%';
               FLUSH PRIVILEGES;
               SQL

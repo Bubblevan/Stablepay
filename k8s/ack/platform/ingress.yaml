@@ -64,6 +64,100 @@ spec:
                 name: stablepay-docs
                 port:
                   number: 80
+          # Next/Mintlify 静态资源（hydration 可能请求根路径 /_next，不能落到 frontend）
+          - path: /_next
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /_mintlify
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /logo
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /favicons
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          # Mintlify 站内链为 /quickstart 等根路径，需指向 docs（避免落到 frontend）
+          - path: /api-reference
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /zh
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /quickstart
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /testing
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /development
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /wallet-setup
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /did-registration
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          - path: /integrating-payment
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-docs
+                port:
+                  number: 80
+          # Merchant Backend — AI Agent 商品列表与购买
+          - path: /merchant
+            pathType: Prefix
+            backend:
+              service:
+                name: stablepay-merchant-backend
+                port:
+                  number: 8787
           - path: /
             pathType: Prefix
             backend:

@@ -5,7 +5,7 @@
 ## 目录结构
 
 - `base/namespace.yaml`：命名空间
-- `base/secrets.yaml`：数据库与钱包敏感信息（请改成真实值）
+- `base/secrets.yaml`：数据库与钱包敏感信息
 - `base/configmaps.yaml`：服务配置文件与 RocketMQ broker 配置
 - `base/infra.yaml`：MySQL/Redis/RocketMQ
 - `base/mysql-init-job.yaml`：初始化业务库（did/payment/query/verification）

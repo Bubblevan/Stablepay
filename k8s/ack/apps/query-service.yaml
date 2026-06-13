@@ -36,6 +36,11 @@ spec:
                   key: mysql-password
             - name: MYSQL_DBNAME
               value: stablepay_query_db
+            # 余额查询走本服务 chain_balance.go，直连 Solana RPC（与 blockchain-adapter 独立）
+            - name: SOLANA_RPC_ENDPOINT
+              value: "https://proxy.stablepay.co/https://api.mainnet-beta.solana.com"
+            - name: QUERY_BALANCE_USDC_MINT
+              value: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
           ports:
             - containerPort: 8084
               name: rpc
