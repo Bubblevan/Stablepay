@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -25,22 +26,30 @@ var xClient *XAPIClient
 
 // TweetResult 推文结果
 type TweetResult struct {
-	Content    string // 推文内容
-	AuthorID   string // 作者 ID
-	AuthorName string // 作者用户名
+	Content    string
+	AuthorID   string
+	AuthorName string
 }
 
-// initXAPIClient 初始化 X API 客户端
 func initXAPIClient(apiKey, apiSecret, accessToken, accessTokenSecret string) {
+	if apiKey == "" || apiSecret == "" || accessToken == "" || accessTokenSecret == "" {
+		log.Printf("【X API】凭证未完整配置，生产环境将无法完成 X 验证")
+		return
+	}
 	config := oauth1.NewConfig(apiKey, apiSecret)
 	token := oauth1.NewToken(accessToken, accessTokenSecret)
 	httpClient := config.Client(context.Background(), token)
 	xClient = &XAPIClient{client: httpClient}
+	log.Printf("【X API】客户端已初始化")
 }
 
-// GetTweet 获取推文内容
+func allowXVerificationMock() bool {
+	return strings.ToLower(envOrDefault("ALLOW_X_VERIFICATION_MOCK", "false")) == "true"
+}
+
+// GetTweet 获取推文内容（生产路径：必须成功返回真实推文）
 func (x *XAPIClient) GetTweet(tweetID string) (*TweetResult, error) {
-	url := "https://api.twitter.com/2/tweets/" + tweetID + "?tweet.fields=text,author_id,username&expansions=author_id&user.fields=username"
+	url := "https://api.twitter.com/2/tweets/" + tweetID + "?tweet.fields=text,author_id&expansions=author_id&user.fields=username"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -52,25 +61,23 @@ func (x *XAPIClient) GetTweet(tweetID string) (*TweetResult, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("【X API】返回状态码：%d", resp.StatusCode)
-		return nil, nil
-	}
-
-	// 读取完整响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Printf("【X API】原始响应：%s", string(body))
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("tweet not found")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("x api status %d: %s", resp.StatusCode, string(body))
+	}
 
-	// 解析 JSON
 	var tweetResponse struct {
 		Data struct {
-			ID        string `json:"id"`
-			Text      string `json:"text"`
-			AuthorID  string `json:"author_id"`
+			ID       string `json:"id"`
+			Text     string `json:"text"`
+			AuthorID string `json:"author_id"`
 		} `json:"data"`
 		Includes struct {
 			Users []struct {
@@ -81,38 +88,33 @@ func (x *XAPIClient) GetTweet(tweetID string) (*TweetResult, error) {
 	}
 
 	if err := json.Unmarshal(body, &tweetResponse); err != nil {
-		log.Printf("【X API】JSON 解析失败：%v", err)
-		return nil, nil
+		return nil, fmt.Errorf("x api json parse failed: %w", err)
+	}
+	if tweetResponse.Data.Text == "" {
+		return nil, fmt.Errorf("tweet content empty")
 	}
 
 	result := &TweetResult{
 		Content:  tweetResponse.Data.Text,
 		AuthorID: tweetResponse.Data.AuthorID,
 	}
-
-	// 从 includes 中获取用户名
-	if len(tweetResponse.Includes.Users) > 0 {
-		result.AuthorName = tweetResponse.Includes.Users[0].Username
+	for _, user := range tweetResponse.Includes.Users {
+		if user.ID == tweetResponse.Data.AuthorID || result.AuthorName == "" {
+			result.AuthorName = user.Username
+		}
 	}
 
-	log.Printf("【X API】解析后的推文内容：%s，作者：@%s", result.Content, result.AuthorName)
+	log.Printf("【X API】推文 @%s: %s", result.AuthorName, result.Content)
 	return result, nil
 }
 
-func strPtr(s string) *string {
-	return &s
-}
-
-func i64Ptr(i int64) *int64 {
-	return &i
-}
+func strPtr(s string) *string { return &s }
+func i64Ptr(i int64) *int64  { return &i }
 
 // VerificationServiceImpl implements the last service interface defined in the IDL.
 type VerificationServiceImpl struct{}
 
-// VerifyPurchase implements the VerificationServiceImpl interface.
 func (s *VerificationServiceImpl) VerifyPurchase(ctx context.Context, req *verification_service.VerifyPurchaseRequest) (resp *verification_service.VerifyPurchaseResponse, err error) {
-
 	log.Printf("👉 【服务端】收到请求参数: AgentDid='%s', SkillDid='%s'", req.AgentDid, req.SkillDid)
 
 	resp = verification_service.NewVerifyPurchaseResponse()
@@ -136,28 +138,34 @@ func (s *VerificationServiceImpl) VerifyPurchase(ctx context.Context, req *verif
 	return resp, nil
 }
 
-// BatchVerifyPurchase implements the VerificationServiceImpl interface.
 func (s *VerificationServiceImpl) BatchVerifyPurchase(ctx context.Context, req *verification_service.BatchVerifyPurchaseRequest) (resp *verification_service.BatchVerifyPurchaseResponse, err error) {
 	resp = verification_service.NewBatchVerifyPurchaseResponse()
 	return resp, nil
 }
 
-// GetPurchaseProof implements the VerificationServiceImpl interface.
 func (s *VerificationServiceImpl) GetPurchaseProof(ctx context.Context, req *verification_service.GetPurchaseProofRequest) (resp *verification_service.GetPurchaseProofResponse, err error) {
 	resp = verification_service.NewGetPurchaseProofResponse()
 	return resp, nil
 }
 
-// VerifyXTweet implements the VerificationServiceImpl interface.
 func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verification_service.VerifyXTweetRequest) (resp *verification_service.VerifyXTweetResponse, err error) {
 	log.Printf("👉 【服务端】收到 X 验证请求: AgentDid='%s', WalletAddress='%s', TweetUrl='%s'", req.AgentDid, req.WalletAddress, req.TweetUrl)
 
 	resp = verification_service.NewVerifyXTweetResponse()
+	agentDid := strings.TrimSpace(string(req.AgentDid))
+	walletAddress := strings.TrimSpace(req.WalletAddress)
 
-	// 1. 解析推文 URL
+	if agentDid == "" || walletAddress == "" || strings.TrimSpace(req.TweetUrl) == "" {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_INVALID_PARAMETERS),
+			Message: "agent_did、wallet_address、tweet_url 均为必填",
+		}
+		resp.Verified = false
+		return resp, nil
+	}
+
 	tweetID := extractTweetID(req.TweetUrl)
 	if tweetID == "" {
-		log.Printf("【服务端】无效的推文链接: %s", req.TweetUrl)
 		resp.Base = &common.BaseResp{
 			Code:    int32(common.ErrorCode_INVALID_TWEET_URL),
 			Message: "无效的推文链接",
@@ -166,53 +174,52 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 		return resp, nil
 	}
 
-	// 2. 获取推文内容（调用真实的 X API）
 	var tweetResult *TweetResult
-	var apiError error
-
 	if xClient != nil {
-		// 使用真实的 X API
-		tweetResult, apiError = xClient.GetTweet(tweetID)
-		if apiError != nil {
-			log.Printf("【服务端】X API 调用失败，使用模拟数据: %v", apiError)
-			tweetResult = &TweetResult{
-				Content:    "Verifying my wallet for StablePay: " + req.WalletAddress,
-				AuthorName: "unknown",
-			}
-		} else if tweetResult == nil || tweetResult.Content == "" {
-			log.Printf("【服务端】推文内容为空，使用模拟数据")
-			tweetResult = &TweetResult{
-				Content:    "Verifying my wallet for StablePay: " + req.WalletAddress,
-				AuthorName: "unknown",
+		tweetResult, err = xClient.GetTweet(tweetID)
+		if err != nil {
+			log.Printf("【服务端】X API 调用失败: %v", err)
+			if allowXVerificationMock() {
+				tweetResult = mockTweetResult(agentDid, walletAddress)
+			} else {
+				code := common.ErrorCode_TWEET_NOT_FOUND
+				msg := "无法获取推文，请确认链接公开可见"
+				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+					code = common.ErrorCode_TWEET_NOT_FOUND
+				} else {
+					code = common.ErrorCode_TWEET_NOT_VERIFIED
+					msg = "X API 验证失败，请稍后重试"
+				}
+				resp.Base = &common.BaseResp{Code: int32(code), Message: msg}
+				resp.Verified = false
+				return resp, nil
 			}
 		}
+	} else if allowXVerificationMock() {
+		log.Printf("【服务端】X API 未配置，ALLOW_X_VERIFICATION_MOCK=true，使用本地 mock 推文")
+		tweetResult = mockTweetResult(agentDid, walletAddress)
 	} else {
-		// X API 未配置，使用模拟数据
-		log.Printf("【服务端】X API 未配置，使用模拟数据")
-		tweetResult = &TweetResult{
-			Content:    "Verifying my wallet for StablePay: " + req.WalletAddress,
-			AuthorName: "unknown",
-		}
-	}
-
-	log.Printf("【服务端】获取到推文内容: %s，作者：@%s", tweetResult.Content, tweetResult.AuthorName)
-
-	// 3. 验证钱包地址是否在推文中
-	if !strings.Contains(tweetResult.Content, req.WalletAddress) {
-		log.Printf("【服务端】推文中未找到钱包地址: %s", req.WalletAddress)
 		resp.Base = &common.BaseResp{
-			Code:    int32(common.ErrorCode_WALLET_NOT_FOUND_IN_TWEET),
-			Message: "推文中未找到钱包地址，请确保推文包含您的钱包地址",
+			Code:    int32(common.ErrorCode_SERVICE_UNAVAILABLE),
+			Message: "X API 未配置，无法完成验证",
 		}
 		resp.Verified = false
 		return resp, nil
 	}
 
-	// 4. 检查是否已验证过（通过 AgentDid）
+	if !tweetContainsDid(tweetResult.Content, agentDid) {
+		log.Printf("【服务端】推文中未找到 DID: %s", agentDid)
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_WALLET_NOT_FOUND_IN_TWEET),
+			Message: "推文中未找到您的 DID，请确保推文包含完整的 did:solana:...",
+		}
+		resp.Verified = false
+		return resp, nil
+	}
+
 	var existingByAgent XVerification
-	result := DB.Where("agent_did = ? AND verified = ?", req.AgentDid, true).First(&existingByAgent)
+	result := DB.Where("agent_did = ? AND verified = ?", agentDid, true).First(&existingByAgent)
 	if result.Error == nil {
-		log.Printf("【服务端】用户已经验证过，推文ID: %s", existingByAgent.TweetUrl)
 		resp.Base = &common.BaseResp{
 			Code:    int32(common.ErrorCode_VERIFICATION_ALREADY_CLAIMED),
 			Message: "您已经完成 X 验证并领取奖励",
@@ -224,12 +231,10 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 		return resp, nil
 	}
 
-	// 5. 检查 X 账号是否已被其他 DID 绑定（防重复注册）
 	if tweetResult.AuthorName != "" && tweetResult.AuthorName != "unknown" {
 		var existingByX XVerification
 		result := DB.Where("x_username = ? AND verified = ?", tweetResult.AuthorName, true).First(&existingByX)
-		if result.Error == nil {
-			log.Printf("【服务端】X 账号 @%s 已被其他 DID 绑定: %s", tweetResult.AuthorName, existingByX.AgentDid)
+		if result.Error == nil && existingByX.AgentDid != agentDid {
 			resp.Base = &common.BaseResp{
 				Code:    int32(common.ErrorCode_X_ACCOUNT_ALREADY_BOUND),
 				Message: "此 X 账号已被其他 DID 绑定，每个 X 账号只能绑定一个 DID",
@@ -239,20 +244,29 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 		}
 	}
 
-	// 6. 创建验证记录并发放奖励（1 USDC = 1000000 最小单位）
-	rewardAmount := int64(1000000) // 1 USDC (6 decimals)
-	rewardTxId := "x-reward-" + tweetID + "-" + time.Now().Format("20060102150405")
+	rewardAmount := int64(1000000)
+	idempotencyKey := "x-reward-" + agentDid + "-" + tweetID
+	payout, payoutErr := sendRegistrationReward(ctx, agentDid, walletAddress, rewardAmount, idempotencyKey)
+	if payoutErr != nil {
+		log.Printf("【服务端】注册奖励发放失败: %v", payoutErr)
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_BLOCKCHAIN_NETWORK_ERROR),
+			Message: "验证通过但奖励发放失败，请稍后重试",
+		}
+		resp.Verified = false
+		return resp, nil
+	}
 
 	verification := XVerification{
-		AgentDid:      req.AgentDid,
-		WalletAddress: req.WalletAddress,
+		AgentDid:      agentDid,
+		WalletAddress: walletAddress,
 		XUsername:     tweetResult.AuthorName,
 		TweetUrl:      req.TweetUrl,
 		TweetContent:  tweetResult.Content,
-		Verified:       true,
-		RewardAmount:   rewardAmount,
-		RewardTxId:    rewardTxId,
-		VerifiedAt:     time.Now(),
+		Verified:      true,
+		RewardAmount:  rewardAmount,
+		RewardTxId:    payout.TxID,
+		VerifiedAt:    time.Now(),
 	}
 
 	if err := DB.Create(&verification).Error; err != nil {
@@ -265,31 +279,35 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 		return resp, nil
 	}
 
-	log.Printf("【服务端】X 验证成功！发放奖励: %d (tx: %s)", rewardAmount, rewardTxId)
+	log.Printf("【服务端】X 验证成功！奖励 tx=%s hash=%s", payout.TxID, payout.TxHash)
 
-	resp.Base = &common.BaseResp{
-		Code:    0,
-		Message: "验证成功！已发放奖励",
-	}
+	resp.Base = &common.BaseResp{Code: 0, Message: "验证成功！已发放奖励"}
 	resp.Verified = true
-	resp.Message = strPtr("验证成功！已发放 1 USDC 奖励")
+	resp.Message = strPtr(fmt.Sprintf("验证成功！已绑定 @%s，1 USDC 奖励已发放", tweetResult.AuthorName))
 	resp.RewardAmountMinor = i64Ptr(rewardAmount)
-	resp.RewardTxId = &rewardTxId
+	resp.RewardTxId = &payout.TxID
 
 	return resp, nil
 }
 
-// GetXVerificationStatus implements the VerificationServiceImpl interface.
 func (s *VerificationServiceImpl) GetXVerificationStatus(ctx context.Context, req *verification_service.GetXVerificationStatusRequest) (resp *verification_service.GetXVerificationStatusResponse, err error) {
 	log.Printf("👉 【服务端】收到查询 X 验证状态请求: AgentDid='%s'", req.AgentDid)
 
 	resp = verification_service.NewGetXVerificationStatusResponse()
+	agentDid := strings.TrimSpace(string(req.AgentDid))
+	if agentDid == "" {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_INVALID_PARAMETERS),
+			Message: "agent_did 必填",
+		}
+		resp.Verified = false
+		return resp, nil
+	}
 
 	var verification XVerification
-	result := DB.Where("agent_did = ?", req.AgentDid).First(&verification)
+	result := DB.Where("agent_did = ?", agentDid).First(&verification)
 
 	if result.Error != nil {
-		log.Printf("【服务端】未找到验证记录: %v", result.Error)
 		resp.Base = &common.BaseResp{
 			Code:    int32(common.ErrorCode_RESOURCE_NOT_FOUND),
 			Message: "未找到 X 验证记录",
@@ -300,28 +318,46 @@ func (s *VerificationServiceImpl) GetXVerificationStatus(ctx context.Context, re
 
 	verifiedAtStr := verification.VerifiedAt.Format(time.RFC3339)
 
-	resp.Base = &common.BaseResp{
-		Code:    0,
-		Message: "查询成功",
-	}
+	resp.Base = &common.BaseResp{Code: 0, Message: "查询成功"}
 	resp.Verified = verification.Verified
 	resp.TweetUrl = &verification.TweetUrl
 	resp.VerifiedAt = &verifiedAtStr
 	resp.RewardAmountMinor = i64Ptr(verification.RewardAmount)
 	resp.RewardTxId = &verification.RewardTxId
 
-	log.Printf("【服务端】返回验证状态: verified=%v, tweet=%s", verification.Verified, verification.TweetUrl)
-
 	return resp, nil
 }
 
-// extractTweetID 从推文 URL 提取 tweet ID
+func mockTweetResult(agentDid, walletAddress string) *TweetResult {
+	_ = walletAddress
+	return &TweetResult{
+		Content:    "I'm verifying my StablePay DID: " + agentDid + "\n\nJoin me on @StablePay!",
+		AuthorName: "mock_user",
+	}
+}
+
+func tweetContainsDid(content, agentDid string) bool {
+	content = strings.TrimSpace(content)
+	did := strings.TrimSpace(agentDid)
+	if content == "" || did == "" {
+		return false
+	}
+	if strings.Contains(content, did) {
+		return true
+	}
+	// Allow shortened display forms if user omits prefix in tweet UI
+	if strings.HasPrefix(did, "did:solana:") {
+		suffix := strings.TrimPrefix(did, "did:solana:")
+		return suffix != "" && strings.Contains(content, suffix)
+	}
+	return false
+}
+
 func extractTweetID(url string) string {
 	patterns := []string{
 		`twitter\.com/[^/]+/status/(\d+)`,
 		`x\.com/[^/]+/status/(\d+)`,
 	}
-
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		match := re.FindStringSubmatch(url)
