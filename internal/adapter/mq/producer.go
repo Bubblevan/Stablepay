@@ -52,7 +52,7 @@ func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *d
 		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to marshal event")
 	}
 
-	tag := eventTagFromStatus(event.Status)
+	tag := eventTagForEvent(event)
 	if tag == "" {
 		p.logger.Warn("unknown event status, skip publishing", zap.String("status", event.Status))
 		return nil
@@ -118,6 +118,15 @@ func eventTagFromStatus(status string) string {
 	default:
 		return ""
 	}
+}
+
+// eventTagForEvent 优先用 event.EventType(奖励场景显式打了 reward_granted tag),
+// 否则按 status 退到 payment_succeeded / payment_failed。
+func eventTagForEvent(event *dto.MQPaymentEvent) string {
+	if event.EventType != "" {
+		return event.EventType
+	}
+	return eventTagFromStatus(event.Status)
 }
 
 func resolveNameServers(nameServers []string) []string {

@@ -65,11 +65,18 @@ payment:
     - USDC
     - USDT
   decimals: 6
+  # 系统金库钱包地址。X 注册奖励从此地址向用户钱包发 USDC。
+  # 生产环境务必通过 TREASURY_WALLET_ADDRESS env 注入,不要直接 commit 真实地址。
+  treasury_wallet_address: ""
+  # 单笔 X 注册奖励的 USDC 数额(字符串支持小数)。可被 X_REGISTRATION_REWARD_USDC env 覆盖。
+  x_registration_reward_usdc: "1.0"
 
 security:
   signature_ttl_minutes: 5
   nonce_cache_minutes: 10
   idempotency_key_ttl_minutes: 30
+  # internal 端点共享密钥(如 /api/v1/internal/rewards/...)。生产环境通过 INTERNAL_API_KEY env 注入。
+  internal_api_key: ""
 
 rate_limit:
   ip_limit_per_minute: 100

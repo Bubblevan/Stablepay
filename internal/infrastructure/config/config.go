@@ -108,6 +108,14 @@ type PaymentConfig struct {
 	MaxPollCount        int      `yaml:"max_poll_count"`
 	SupportedCurrencies []string `yaml:"supported_currencies"`
 	Decimals            int      `yaml:"decimals"`
+
+	// TreasuryWalletAddress 系统金库钱包地址。X 注册奖励从此地址向用户钱包发 USDC。
+	// 必填,空时 /api/v1/internal/rewards/x-registration 直接返回 500。
+	TreasuryWalletAddress string `yaml:"treasury_wallet_address"`
+
+	// XRegistrationRewardUsdc 单笔 X 注册奖励的 USDC 数额（字符串，支持小数，如 "1.0"）。
+	// 优先级低于调用方在请求体里传过来的 amount,但作为兜底默认。
+	XRegistrationRewardUsdc string `yaml:"x_registration_reward_usdc"`
 }
 
 // SecurityConfig 安全配置
@@ -115,6 +123,10 @@ type SecurityConfig struct {
 	SignatureTtlMinutes       int `yaml:"signature_ttl_minutes"`
 	NonceCacheMinutes         int `yaml:"nonce_cache_minutes"`
 	IdempotencyKeyTtlMinutes  int `yaml:"idempotency_key_ttl_minutes"`
+
+	// InternalApiKey internal 端点共享密钥（如 /api/v1/internal/rewards/...）。
+	// 必填,空时 internal 端点直接 403。
+	InternalApiKey string `yaml:"internal_api_key"`
 }
 
 // RateLimitConfig 限流配置
@@ -154,8 +166,24 @@ func LoadConfig(configPath string) (*Config, error) {
 	// 应用默认值
 	applyDefaults(&config)
 
+	// 允许 env 覆盖关键配置（生产环境通过 secret manager 注入）
+	applyEnvOverrides(&config)
+
 	hlog.Infof("Config loaded from: %s", configPath)
 	return &config, nil
+}
+
+// applyEnvOverrides 用环境变量覆盖敏感 / 部署相关字段
+func applyEnvOverrides(c *Config) {
+	if v := os.Getenv("TREASURY_WALLET_ADDRESS"); v != "" {
+		c.Payment.TreasuryWalletAddress = v
+	}
+	if v := os.Getenv("X_REGISTRATION_REWARD_USDC"); v != "" {
+		c.Payment.XRegistrationRewardUsdc = v
+	}
+	if v := os.Getenv("INTERNAL_API_KEY"); v != "" {
+		c.Security.InternalApiKey = v
+	}
 }
 
 // applyDefaults 应用默认值
@@ -189,6 +217,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Security.IdempotencyKeyTtlMinutes == 0 {
 		c.Security.IdempotencyKeyTtlMinutes = 30
+	}
+	if c.Payment.XRegistrationRewardUsdc == "" {
+		c.Payment.XRegistrationRewardUsdc = "1.0"
 	}
 }
 

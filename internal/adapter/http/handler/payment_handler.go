@@ -253,3 +253,60 @@ func (h *PaymentHandler) HealthCheck(ctx context.Context, c *app.RequestContext)
 		"service": constants.ServiceName,
 	})
 }
+
+// RegisterXRegistrationReward X 账号注册奖励 internal 端点。
+// 由 verification-service 在 X 验证通过后调用,从 treasury 向用户钱包发 1 USDC 奖励。
+// 鉴权:校验 X-Internal-Api-Key header;幂等:读 X-Idempotency-Key header。
+func (h *PaymentHandler) RegisterXRegistrationReward(ctx context.Context, c *app.RequestContext) {
+	// 1. internal auth
+	expectedKey := h.paymentService.ExpectedInternalAPIKey()
+	if expectedKey == "" {
+		h.respondError(c, errors.New(errors.INTERNAL_SERVER_ERROR,
+			"internal reward endpoint not configured; set INTERNAL_API_KEY env"))
+		return
+	}
+	providedKey := string(c.GetHeader(constants.HeaderInternalAPIKey))
+	if providedKey == "" || providedKey != expectedKey {
+		h.logger.Warn("internal reward endpoint auth failed",
+			zap.String("remote_addr", c.RemoteAddr().String()),
+			zap.String("source_service", string(c.GetHeader(constants.HeaderSourceService))),
+		)
+		h.respondError(c, errors.New(errors.PERMISSION_DENIED, "invalid or missing X-Internal-Api-Key"))
+		return
+	}
+
+	// 2. bind + validate
+	var req dto.XRegistrationRewardRequest
+	if err := c.BindAndValidate(&req); err != nil {
+		h.respondError(c, errors.New(errors.INVALID_PARAMETERS, err.Error()))
+		return
+	}
+
+	// 3. 幂等性键从 header 读(与 /pay 保持一致)
+	req.IdempotencyKey = string(c.GetHeader(constants.HeaderIdempotencyKey))
+	if req.IdempotencyKey == "" {
+		h.respondError(c, errors.New(errors.INVALID_PARAMETERS, "missing X-Idempotency-Key header"))
+		return
+	}
+
+	h.logger.Info("POST /api/v1/internal/rewards/x-registration",
+		zap.String("agent_did", req.AgentDID),
+		zap.String("wallet_address", req.WalletAddress),
+		zap.String("tweet_id", req.TweetID),
+		zap.String("x_handle", req.XHandle),
+		zap.String("amount", req.AmountStr),
+		zap.String("currency", req.Currency),
+		zap.String("idempotency_key", req.IdempotencyKey),
+		zap.String("source_service", string(c.GetHeader(constants.HeaderSourceService))),
+	)
+
+	// 4. 调 service
+	resp, err := h.paymentService.RegisterXRegistrationReward(ctx, &req)
+	if err != nil {
+		h.respondError(c, err)
+		return
+	}
+
+	// 5. 成功响应(FromWallet 由 service 层 toRewardResponse 写入 treasury,这里不再覆盖)
+	h.respondSuccess(c, resp)
+}

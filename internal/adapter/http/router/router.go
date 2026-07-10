@@ -16,6 +16,9 @@ func RegisterRoutes(h *server.Hertz, paymentHandler *handler.PaymentHandler) {
 		apiV1.GET("/pay/:tx_id", paymentHandler.GetPaymentStatus)
 		apiV1.GET("/pay/history", paymentHandler.ListPaymentHistory)
 		apiV1.GET("/pay/require", paymentHandler.GetPaymentRequirement)
+
+		// internal 奖励(由 verification-service 等内部服务调用,X-Internal-Api-Key 鉴权)
+		apiV1.POST("/internal/rewards/x-registration", paymentHandler.RegisterXRegistrationReward)
 	}
 
 	// 短链兼容路由（由 API Gateway 映射到后端规范路由）

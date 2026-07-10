@@ -113,6 +113,41 @@ type MQPaymentEvent struct {
 	Timestamp   int64  `json:"timestamp"`
 	ErrorCode   string `json:"error_code,omitempty"`
 	ErrorMsg    string `json:"error_msg,omitempty"`
+
+	// 扩展字段(可选,reward 场景使用)
+	EventType     string `json:"event_type,omitempty"`     // 如 "reward_granted",与 MQTag 对齐
+	RewardPurpose string `json:"reward_purpose,omitempty"` // 如 "x_registration_reward"
+	FromWallet    string `json:"from_wallet,omitempty"`    // 奖励场景下记录 treasury 钱包
+	ToWallet      string `json:"to_wallet,omitempty"`      // 奖励场景下记录用户钱包
+}
+
+// XRegistrationRewardRequest verification-service -> payment-service 的内部奖励请求。
+// 由 X 验证流程触发,amount 默认 1 USDC,treasury -> 用户钱包,无 payer 签名。
+type XRegistrationRewardRequest struct {
+	IdempotencyKey string `json:"-" header:"X-Idempotency-Key" binding:"required"`
+	AgentDID       string `json:"agent_did" binding:"required"`
+	WalletAddress  string `json:"wallet_address" binding:"required"`
+	TweetID        string `json:"tweet_id" binding:"required"`
+	XHandle        string `json:"x_handle" binding:"required"`
+	AmountStr      string `json:"amount" binding:"required"`
+	Currency       string `json:"currency" binding:"required,oneof=USDC"`
+	Reason         string `json:"reason,omitempty"` // 默认 "x_registration_reward"
+}
+
+// XRegistrationRewardResponse payment-service -> verification-service
+type XRegistrationRewardResponse struct {
+	TxID            string `json:"tx_id"`
+	TxHash          string `json:"tx_hash,omitempty"`
+	Status          string `json:"status"`
+	Amount          string `json:"amount"`
+	Currency        string `json:"currency"`
+	AgentDID        string `json:"agent_did"`
+	RecipientWallet string `json:"recipient_wallet"`
+	FromWallet      string `json:"from_wallet"`
+	CreatedAt       string `json:"created_at"`
+	ConfirmedAt     string `json:"confirmed_at,omitempty"`
+	IdempotencyKey  string `json:"idempotency_key"`
+	AlreadyPaid     bool   `json:"already_paid"`
 }
 
 func ToMQEventTag(status int8) string {

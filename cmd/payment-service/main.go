@@ -88,15 +88,32 @@ func main() {
 	}
 
 	maxAmountMinor, _ := utils.StringToMinorUnit(cfg.Payment.MaxAmountUsdc)
+	xRewardMinor, _ := utils.StringToMinorUnit(cfg.Payment.XRegistrationRewardUsdc)
 	paymentValidator := service.NewPaymentValidator(didClient, blockchainClient, maxAmountMinor)
 	nonceChecker := service.NewNonceChecker(redisClient)
 
 	paymentConfig := &appservice.PaymentConfig{
-		TimeoutMinutes:      cfg.Payment.TimeoutMinutes,
-		MaxRetryCount:       cfg.Payment.MaxRetryCount,
-		MaxAmountMinor:      maxAmountMinor,
-		PollIntervalSeconds: cfg.Payment.PollIntervalSeconds,
-		MaxPollCount:        cfg.Payment.MaxPollCount,
+		TimeoutMinutes:          cfg.Payment.TimeoutMinutes,
+		MaxRetryCount:           cfg.Payment.MaxRetryCount,
+		MaxAmountMinor:          maxAmountMinor,
+		PollIntervalSeconds:     cfg.Payment.PollIntervalSeconds,
+		MaxPollCount:            cfg.Payment.MaxPollCount,
+		TreasuryWalletAddress:   cfg.Payment.TreasuryWalletAddress,
+		XRegistrationRewardMinor: xRewardMinor,
+		InternalApiKey:          cfg.Security.InternalApiKey,
+	}
+
+	if cfg.Payment.TreasuryWalletAddress == "" {
+		logger.Warn("treasury_wallet_address is empty; /api/v1/internal/rewards/x-registration will return 500 until configured",
+			zap.String("env", "TREASURY_WALLET_ADDRESS"),
+			zap.String("yaml", "payment.treasury_wallet_address"),
+		)
+	}
+	if cfg.Security.InternalApiKey == "" {
+		logger.Warn("internal_api_key is empty; /api/v1/internal/rewards/x-registration will return 403 until configured",
+			zap.String("env", "INTERNAL_API_KEY"),
+			zap.String("yaml", "security.internal_api_key"),
+		)
 	}
 	paymentAppService := appservice.NewPaymentApplicationService(
 		paymentRepo,

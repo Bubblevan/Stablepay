@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +65,22 @@ type PaymentConfig struct {
 	MaxAmountMinor      int64
 	PollIntervalSeconds int
 	MaxPollCount        int
+
+	// TreasuryWalletAddress 系统金库钱包。X 注册奖励从此地址向用户钱包发 USDC。
+	// 为空时 RegisterXRegistrationReward 直接返回 INTERNAL_SERVER_ERROR。
+	TreasuryWalletAddress string
+
+	// XRegistrationRewardMinor 单笔 X 注册奖励的 USDC 最小单位数(已 * 10^6)。
+	// 启动时由 config.XRegistrationRewardUsdc 转换得到。
+	XRegistrationRewardMinor int64
+
+	// InternalApiKey internal 端点鉴权密钥。空时 handler 直接 403。
+	InternalApiKey string
+}
+
+// ExpectedInternalAPIKey 返回 internal 端点鉴权密钥(供 handler 校验 X-Internal-Api-Key header)。
+func (s *PaymentApplicationService) ExpectedInternalAPIKey() string {
+	return s.config.InternalApiKey
 }
 
 // NewPaymentApplicationService 创建支付应用服务
@@ -88,6 +105,162 @@ func NewPaymentApplicationService(
 		config:           config,
 		logger:           logger,
 	}
+}
+
+// RegisterXRegistrationReward X 账号注册奖励:treasury -> 用户钱包发 USDC。
+// 流程与 InitiatePayment 类似,但没有 payer 签名,Sender 是系统金库。
+// idempotency_key 由 verification-service 提供,格式: "x-reward-<agent_did>-<tweet_id>"。
+func (s *PaymentApplicationService) RegisterXRegistrationReward(
+	ctx context.Context, req *dto.XRegistrationRewardRequest,
+) (*dto.XRegistrationRewardResponse, error) {
+
+	// 1. treasury 必填(配置错误)
+	if s.config.TreasuryWalletAddress == "" {
+		return nil, errors.New(errors.INTERNAL_SERVER_ERROR,
+			"treasury wallet not configured; set PaymentConfig.TreasuryWalletAddress or TREASURY_WALLET_ADDRESS env")
+	}
+
+	// 2. 解析金额 + 币种
+	amountMinor, err := utils.StringToMinorUnit(req.AmountStr)
+	if err != nil {
+		return nil, errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid amount format")
+	}
+	if amountMinor <= 0 {
+		return nil, errors.New(errors.INVALID_PARAMETERS, "reward amount must be positive")
+	}
+	if req.Currency != "USDC" {
+		return nil, errors.New(errors.INVALID_PARAMETERS, "only USDC supported for x registration reward")
+	}
+
+	// 3. 决定 recipient wallet: 优先用请求里的 wallet_address,否则从 DID 提取
+	recipientWallet := strings.TrimSpace(req.WalletAddress)
+	if recipientWallet == "" {
+		recipientWallet = extractWalletFromDID(req.AgentDID)
+	}
+	if recipientWallet == "" {
+		return nil, errors.New(errors.INVALID_PARAMETERS, "wallet_address or valid agent_did required")
+	}
+
+	// 4. 幂等性 storage key —— 与 /pay 名字空间隔离(用 "x-registration" scope)
+	storageKey := s.idempotencyGen.Generate(req.AgentDID, "x-registration", req.IdempotencyKey)
+	requestHash := hashRewardRequest(req)
+
+	cached, found, idemErr := s.checkIdempotencyByHash(ctx, storageKey, requestHash)
+	if idemErr != nil {
+		return nil, idemErr
+	}
+	if found && cached != nil {
+		s.logger.Info("XRegistrationReward idempotent replay",
+			zap.String("agent_did", req.AgentDID),
+			zap.String("tweet_id", req.TweetID),
+			zap.String("tx_id", cached.TxID),
+		)
+		return cached, nil
+	}
+
+	// 5. reason 兜底
+	reason := req.Reason
+	if reason == "" {
+		reason = constants.RewardPurposeXRegistration
+	}
+
+	// 6. 创建 Payment 实体,用哨兵值占位 Signature / SkillDID
+	txID := generateTxID()
+	payment, err := entity.NewPayment(
+		txID,
+		req.AgentDID,
+		constants.SkillDidXRegistrationReward,
+		amountMinor,
+		constants.CurrencyUSDC,
+		constants.SignatureInternalReward,
+		time.Now().Unix(),
+		req.IdempotencyKey, // 复用 verification 提供的全局唯一 key 作为 SignNonce
+		s.config.TimeoutMinutes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	payment.RewardPurpose = reason
+
+	if err := s.paymentRepo.Create(ctx, payment); err != nil {
+		return nil, errors.Wrap(errors.DATABASE_CONNECTION_ERROR, err,
+			"failed to create reward payment record")
+	}
+
+	// 7. 同步调 chain: treasury -> recipient
+	txHash, err := s.blockchainExec.ExecuteTransfer(
+		ctx,
+		s.config.TreasuryWalletAddress,
+		recipientWallet,
+		amountMinor,
+		constants.CurrencyUSDC,
+		"", // 空 signedTxBase64,让 blockchain-adapter 的 hot wallet 作 fee-payer
+	)
+	if err != nil {
+		s.logger.Error("XRegistrationReward ExecuteTransfer failed",
+			zap.String("tx_id", txID),
+			zap.String("from_wallet", s.config.TreasuryWalletAddress),
+			zap.String("to_wallet", recipientWallet),
+			zap.String("tweet_id", req.TweetID),
+			zap.Error(err),
+		)
+		_ = payment.MarkAsFailed("BLOCKCHAIN_ERROR", err.Error())
+		_ = s.paymentRepo.Update(ctx, payment)
+		s.publishEvent(ctx, payment)
+		_ = s.recordIdempotencyByHash(ctx, storageKey, requestHash, txID, 2, "")
+		return nil, errors.Wrap(errors.BLOCKCHAIN_NETWORK_ERROR, err, "treasury transfer failed")
+	}
+
+	// 8. 转 PENDING,起后台轮询
+	if err := payment.MarkAsPending(txHash); err != nil {
+		s.logger.Error("XRegistrationReward MarkAsPending failed", zap.Error(err))
+	}
+	if err := s.paymentRepo.Update(ctx, payment); err != nil {
+		s.logger.Error("XRegistrationReward Update failed", zap.Error(err))
+	}
+
+	go s.pollTxStatus(payment.TxID, txHash)
+
+	// 9. 写 PENDING 幂等记录
+	_ = s.recordIdempotencyByHash(ctx, storageKey, requestHash, txID, 0, "")
+
+	resp := toRewardResponse(payment, s.config.TreasuryWalletAddress, false)
+	s.logger.Info("XRegistrationReward submitted",
+		zap.String("tx_id", txID),
+		zap.String("tx_hash", txHash),
+		zap.String("from_wallet", s.config.TreasuryWalletAddress),
+		zap.String("to_wallet", recipientWallet),
+		zap.String("agent_did", req.AgentDID),
+		zap.String("tweet_id", req.TweetID),
+		zap.String("x_handle", req.XHandle),
+		zap.Int64("amount_minor", amountMinor),
+	)
+	return resp, nil
+}
+
+// toRewardResponse 把 Payment 装配成 XRegistrationRewardResponse。
+// alreadyPaid=true 用于幂等命中,直接告诉 verification 已经发过。
+// 必须传 treasuryWallet(由 service 持有,放这里避免 handler 重复覆盖)。
+func toRewardResponse(payment *entity.Payment, treasuryWallet string, alreadyPaid bool) *dto.XRegistrationRewardResponse {
+	resp := &dto.XRegistrationRewardResponse{
+		TxID:            payment.TxID,
+		Status:          constants.PaymentStatusToString(payment.Status),
+		Amount:          utils.MinorUnitToString(payment.AmountMinor),
+		Currency:        vo.CommonCurrencyToString(payment.Currency),
+		AgentDID:        payment.AgentDID,
+		RecipientWallet: extractWalletFromDID(payment.AgentDID),
+		FromWallet:      treasuryWallet,
+		CreatedAt:       payment.CreatedAt.Format(constants.TimeFormatISO8601),
+		IdempotencyKey:  payment.SignNonce,
+		AlreadyPaid:     alreadyPaid,
+	}
+	if payment.TxHash != "" {
+		resp.TxHash = payment.TxHash
+	}
+	if payment.ConfirmedAt != nil {
+		resp.ConfirmedAt = payment.ConfirmedAt.Format(constants.TimeFormatISO8601)
+	}
+	return resp
 }
 
 // InitiatePayment 发起支付
@@ -373,6 +546,14 @@ func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *e
 		event.ErrorMsg = payment.ErrorMsg
 	}
 
+	// 奖励事件打上 event_type / reward_purpose,方便下游按 tag 过滤
+	if payment.RewardPurpose != "" {
+		event.EventType = constants.MQTagRewardGranted
+		event.RewardPurpose = payment.RewardPurpose
+		event.FromWallet = s.config.TreasuryWalletAddress
+		event.ToWallet = extractWalletFromDID(payment.AgentDID)
+	}
+
 	if err := s.eventPublisher.PublishPaymentEvent(ctx, event); err != nil {
 		s.logger.Error("failed to publish payment event", zap.Error(err))
 	}
@@ -458,6 +639,88 @@ func hashRequest(req *dto.InitiatePaymentRequest) string {
 		req.Signature, req.Timestamp, req.Nonce, req.SignedTxBase64)
 	sum := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(sum[:])
+}
+
+// hashRewardRequest 生成 X 注册奖励请求的 SHA256 哈希。
+// 与 hashRequest 解耦,避免对 *dto.InitiatePaymentRequest 的依赖。
+func hashRewardRequest(req *dto.XRegistrationRewardRequest) string {
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
+		req.AgentDID, req.WalletAddress, req.TweetID, req.XHandle,
+		req.AmountStr, req.Currency, req.IdempotencyKey)
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
+}
+
+// checkIdempotencyByHash 通用版幂等性查询。
+// 返回 (已缓存响应, true=已存在) 或 (nil, false=需新建)。
+// 命中且状态为 COMPLETED 时返回原 Payment 的响应;PENDING 状态视为"进行中",调用方继续处理。
+func (s *PaymentApplicationService) checkIdempotencyByHash(
+	ctx context.Context, key, requestHash string,
+) (*dto.XRegistrationRewardResponse, bool, error) {
+
+	record, err := s.idempotencyRepo.Get(ctx, key)
+	if err != nil {
+		// 任何错误都视为"未找到",继续后续处理(与 checkIdempotency 保持一致)
+		return nil, false, nil
+	}
+	if record == nil {
+		return nil, false, nil
+	}
+	if record.RequestHash != requestHash {
+		return nil, false, errors.New(errors.IDEMPOTENCY_KEY_MISMATCH,
+			"idempotency key used with different request")
+	}
+	if record.Status == 1 && record.TxID != nil {
+		payment, getErr := s.paymentRepo.GetByTxID(ctx, *record.TxID)
+		if getErr == nil && payment != nil {
+			return toRewardResponse(payment, s.config.TreasuryWalletAddress, true), true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// recordIdempotencyByHash 通用版幂等性记录。responseJSON 可为空。
+func (s *PaymentApplicationService) recordIdempotencyByHash(
+	ctx context.Context, key, requestHash, txID string, status int8, responseJSON string,
+) error {
+	expires := time.Now().Add(30 * time.Minute)
+
+	existing, err := s.idempotencyRepo.Get(ctx, key)
+	if err != nil {
+		// not-found 视为新建,其他错误往上抛
+		if e, ok := err.(*errors.Error); ok && e.Code == errors.RESOURCE_NOT_FOUND {
+			existing = nil
+		} else {
+			return err
+		}
+	}
+	if existing != nil {
+		existing.RequestHash = requestHash
+		existing.Status = status
+		existing.ExpiresAt = expires
+		if txID != "" {
+			existing.TxID = &txID
+		}
+		if responseJSON != "" {
+			existing.ResponseData = responseJSON
+		}
+		return s.idempotencyRepo.Update(ctx, existing)
+	}
+
+	record := &entity.PaymentIdempotency{
+		IdempotencyKey: key,
+		RequestHash:    requestHash,
+		Status:         status,
+		ExpiresAt:      expires,
+		CreatedAt:      time.Now(),
+	}
+	if txID != "" {
+		record.TxID = &txID
+	}
+	if responseJSON != "" {
+		record.ResponseData = responseJSON
+	}
+	return s.idempotencyRepo.Create(ctx, record)
 }
 
 // toResponse 转换为响应

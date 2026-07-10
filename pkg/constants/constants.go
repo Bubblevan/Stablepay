@@ -35,6 +35,8 @@ const (
 	HeaderTraceID        = "X-Trace-ID"
 	HeaderSignature      = "X-Signature"
 	HeaderAgentDID       = "X-Agent-DID"
+	HeaderInternalAPIKey = "X-Internal-Api-Key"
+	HeaderSourceService  = "X-Source-Service"
 
 	// USDC/USDT 精度（小数位数）
 	USDCDecimals = 6
@@ -65,6 +67,21 @@ const (
 
 	MQTagPaymentSucceeded = "payment_succeeded"
 	MQTagPaymentFailed    = "payment_failed"
+	MQTagRewardGranted    = "reward_granted"
+)
+
+// 奖励相关常量
+const (
+	// SkillDidXRegistrationReward X 注册奖励写入 Payment.SkillDID 的哨兵值。
+	// 真实场景下没有 skill_did 概念,沿用 varchar(128) 字段记录此标记以便筛选。
+	SkillDidXRegistrationReward = "did:solana:reward:x-registration"
+
+	// SignatureInternalReward 内部奖励写入 Payment.Signature 的哨兵值。
+	// 没有真实签名,仅作占位让 NOT NULL 约束通过。
+	SignatureInternalReward = "INTERNAL_TREASURY_REWARD"
+
+	// RewardPurposeXRegistration X 注册奖励的 reason / event_type 值。
+	RewardPurposeXRegistration = "x_registration_reward"
 )
 
 // MaxAmount 最大支付金额（1000 USDC）

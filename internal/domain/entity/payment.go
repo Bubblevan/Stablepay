@@ -52,6 +52,10 @@ type Payment struct {
 	ErrorCode   string `gorm:"column:error_code;type:varchar(32)"`
 	ErrorMsg    string `gorm:"column:error_message;type:varchar(512)"`
 
+	// 奖励相关（nullable，用于区分普通支付和系统奖励，如 X 注册奖励）
+	// 留空 = 普通支付；非空 = 奖励（如 "x_registration_reward"）。
+	RewardPurpose string `gorm:"column:reward_purpose;type:varchar(64);index"`
+
 	// 时间戳
 	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt   time.Time  `gorm:"column:updated_at;not null"`
