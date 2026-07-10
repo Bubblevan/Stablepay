@@ -15,6 +15,7 @@ import (
 	"verification-service/kitex_gen/stablepay/verification_service"
 
 	oauth1 "github.com/dghubble/oauth1"
+	"gorm.io/gorm"
 )
 
 // XAPIClient X API 客户端
@@ -125,7 +126,8 @@ func (s *VerificationServiceImpl) VerifyPurchase(ctx context.Context, req *verif
 	if result.Error == nil {
 		log.Printf("【服务端】查到数据！真实流水号: %s", record.TxId)
 		resp.Purchased = true
-		resp.PurchaseTime = strPtr("2026-03-12T15:00:00Z")
+		purchaseTime := record.CreatedAt.Format(time.RFC3339)
+		resp.PurchaseTime = &purchaseTime
 		txId := common.TxId(record.TxId)
 		resp.TxId = &txId
 		resp.Base = &common.BaseResp{Code: 0, Message: "success"}
@@ -138,13 +140,90 @@ func (s *VerificationServiceImpl) VerifyPurchase(ctx context.Context, req *verif
 	return resp, nil
 }
 
+// BatchVerifyPurchase 批量校验一个 agent 的多个 skill 是否已购买。
+// 对每个 skill_did 查一次 PurchaseRecord,按顺序返回 BatchVerifyItem。
 func (s *VerificationServiceImpl) BatchVerifyPurchase(ctx context.Context, req *verification_service.BatchVerifyPurchaseRequest) (resp *verification_service.BatchVerifyPurchaseResponse, err error) {
 	resp = verification_service.NewBatchVerifyPurchaseResponse()
+	agentDid := strings.TrimSpace(string(req.AgentDid))
+
+	if agentDid == "" {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_INVALID_PARAMETERS),
+			Message: "agent_did 必填",
+		}
+		return resp, nil
+	}
+	if len(req.SkillDids) == 0 {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_INVALID_PARAMETERS),
+			Message: "skill_dids 至少一个",
+		}
+		return resp, nil
+	}
+
+	items := make([]*verification_service.BatchVerifyItem, 0, len(req.SkillDids))
+	for _, skillDid := range req.SkillDids {
+		item := verification_service.NewBatchVerifyItem()
+		item.SkillDid = skillDid
+		item.Purchased = false
+
+		var record PurchaseRecord
+		result := DB.Where("agent_did = ? AND skill_did = ?", agentDid, string(skillDid)).First(&record)
+		if result.Error == nil {
+			item.Purchased = true
+			purchaseTime := record.CreatedAt.Format(time.RFC3339)
+			item.PurchaseTime = &purchaseTime
+			txId := common.TxId(record.TxId)
+			item.TxId = &txId
+		} else if result.Error != gorm.ErrRecordNotFound {
+			log.Printf("【服务端】BatchVerifyPurchase 查询失败: did=%s skill=%s err=%v", agentDid, skillDid, result.Error)
+		}
+
+		items = append(items, item)
+	}
+
+	resp.Items = items
+	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
+	log.Printf("【服务端】BatchVerifyPurchase 完成: agent=%s items=%d", agentDid, len(items))
 	return resp, nil
 }
 
+// GetPurchaseProof 取单个 (agent_did, skill_did) 的购买凭证。
+// 命中 PurchaseRecord 则返回 purchased=true + tx_id + purchase_time + proof_version;
+// 未命中则 purchased=false + code=10001。
+// 注:AmountMinor/Currency/TxHash 需要跨 RPC 反查 payment-service 才能填,本次不实现,留 TODO。
 func (s *VerificationServiceImpl) GetPurchaseProof(ctx context.Context, req *verification_service.GetPurchaseProofRequest) (resp *verification_service.GetPurchaseProofResponse, err error) {
 	resp = verification_service.NewGetPurchaseProofResponse()
+	agentDid := strings.TrimSpace(string(req.AgentDid))
+	skillDid := strings.TrimSpace(string(req.SkillDid))
+
+	if agentDid == "" || skillDid == "" {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_INVALID_PARAMETERS),
+			Message: "agent_did、skill_did 均为必填",
+		}
+		return resp, nil
+	}
+
+	var record PurchaseRecord
+	result := DB.Where("agent_did = ? AND skill_did = ?", agentDid, skillDid).First(&record)
+	if result.Error != nil {
+		log.Printf("【服务端】GetPurchaseProof 未命中: did=%s skill=%s err=%v", agentDid, skillDid, result.Error)
+		resp.Purchased = false
+		resp.Base = &common.BaseResp{Code: 10001, Message: "record not found"}
+		return resp, nil
+	}
+
+	resp.Purchased = true
+	purchaseTime := record.CreatedAt.Format(time.RFC3339)
+	resp.PurchaseTime = &purchaseTime
+	txId := common.TxId(record.TxId)
+	resp.TxId = &txId
+	proofVersion := "v1"
+	resp.ProofVersion = &proofVersion
+	resp.Base = &common.BaseResp{Code: 0, Message: "success"}
+
+	// TODO: 反查 payment-service 填充 AmountMinor / Currency / TxHash
 	return resp, nil
 }
 
