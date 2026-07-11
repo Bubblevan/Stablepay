@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -299,15 +300,7 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 	var existingByAgent XVerification
 	result := DB.Where("agent_did = ? AND verified = ?", agentDid, true).First(&existingByAgent)
 	if result.Error == nil {
-		resp.Base = &common.BaseResp{
-			Code:    int32(common.ErrorCode_VERIFICATION_ALREADY_CLAIMED),
-			Message: "您已经完成 X 验证并领取奖励",
-		}
-		resp.Verified = true
-		resp.RewardAmountMinor = i64Ptr(existingByAgent.RewardAmount)
-		resp.RewardTxId = &existingByAgent.RewardTxId
-		resp.Message = strPtr("已领取过奖励")
-		return resp, nil
+		return s.alreadyClaimedResponse(agentDid, resp), nil
 	}
 
 	if tweetResult.AuthorName != "" && tweetResult.AuthorName != "unknown" {
@@ -349,6 +342,12 @@ func (s *VerificationServiceImpl) VerifyXTweet(ctx context.Context, req *verific
 	}
 
 	if err := DB.Create(&verification).Error; err != nil {
+		// DB 唯一索引兜底:并发请求里两个 goroutine 都过了上面的"先查"检查,只有一个能 Create 成功。
+		// 另一个会撞上 unique 约束,这时应该返回"已领取"而不是 500。
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			log.Printf("【服务端】X 验证并发命中 unique 约束,agent=%s 当作已领取处理", agentDid)
+			return s.alreadyClaimedResponse(agentDid, resp), nil
+		}
 		log.Printf("【服务端】保存验证记录失败: %v", err)
 		resp.Base = &common.BaseResp{
 			Code:    int32(common.ErrorCode_INTERNAL_SERVER_ERROR),
@@ -445,4 +444,33 @@ func extractTweetID(url string) string {
 		}
 	}
 	return ""
+}
+
+// alreadyClaimedResponse 复用"已领取"成功响应的装配逻辑。
+// 用于两条路径:
+//  1. 入口处"先查"发现已有 verified=true 记录,直接返回;
+//  2. 并发场景下 Create 撞 unique 约束时,先回查一次再返回。
+func (s *VerificationServiceImpl) alreadyClaimedResponse(agentDid string, resp *verification_service.VerifyXTweetResponse) *verification_service.VerifyXTweetResponse {
+	var existing XVerification
+	if err := DB.Where("agent_did = ? AND verified = ?", agentDid, true).First(&existing).Error; err == nil {
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_VERIFICATION_ALREADY_CLAIMED),
+			Message: "您已经完成 X 验证并领取奖励",
+		}
+		resp.Verified = true
+		resp.RewardAmountMinor = i64Ptr(existing.RewardAmount)
+		resp.RewardTxId = &existing.RewardTxId
+		resp.Message = strPtr("已领取过奖励")
+	} else {
+		// 兜底:unique 刚撞上时,对手可能还没 commit,回查没找到时仍当"已领取"回包,
+		// 不暴露内部错误给 verification 客户端。
+		log.Printf("【服务端】unique 冲突后回查未命中: agent=%s err=%v", agentDid, err)
+		resp.Base = &common.BaseResp{
+			Code:    int32(common.ErrorCode_VERIFICATION_ALREADY_CLAIMED),
+			Message: "您已经完成 X 验证并领取奖励",
+		}
+		resp.Verified = true
+		resp.Message = strPtr("已领取过奖励")
+	}
+	return resp
 }

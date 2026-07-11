@@ -77,7 +77,11 @@ type PurchaseRecord struct {
 // X 验证表
 type XVerification struct {
 	gorm.Model
-	AgentDid      string    `gorm:"index"`
+	// AgentDid 唯一索引:防止并发请求导致同一 agent 多次领奖。
+	// 配合 VerifyXTweet 的 unique 冲突检测,真正由 DB 兜底而不是"先查后插"的竞态。
+	// 注:AutoMigrate 不会把现有 non-unique index 升级为 unique。
+	// 如果生产表已有重复 agent_did 行,需要先清理再 ALTER TABLE 添加 unique 约束。
+	AgentDid      string    `gorm:"uniqueIndex;column:agent_did;size:128"`
 	WalletAddress string    `gorm:"index"`
 	XUsername     string    `gorm:"index"` // X 账号用户名，用于防止重复绑定
 	TweetUrl      string
