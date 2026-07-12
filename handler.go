@@ -111,7 +111,7 @@ func (x *XAPIClient) GetTweet(tweetID string) (*TweetResult, error) {
 }
 
 func strPtr(s string) *string { return &s }
-func i64Ptr(i int64) *int64  { return &i }
+func i64Ptr(i int64) *int64   { return &i }
 
 // VerificationServiceImpl implements the last service interface defined in the IDL.
 type VerificationServiceImpl struct{}
@@ -194,6 +194,8 @@ func (s *VerificationServiceImpl) BatchVerifyPurchase(ctx context.Context, req *
 // 未命中则 purchased=false + code=10001。
 // 注:AmountMinor/Currency/TxHash 需要跨 RPC 反查 payment-service 才能填,本次不实现,留 TODO。
 func (s *VerificationServiceImpl) GetPurchaseProof(ctx context.Context, req *verification_service.GetPurchaseProofRequest) (resp *verification_service.GetPurchaseProofResponse, err error) {
+	log.Printf("👉 【服务端】收到购买证明请求: AgentDid='%s', SkillDid='%s'", req.AgentDid, req.SkillDid)
+
 	resp = verification_service.NewGetPurchaseProofResponse()
 	agentDid := strings.TrimSpace(string(req.AgentDid))
 	skillDid := strings.TrimSpace(string(req.SkillDid))

@@ -24,8 +24,10 @@ func main() {
 		log.Fatalf("数据库连接失败: %v", err)
 	}
 
-	// 让数据库按照结构体建表
-	DB.AutoMigrate(&PurchaseRecord{}, &XVerification{})
+	// 根据结构体自动建表
+	if err := DB.AutoMigrate(&PurchaseRecord{}, &XVerification{}); err != nil {
+		log.Fatalf("自动迁移表结构失败: %v", err)
+	}
 
 	// 初始化 X API 客户端
 	initXAPIClient(
@@ -37,7 +39,7 @@ func main() {
 
 	go StartMQConsumer()
 
-	// 监听 8085（0.0.0.0 以便容器内其它服务通过服务名访问）
+	// 监听 8085 端口（0.0.0.0 以便容器内其他服务通过服务名访问）
 	addr, _ := net.ResolveTCPAddr("tcp", "0.0.0.0:8085")
 	svr := verification_service.NewServer(new(VerificationServiceImpl), server.WithServiceAddr(addr))
 
@@ -47,6 +49,7 @@ func main() {
 	}
 }
 
+// envOrDefault 获取环境变量，若不存在则返回默认值
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -54,6 +57,7 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// openMySQL 打开 MySQL 数据库连接
 func openMySQL() (*gorm.DB, error) {
 	host := envOrDefault("MYSQL_HOST", "stablepay-mysql")
 	port := envOrDefault("MYSQL_PORT", "3306")
@@ -66,15 +70,15 @@ func openMySQL() (*gorm.DB, error) {
 	return gorm.Open(mysql.Open(dsn), &gorm.Config{})
 }
 
-// 表单的定义
+// PurchaseRecord 购买记录表
 type PurchaseRecord struct {
 	gorm.Model
-	AgentDid string `gorm:"index"`
-	SkillDid string `gorm:"index"`
-	TxId     string
+	AgentDid string `gorm:"type:varchar(128);uniqueIndex:uk_agent_skill"`
+	SkillDid string `gorm:"type:varchar(128);uniqueIndex:uk_agent_skill"`
+	TxId     string `gorm:"type:varchar(64);index"`
 }
 
-// X 验证表
+// XVerification X 平台验证记录表
 type XVerification struct {
 	gorm.Model
 	// AgentDid 唯一索引:防止并发请求导致同一 agent 多次领奖。
@@ -87,7 +91,7 @@ type XVerification struct {
 	TweetUrl      string
 	TweetContent  string
 	Verified      bool      `gorm:"default:false"`
-	RewardAmount  int64     // 最小单位，如 1000000 = 1 USDC (6 decimals)
-	RewardTxId    string
+	RewardAmount  int64     // 最小单位，例如 1000000 = 1 USDC (6 位小数)
+	RewardTxId    string    `gorm:"type:varchar(64)"`
 	VerifiedAt    time.Time
 }
