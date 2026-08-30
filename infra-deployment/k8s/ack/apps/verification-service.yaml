@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-verification-service
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-verification-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-verification-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: verification-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/verification-service:latest
+          imagePullPolicy: Always
+          env:
+            - name: ROCKETMQ_NAMESERVER
+              value: stablepay-rocketmq-nameserver:9876
+            - name: MYSQL_HOST
+              value: stablepay-mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+            - name: MYSQL_DBNAME
+              value: stablepay_verification_db
+          ports:
+            - containerPort: 8085
+              name: rpc
+            - containerPort: 8185
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-verification-service
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-verification-service
+  ports:
+    - name: rpc
+      port: 8085
+      targetPort: 8085
+    - name: http
+      port: 8185
+      targetPort: 8185

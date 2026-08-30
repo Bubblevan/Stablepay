@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-payment-service
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-payment-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-payment-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: payment-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/payment-service:latest
+          imagePullPolicy: Always
+          env:
+            - name: CONFIG_PATH
+              value: config/docker.yaml
+          ports:
+            - containerPort: 8082
+              name: http
+            - containerPort: 8888
+              name: rpc
+          volumeMounts:
+            - name: payment-config
+              mountPath: /app/config/docker.yaml
+              subPath: docker.yaml
+      volumes:
+        - name: payment-config
+          configMap:
+            name: payment-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-payment-service
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-payment-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+    - name: rpc
+      port: 8888
+      targetPort: 8888

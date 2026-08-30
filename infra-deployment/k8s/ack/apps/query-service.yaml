@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-query-service
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-query-service
+  template:
+    metadata:
+      labels:
+        app: stablepay-query-service
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: query-service
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/query-service:latest
+          imagePullPolicy: Always
+          env:
+            - name: MYSQL_HOST
+              value: stablepay-mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+            - name: MYSQL_DBNAME
+              value: stablepay_query_db
+            # 余额查询走本服务 chain_balance.go，直连 Solana RPC（与 blockchain-adapter 独立）
+            - name: SOLANA_RPC_ENDPOINT
+              value: "https://proxy.stablepay.co/https://api.mainnet-beta.solana.com"
+            - name: QUERY_BALANCE_USDC_MINT
+              value: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          ports:
+            - containerPort: 8084
+              name: rpc
+            - containerPort: 8184
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-query-service
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-query-service
+  ports:
+    - name: rpc
+      port: 8084
+      targetPort: 8084
+    - name: http
+      port: 8184
+      targetPort: 8184

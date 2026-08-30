@@ -1,0 +1,470 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zheda-agent
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stablepay-secrets
+  namespace: zheda-agent
+type: Opaque
+stringData:
+  mysql-root-password: "root123"
+  mysql-user: "stablepay"
+  mysql-password: "stablepay123"
+  hotwallet.json: |
+    {
+      "address": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "did": "did:solana:9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "public_key": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
+      "private_key": "53YZtgTB9VLNYKfyipmjbboCgWM7im4TJ4vkjhGKrG7G96JngEQpHWvxCupcU8Kf45F1JKEKKTsXUchnygcfneK7",
+      "role": "hot_wallet",
+      "description": "Mainnet 测试热钱包"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: did-config
+  namespace: zheda-agent
+data:
+  docker.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: 8081
+    log:
+      level: "info"
+      format: "json"
+    database:
+      host: "stablepay-mysql"
+      port: 3306
+      user: "stablepay"
+      password: "stablepay123"
+      dbname: "stablepay_did_db"
+      charset: "utf8mb4"
+      max_open_conns: 20
+      max_idle_conns: 10
+      conn_max_lifetime: 3600
+    encryption:
+      key: "0123456789abcdef0123456789abcdef"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-config
+  namespace: zheda-agent
+data:
+  docker.yaml: |
+    app:
+      name: payment-service
+      version: 1.0.0
+      env: docker
+    server:
+      http:
+        port: 8082
+        read_timeout: 30s
+        write_timeout: 30s
+      rpc:
+        port: 8888
+        timeout: 30s
+    database:
+      mysql:
+        host: stablepay-mysql
+        port: 3306
+        username: stablepay
+        password: stablepay123
+        database: stablepay_payment_db
+        charset: utf8mb4
+        max_open_conns: 100
+        max_idle_conns: 10
+        conn_max_lifetime: 3600s
+    redis:
+      host: stablepay-redis
+      port: 6379
+      password: ""
+      db: 0
+      pool_size: 100
+      min_idle_conns: 10
+    rocketmq:
+      name_servers:
+        - stablepay-rocketmq-nameserver:9876
+      producer_group: payment-service-producer
+      retry_times: 3
+      send_timeout: 3000
+      topics:
+        payment_events: payment_events
+    rpc_clients:
+      did_service:
+        address: stablepay-did-service:8081
+        timeout_ms: 1000
+        retry_count: 2
+      blockchain_adapter:
+        address: stablepay-blockchain-adapter:8083
+        timeout_ms: 35000
+        retry_count: 0
+    payment:
+      timeout_minutes: 5
+      max_retry_count: 3
+      max_amount_usdc: "1000.00"
+      poll_interval_seconds: 3
+      max_poll_count: 40
+      supported_currencies:
+        - USDC
+        - USDT
+      decimals: 6
+    security:
+      signature_ttl_minutes: 5
+      nonce_cache_minutes: 10
+      idempotency_key_ttl_minutes: 30
+    rate_limit:
+      ip_limit_per_minute: 100
+      did_limit_per_minute: 50
+      payment_limit_per_minute: 10
+    log:
+      level: info
+      format: json
+      output: stdout
+      file_path: ./logs/payment-service.log
+      max_size: 100
+      max_age: 7
+      max_backups: 10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blockchain-adapter-config
+  namespace: zheda-agent
+data:
+  docker.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: 8083
+    solana:
+      network: "mainnet-beta"
+      rpc_endpoint: "https://proxy.stablepay.co/https://api.mainnet-beta.solana.com"
+      hotwallet_path: "/app/conf/hotwallet.json"
+      ws_endpoint: "wss://api.mainnet-beta.solana.com"
+    mysql:
+      dsn: "stablepay:stablepay123@tcp(stablepay-mysql:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rocketmq-broker-config
+  namespace: zheda-agent
+data:
+  broker.conf: |
+    brokerClusterName = DefaultCluster
+    brokerName = broker-a
+    brokerId = 0
+    brokerRole = ASYNC_MASTER
+    flushDiskType = ASYNC_FLUSH
+    deleteWhen = 04
+    fileReservedTime = 48
+    namesrvAddr = stablepay-rocketmq-nameserver:9876
+    autoCreateTopicEnable = true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: zheda-agent
+spec:
+  storageClassName: alicloud-disk-essd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-mysql
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-mysql
+  template:
+    metadata:
+      labels:
+        app: stablepay-mysql
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: mysql
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/mysql:8.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --default-authentication-plugin=mysql_native_password
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-root-password
+            - name: MYSQL_DATABASE
+              value: stablepay_payment_db
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-password
+          ports:
+            - containerPort: 3306
+              name: mysql
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-mysql
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: zheda-agent
+spec:
+  storageClassName: alicloud-disk-essd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-redis
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-redis
+  template:
+    metadata:
+      labels:
+        app: stablepay-redis
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: redis
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-redis
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-rocketmq-nameserver
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-rocketmq-nameserver
+  template:
+    metadata:
+      labels:
+        app: stablepay-rocketmq-nameserver
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: nameserver
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/rocketmq:5.3.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - mqnamesrv
+          env:
+            - name: JAVA_OPT_EXT
+              value: -server -Xms512m -Xmx512m
+          ports:
+            - containerPort: 9876
+              name: namesrv
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-rocketmq-nameserver
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-rocketmq-nameserver
+  ports:
+    - name: namesrv
+      port: 9876
+      targetPort: 9876
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-rocketmq-broker
+  namespace: zheda-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-rocketmq-broker
+  template:
+    metadata:
+      labels:
+        app: stablepay-rocketmq-broker
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: broker
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/rocketmq:5.3.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - sleep 8 && sh /home/rocketmq/rocketmq-5.3.2/bin/mqbroker -c /home/rocketmq/rocketmq-5.3.2/conf/broker.conf
+          env:
+            - name: NAMESRV_ADDR
+              value: stablepay-rocketmq-nameserver:9876
+            - name: JAVA_OPT_EXT
+              value: -server -Xms512m -Xmx512m
+          ports:
+            - containerPort: 10909
+              name: remoting-1
+            - containerPort: 10911
+              name: remoting-2
+            - containerPort: 10912
+              name: remoting-3
+            - containerPort: 8080
+              name: admin-http
+            - containerPort: 8081
+              name: admin-http-2
+          volumeMounts:
+            - name: broker-config
+              mountPath: /home/rocketmq/rocketmq-5.3.2/conf/broker.conf
+              subPath: broker.conf
+      volumes:
+        - name: broker-config
+          configMap:
+            name: rocketmq-broker-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-rocketmq-broker
+  namespace: zheda-agent
+spec:
+  selector:
+    app: stablepay-rocketmq-broker
+  ports:
+    - name: remoting-1
+      port: 10909
+      targetPort: 10909
+    - name: remoting-2
+      port: 10911
+      targetPort: 10911
+    - name: remoting-3
+      port: 10912
+      targetPort: 10912
+    - name: admin-http
+      port: 8080
+      targetPort: 8080
+    - name: admin-http-2
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stablepay-mysql-init
+  namespace: zheda-agent
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: mysql-init
+          image: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/mysql:8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: mysql-root-password
+          command:
+            - sh
+            - -c
+            - |
+              until mysqladmin ping -h stablepay-mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
+                echo "waiting for mysql..."
+                sleep 3
+              done
+              mysql -h stablepay-mysql -uroot -p"$MYSQL_ROOT_PASSWORD" <<'SQL'
+              CREATE DATABASE IF NOT EXISTS stablepay_did_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE DATABASE IF NOT EXISTS stablepay_payment_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE DATABASE IF NOT EXISTS stablepay_query_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE DATABASE IF NOT EXISTS stablepay_verification_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE DATABASE IF NOT EXISTS stablepay_merchant_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE USER IF NOT EXISTS 'stablepay'@'%' IDENTIFIED BY 'stablepay123';
+              GRANT ALL PRIVILEGES ON stablepay_did_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_payment_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_query_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_verification_db.* TO 'stablepay'@'%';
+              GRANT ALL PRIVILEGES ON stablepay_merchant_db.* TO 'stablepay'@'%';
+              FLUSH PRIVILEGES;
+              SQL
