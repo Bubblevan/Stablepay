@@ -22,6 +22,7 @@ hotwallet.json
 merchant/data/
 **/evals/reports/
 reports/
+stablepay-openclaw-plugin/
 
 # Build and test artifacts
 **/bin/
