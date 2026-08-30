@@ -1,0 +1,202 @@
+server:
+  address: ":8080"
+  # Allow long-running POST /api/v1/pay (chain submission) without cutting the connection.
+  read_timeout_ms: 120000
+  write_timeout_ms: 120000
+  enable_access_log: true
+  graceful_stop_secs: 10
+
+security:
+  allowed_api_keys:
+    - "stablepay-dev-key"
+  allowed_timestamp_skew_sec: 300
+  require_nonce: true
+  canonical_version: "v0.1"
+
+redis:
+  enabled: false
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+resilience:
+  default_timeout_ms: 1000
+  default_retry: 1
+
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  file_path: "logs/api-gateway.log"
+  enable_tracing: false
+  tracing_backend: "otlp"
+  tracing_endpoint: ""
+  environment: "local"
+
+downstream:
+  did_service: "did-service"
+  did_service_addr: "stablepay-did-service:8081"
+  payment_service: "payment-service"
+  payment_service_addr: "stablepay-payment-service:8082"
+  verification_service: "verification-service"
+  verification_service_addr: "stablepay-verification-service:8085"
+  query_service: "query-service"
+  query_service_addr: "stablepay-query-service:8084"
+
+routes:
+  - name: "did.create"
+    method: "POST"
+    path: "/api/v1/did"
+    target: "did-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "did.register"
+    method: "POST"
+    path: "/api/v1/did/register"
+    target: "did-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "did.verify"
+    method: "POST"
+    path: "/api/v1/did/verify"
+    target: "did-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "did.get"
+    method: "GET"
+    path: "/api/v1/did/:did"
+    target: "did-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+
+  - name: "payment.pay"
+    method: "POST"
+    path: "/api/v1/pay"
+    target: "payment-service"
+    timeout_ms: 90000
+    retry: 0
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
+  - name: "payment.require"
+    method: "GET"
+    path: "/api/v1/pay/require"
+    target: "payment-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "payment.get"
+    method: "GET"
+    path: "/api/v1/pay/:tx_id"
+    target: "payment-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "payment.history"
+    method: "GET"
+    path: "/api/v1/pay/history"
+    target: "payment-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+
+  - name: "verification.verify"
+    method: "GET"
+    path: "/api/v1/verify"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.batch"
+    method: "POST"
+    path: "/api/v1/verify/batch"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.proof"
+    method: "GET"
+    path: "/api/v1/verify/proof"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.verify_x"
+    method: "POST"
+    path: "/api/v1/verify/x"
+    target: "verification-service"
+    timeout_ms: 10000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+  - name: "verification.get_x_status"
+    method: "GET"
+    path: "/api/v1/verify/x/status"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+
+  - name: "query.balance"
+    method: "GET"
+    path: "/api/v1/balance"
+    target: "query-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "query.transactions"
+    method: "GET"
+    path: "/api/v1/transactions"
+    target: "query-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "query.revenue"
+    method: "GET"
+    path: "/api/v1/revenue"
+    target: "query-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "query.sales"
+    method: "GET"
+    path: "/api/v1/sales"
+    target: "query-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "did"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+
+  - name: "shortcut.pay"
+    method: "GET"
+    path: "/pay"
+    target: "gateway"
+    timeout_ms: 500
+    retry: 0
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "shortcut.verify"
+    method: "GET"
+    path: "/verify"
+    target: "verification-service"
+    timeout_ms: 1000
+    retry: 1
+    auth: "none"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }

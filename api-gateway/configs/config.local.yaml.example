@@ -1,0 +1,19 @@
+logging:
+  level: "debug"
+  format: "json"
+  output: "stdout"
+  file_path: "logs/api-gateway.local.log"
+  enable_tracing: false
+  tracing_backend: "otlp"
+  tracing_endpoint: ""
+  environment: "local"
+
+redis:
+  enabled: true
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+security:
+  allowed_api_keys:
+    - "replace-with-local-key"
