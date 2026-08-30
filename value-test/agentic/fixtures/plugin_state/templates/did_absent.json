@@ -1,0 +1,20 @@
+{
+  "fixture_type": "plugin_state",
+  "fixture_id": "did_absent",
+  "state_version": 1,
+  "master_key_fingerprint": "eval-profile-a",
+  "wallet": {
+    "wallet_name": "stablepay-eval-agent",
+    "wallet_address": "So11111111111111111111111111111111111111112",
+    "wallet_id": "wallet-eval-a"
+  },
+  "did_registration": {
+    "registered": false,
+    "backend_did": null
+  },
+  "payment_limits": null,
+  "diagnostic_flags": [
+    "did_missing"
+  ],
+  "notes": "Wallet exists, but backend DID is not registered."
+}

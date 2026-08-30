@@ -1,0 +1,16 @@
+{
+  "fixture_type": "backend_state",
+  "fixture_id": "merchant_labubu_0_2_clean",
+  "merchant": {
+    "sku_id": "labubu",
+    "price": "0.2",
+    "currency": "USDC",
+    "seller_skill_did": "did:solana:merchant-labubu"
+  },
+  "database_preconditions": {
+    "payment_transactions_count": 0,
+    "payment_idempotency_keys_count": 0,
+    "purchase_records_count": 0
+  },
+  "notes": "Clean backend state for a small merchant purchase."
+}

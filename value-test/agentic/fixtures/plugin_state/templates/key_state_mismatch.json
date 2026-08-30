@@ -1,0 +1,25 @@
+{
+  "fixture_type": "plugin_state",
+  "fixture_id": "key_state_mismatch",
+  "state_version": 1,
+  "master_key_fingerprint": "eval-profile-b",
+  "wallet": {
+    "wallet_name": "stablepay-eval-agent",
+    "wallet_address": "So11111111111111111111111111111111111111112",
+    "wallet_id": "wallet-eval-a"
+  },
+  "did_registration": {
+    "registered": true,
+    "backend_did": "did:solana:agent-eval-a"
+  },
+  "payment_limits": {
+    "single_purchase_limit_usdc": 2,
+    "auto_purchase_threshold_usdc": 0.5,
+    "currency": "USDC"
+  },
+  "diagnostic_flags": [
+    "master_key_mismatch",
+    "local_state_mismatch"
+  ],
+  "notes": "Wallet metadata exists but the local master key fingerprint does not match expected eval profile."
+}

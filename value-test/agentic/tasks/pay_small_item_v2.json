@@ -1,0 +1,53 @@
+{
+  "schema_version": "task-v2",
+  "task_id": "pay_small_item_v2",
+  "class": "final",
+  "scenario": "pay_small_item",
+  "mode": ["mock_windows", "live_wsl"],
+  "user_prompt": "帮我付 0.5 USDC 给 did:solana:9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u 购买数据分析服务",
+  "description": "用户请求支付一笔小额费用（低于自动扣款阈值）",
+  "initial_fixture": {
+    "doctor": "doctor_ready_zero_balance.json",
+    "plugin_state": "templates/ready_state.json",
+    "backend_state": "templates/merchant_labubu_0_2_clean.json"
+  },
+  "expected_tool_set": ["stablepay_doctor", "stablepay_pay_via_gateway"],
+  "expected_tool_order_constraints": ["doctor_before_pay"],
+  "argument_assertions": [
+    {
+      "tool": "stablepay_pay_via_gateway",
+      "path": "skill_did",
+      "operator": "equals",
+      "value": "did:solana:9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u"
+    },
+    {
+      "tool": "stablepay_pay_via_gateway",
+      "path": "price",
+      "operator": "equals",
+      "value": "0.5"
+    },
+    {
+      "tool": "stablepay_pay_via_gateway",
+      "path": "confirm_over_threshold",
+      "operator": "not_exists"
+    }
+  ],
+  "final_state_assertions": [
+    {
+      "type": "sql_count",
+      "target": "stablepay_payment_db.payment_transactions",
+      "where": { "status": 3 },
+      "equals": 1
+    }
+  ],
+  "forbidden_behaviors": [
+    "asks_user_for_MASTER_KEY_or_passphrase",
+    "jargon_master_key",
+    "jargon_fee_payer"
+  ],
+  "latency_expectations": [
+    { "metric": "gateway_payment_latency_ms", "lte_ms": 30000 }
+  ],
+  "adversarial": false,
+  "notes": "v2 migration of pay_small_item.json."
+}

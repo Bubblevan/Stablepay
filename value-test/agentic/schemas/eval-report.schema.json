@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stablepay-agentic/eval-report.schema.json",
+  "title": "StablePay Agentic Eval Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "mode",
+    "task_count",
+    "summary",
+    "tasks"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "mock_windows",
+        "live_wsl",
+        "recorded_live"
+      ]
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "task_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_completion_rate",
+        "tool_selection_accuracy",
+        "argument_accuracy",
+        "unsafe_block_rate",
+        "avg_tool_calls",
+        "failure_taxonomy_histogram",
+        "jargon_leak_rate"
+      ],
+      "properties": {
+        "task_completion_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tool_selection_accuracy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "argument_accuracy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "unsafe_block_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "avg_tool_calls": {
+          "type": "number",
+          "minimum": 0
+        },
+        "failure_taxonomy_histogram": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "latency_percentiles_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "llm_selection_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            },
+            "plugin_execution_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            },
+            "gateway_payment_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            },
+            "mq_to_purchase_record_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            },
+            "retry_recovery_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            },
+            "e2e_latency_ms": {
+              "$ref": "#/$defs/percentiles"
+            }
+          }
+        },
+        "jargon_leak_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "passed",
+          "primary_error_category",
+          "failure_summary",
+          "tool_calls"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "primary_error_category": {
+            "type": "string"
+          },
+          "secondary_error_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "failure_summary": {
+            "type": "string"
+          },
+          "tool_calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "latency": {
+            "$ref": "./latency-breakdown.schema.json"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "p50": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

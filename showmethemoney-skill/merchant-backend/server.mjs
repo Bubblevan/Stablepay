@@ -29,8 +29,13 @@ const INTERNAL_BASE_URL = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:818
 // Facilitator 配置（x402 标准）
 const FACILITATOR_URL = process.env.FACILITATOR_URL || "https://ai.wenfu.cn";
 
-// USDC 合约地址 (Solana Mainnet)
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+// Solana mainnet (CAIP-2). x402 does not carry an RPC URL — clients use platform defaults.
+const SOLANA_CAIP2_NETWORK =
+  process.env.SOLANA_CAIP2_NETWORK || "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+// USDC mint (Solana mainnet)
+const USDC_MINT =
+  process.env.USDC_MINT_MAINNET || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 // 报告商店配置
 const REPORT_STORE_URL = process.env.REPORT_STORE_URL || "http://127.0.0.1:8788";
@@ -143,7 +148,7 @@ function buildX402PaymentRequired() {
     accepts: [
       {
         scheme: "exact",
-        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        network: SOLANA_CAIP2_NETWORK,
         maxAmountRequired: usdcToMinorUnits(PRICE),
         payTo: sellerAddress,
         asset: USDC_MINT,
@@ -155,6 +160,7 @@ function buildX402PaymentRequired() {
           currency: CURRENCY,
           skillDid: SKILL_DID,
           skillName: SKILL_NAME,
+          chain: "mainnet-beta",
         }
       }
     ],
@@ -361,7 +367,7 @@ async function handleExecute(req, res, url, headers, startTime) {
       accepts: [
         {
           scheme: "exact",
-          network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+          network: SOLANA_CAIP2_NETWORK,
           maxAmountRequired: usdcToMinorUnits(PRICE),
           payTo: sellerAddress,
           asset: USDC_MINT,
@@ -373,6 +379,7 @@ async function handleExecute(req, res, url, headers, startTime) {
             currency: CURRENCY,
             skillDid: SKILL_DID,
             skillName: SKILL_NAME,
+            chain: "mainnet-beta",
           }
         }
       ],

@@ -661,6 +661,31 @@ pre, code { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, 
   font-weight: 500;
 }
 
+.code-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+  margin-top: -8px;
+}
+
+.platform-notes {
+  margin-top: 20px;
+  padding: 16px 20px;
+  background: var(--bg-soft);
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+}
+
+.platform-notes p {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.platform-notes p:last-child {
+  margin-bottom: 0;
+}
+
 .config-notes {
   margin: 16px 0 0;
   padding-left: 20px;

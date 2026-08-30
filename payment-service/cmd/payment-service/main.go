@@ -49,8 +49,14 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to connect to MySQL", zap.Error(err))
 	}
-	if err := mysql.AutoMigrate(db); err != nil {
-		logger.Fatal("Failed to auto migrate MySQL tables", zap.Error(err))
+	if cfg.App.Env == "local" {
+		if err := mysql.AutoMigrate(db); err != nil {
+			logger.Fatal("Failed to auto migrate MySQL tables", zap.Error(err))
+		}
+	} else {
+		logger.Info("Skip MySQL AutoMigrate outside local environment",
+			zap.String("env", cfg.App.Env),
+		)
 	}
 
 	redisClient, err := redis.NewRedisClient(cfg)

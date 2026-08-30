@@ -9,7 +9,7 @@ StablePay 基于 W3C did:solana 标准提供去中心化支付解决方案，采
 
 - StablePay Skill（客户端）：运行在 OpenClaw 中，所有用户交互通过对话完成，无需复杂界面操作
 - StablePay API（服务端）：处理支付验证、链上交易、记录管理等核心功能
-- StablePay 网站（https://stablepay.co/ai）：展示代码模板和产品介绍，无需用户注册/登录
+- StablePay 网站（https://ai.wenfu.cn/ai）：展示代码模板和产品介绍，无需用户注册/登录
   
 一期产品仅支持 Solana 主网，使用 USDC/USDT 作为支付货币，后续将扩展至以太坊等其他区块链网络。
 
@@ -146,7 +146,7 @@ P0
 3. 用户回复："创建"
 4. StablePay skill 调用 API，生成 Solana 钱包和 DID
 5. Agent 回复："钱包创建成功！你的 DID 是 did:solana:xxxxx，钱包地址是 xxxxx"
-6. Agent 继续提示："为了防止滥用，需要绑定你的 X 账号。请访问验证页面：https://stablepay.co/verify?did=xxxxx"
+6. Agent 继续提示："为了防止滥用，需要绑定你的 X 账号。请访问验证页面：https://ai.wenfu.cn/verify?did=xxxxx"
 7. 用户访问验证页面，看到三个步骤：
   - 步骤 1：点击"Post Verification Tweet"按钮
   - 步骤 2：在 X 平台自动发布验证推文（内容包含 DID）
@@ -325,7 +325,7 @@ P0
 2.2.2.1 支付代码获取与集成
 
 功能描述：
-开发者访问 StablePay 官网（https://stablepay.co/ai），复制支付代码模板，将模板中的 {SKILL_DID} 替换为自己的 Solana 钱包地址，插入到 skill.md 文件中。
+开发者访问 StablePay 官网（https://ai.wenfu.cn/ai），复制支付代码模板，将模板中的 {SKILL_DID} 替换为自己的 Solana 钱包地址，插入到 skill.md 文件中。
 
 用户价值：
 
@@ -335,7 +335,7 @@ P0
   
 功能流程：
 
-1. 开发者访问 https://stablepay.co/ai
+1. 开发者访问 https://ai.wenfu.cn/ai
 2. 网站展示支付代码模板：
 ```Plain Text
 ## 💰 StablePay 支付
@@ -573,7 +573,7 @@ Authorization: StablePay signature=xxx, agent_did=did:solana:user456```
 
 1. 用户访问验证页面
   
-  - URL 格式：https://stablepay.co/verify?did={USER_DID}
+  - URL 格式：https://ai.wenfu.cn/verify?did={USER_DID}
   - 页面展示三个步骤和当前状态
 2. 步骤 1：发布验证推文
   
@@ -702,7 +702,7 @@ Agent："正在生成钱包...
 - 当前余额：0 USDC
 
 接下来需要绑定你的 X 账号以完成注册。请访问验证页面：
-https://stablepay.co/verify?did=did:solana:4fK9x2Hy...
+https://ai.wenfu.cn/verify?did=did:solana:4fK9x2Hy...
 
 （点击上方链接自动打开）"
 
@@ -837,7 +837,7 @@ Agent："正在检查 skill 信息...
   - 获得 DID 和钱包地址
 2. 获取支付代码模板
   
-  - 访问 https://stablepay.co/ai（无需注册）
+  - 访问 https://ai.wenfu.cn/ai（无需注册）
   - 查看代码模板和集成说明
   - 复制模板
 3. 修改并集成代码
@@ -963,7 +963,7 @@ Agent："✅ 钱包创建成功！
 - 当前余额：0 USDC
 
 接下来需要绑定 X 账号。请访问验证页面：
-https://stablepay.co/verify?did=did:solana:4fK9x2..."
+https://ai.wenfu.cn/verify?did=did:solana:4fK9x2..."
 
 小李："已打开验证页面"
 Agent："请按照页面提示完成验证：
@@ -1055,7 +1055,7 @@ Agent："StablePay skill 已安装。是否创建钱包？"
 Agent："✅ 钱包创建成功！DID：did:solana:dev123...
 
 接下来需要绑定 X 账号。请访问验证页面：
-https://stablepay.co/verify?did=did:solana:dev123..."
+https://ai.wenfu.cn/verify?did=did:solana:dev123..."
 
 （小张完成 X 账号验证）
 
@@ -1065,7 +1065,7 @@ Agent："✅ X 账号绑定成功！
 - 当前余额：1 USDC"```
 2. 访问 StablePay 官网
   
-  - 小张访问 https://stablepay.co/ai
+  - 小张访问 https://ai.wenfu.cn/ai
   - 查看代码模板：
 ```Plain Text
 ## 💰 StablePay 支付

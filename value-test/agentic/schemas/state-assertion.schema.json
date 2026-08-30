@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stablepay-agentic/state-assertion.schema.json",
+  "title": "StablePay Agentic State Assertion",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target",
+        "where",
+        "equals"
+      ],
+      "properties": {
+        "type": {
+          "const": "sql_count"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "where": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "equals": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target",
+        "field",
+        "equals"
+      ],
+      "properties": {
+        "type": {
+          "const": "query_field_equals"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equals": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target",
+        "currency",
+        "expected_delta_minor"
+      ],
+      "properties": {
+        "type": {
+          "const": "balance_delta"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "USDC",
+            "USDT"
+          ]
+        },
+        "expected_delta_minor": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "metric",
+        "lte_ms"
+      ],
+      "properties": {
+        "type": {
+          "const": "timeout_lte"
+        },
+        "metric": {
+          "type": "string",
+          "enum": [
+            "gateway_payment_latency_ms",
+            "mq_to_purchase_record_latency_ms",
+            "retry_recovery_latency_ms",
+            "e2e_latency_ms"
+          ]
+        },
+        "lte_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "expected_status"
+      ],
+      "properties": {
+        "type": {
+          "const": "final_status"
+        },
+        "expected_status": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  ]
+}

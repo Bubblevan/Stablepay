@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stablepay-agentic/task-v2.schema.json",
+  "title": "StablePay Agentic Task v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "class",
+    "scenario",
+    "mode",
+    "user_prompt",
+    "initial_fixture",
+    "expected_tool_set",
+    "expected_tool_order_constraints",
+    "argument_assertions",
+    "final_state_assertions",
+    "forbidden_behaviors"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "task-v2"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "final",
+        "trajectory",
+        "step"
+      ]
+    },
+    "scenario": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "mock_windows",
+          "live_wsl",
+          "recorded_live"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "user_prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "initial_fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "doctor",
+        "plugin_state",
+        "backend_state"
+      ],
+      "properties": {
+        "doctor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugin_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend_state": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expected_tool_set": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^stablepay_[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    },
+    "expected_tool_order_constraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "argument_assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "path",
+          "operator",
+          "value"
+        ],
+        "properties": {
+          "tool": {
+            "type": "string",
+            "pattern": "^stablepay_[a-z0-9_]+$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "equals",
+              "not_equals",
+              "exists",
+              "not_exists",
+              "lte",
+              "gte",
+              "in"
+            ]
+          },
+          "value": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null",
+              "array"
+            ]
+          }
+        }
+      }
+    },
+    "final_state_assertions": {
+      "type": "array",
+      "items": {
+        "$ref": "./state-assertion.schema.json"
+      }
+    },
+    "forbidden_behaviors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "expected_failure_category": {
+      "type": "string",
+      "enum": [
+        "wrong_tool_selection",
+        "wrong_argument",
+        "missing_confirmation",
+        "local_state_mismatch",
+        "backend_security_rejection",
+        "mq_async_consistency_timeout",
+        "insufficient_balance",
+        "environment_flakiness",
+        "judge_bug"
+      ]
+    },
+    "latency_expectations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "lte_ms"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "llm_selection_latency_ms",
+              "plugin_execution_latency_ms",
+              "gateway_payment_latency_ms",
+              "mq_to_purchase_record_latency_ms",
+              "retry_recovery_latency_ms",
+              "e2e_latency_ms"
+            ]
+          },
+          "lte_ms": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "adversarial": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

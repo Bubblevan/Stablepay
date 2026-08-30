@@ -16,6 +16,12 @@ hotwallet.json
 **/.vite/
 **/.cache/
 **/.parcel-cache/
+**/.atomcode/
+
+# Local data and generated evaluation artifacts
+merchant/data/
+**/evals/reports/
+reports/
 
 # Build and test artifacts
 **/bin/

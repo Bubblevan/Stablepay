@@ -129,8 +129,28 @@ export const translations = {
     quickStart: {
       eyebrow: 'Get Started',
       title: 'Quick Start Guide',
+      openclawInstall: {
+        title: '0. Install OpenClaw (if not installed)',
+        desc: 'OpenClaw is the AI agent runtime that powers StablePay. If you haven\'t installed it yet, follow these steps:',
+        nodeReq: 'Step 1 — Install Node.js (required: >= 22.16)',
+        nodeCmd: 'curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -\nsudo apt install -y nodejs\nnode -v',
+        methodTitle: 'Step 2 — Install OpenClaw (choose one)',
+        scriptOption: '🔹 One-click script (recommended for beginners)',
+        scriptCmd: 'curl -fsSL https://openclaw.ai/install.sh | bash',
+        scriptCn: 'China mirror:',
+        scriptCnCmd: 'curl -fsSL https://open-claw.org.cn/install-cn.sh | bash',
+        npmOption: '🔹 npm global install (if Node.js is already set up)',
+        npmCmd: 'sudo npm install -g openclaw@latest',
+        onboard: 'Step 3 — Run configuration wizard:',
+        onboardCmd: 'openclaw onboard --install-daemon',
+        verify: 'Step 4 — Verify installation:',
+        verifyCmd: 'openclaw --version\nopenclaw daemon status',
+        windows: '💡 Windows: install WSL2 (Ubuntu) first, then run the Linux commands above.',
+        mac: '💡 macOS: the commands above work natively. Homebrew users can also use `brew install node` first.',
+        linux: '💡 Linux: the commands above work directly on Debian/Ubuntu.'
+      },
       install: {
-        title: '1. Install Plugin & Configure',
+        title: '1. Install StablePay Plugin',
         desc: 'Install the StablePay plugin in OpenClaw by entering the command below:'
       },
       wallet: {
@@ -151,7 +171,9 @@ export const translations = {
         user2: 'Create one',
         agent2: 'Wallet created successfully!\nNew wallet info:\nAddress: 6Hhpdd8NWDN5D3rt8cGYoR24Fwfcrb2QC4s6Fz6qTqJB\nDID: did:solana:6Hhpdd8NWDN5D3rt8cGYoR24Fwfcrb2QC4s6Fz6qTqJB\nWallet name: stablepay-your_name\n\nWould you like to configure payment limits next?',
         user3: 'Configure it',
-        agent3: 'Configuration complete!\nPayment limits:\nSingle purchase limit: 10 USDC\nAuto-pay threshold: 1 USDC (below this auto-confirms, above requires manual approval)\nCurrency: USDC\n\nConfiguration complete. You can now:\n\n1. Query balance\nstablepay_query_balance --did did:solana:...\n\n2. Execute paid skill\nstablepay_execute_paid_skill_demo\n\n3. Pay via gateway\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. Query sales records\nstablepay_query_sales --skill_did xxx'
+        agent3: 'Configuration complete!\nPayment limits:\nSingle purchase limit: 10 USDC\nAuto-pay threshold: 1 USDC (below this auto-confirms, above requires manual approval)\nCurrency: USDC\n\nConfiguration complete. You can now:\n\n1. Query balance\nstablepay_query_balance --did did:solana:...\n\n2. Execute paid skill\nstablepay_execute_paid_skill_demo\n\n3. Pay via gateway\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. Query sales records\nstablepay_query_sales --skill_did xxx',
+        user4: 'OK, can I check what merchant products are available? What products do you have?',
+        agent4: 'Currently there is 1 product:\n\n**Labubu Figure**\nPrice: 0.02 USDC\nTags: 潮玩, Labubu, Blind Box\nStatus: active (in stock)\nImage: https://img.cdn1.vip/i/6a2d8a1f0571f_1781369375.webp\n\nWould you like to buy one?'
       },
       merchant: {
         title: '5. Try the Merchant Demo',
@@ -169,7 +191,7 @@ export const translations = {
       faqs: [
         {
           q: 'How do I install the StablePay OpenClaw plugin?',
-          a: 'Install the plugin in OpenClaw with: openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install. After installation, create ~/.openclaw/.env and configure the local encryption key and platform fee payer settings required by the plugin.',
+          a: 'Install the plugin in OpenClaw with: openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.19 --force --dangerously-force-unsafe-install. After installation, create ~/.openclaw/.env and configure the local encryption key and platform fee payer settings required by the plugin.',
         },
         {
           q: 'What does the local master key do?',
@@ -347,8 +369,28 @@ export const translations = {
     quickStart: {
       eyebrow: '快速开始',
       title: '快速上手指南',
+      openclawInstall: {
+        title: '0. 安装 OpenClaw（如未安装）',
+        desc: 'OpenClaw 是 StablePay 所依赖的 AI Agent 运行时。如果尚未安装，请按以下步骤操作：',
+        nodeReq: '第一步 — 安装 Node.js（需要 >= 22.16）',
+        nodeCmd: 'curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -\nsudo apt install -y nodejs\nnode -v',
+        methodTitle: '第二步 — 安装 OpenClaw（二选一）',
+        scriptOption: '🔹 一键脚本安装（推荐新手）',
+        scriptCmd: 'curl -fsSL https://openclaw.ai/install.sh | bash',
+        scriptCn: '国内加速镜像：',
+        scriptCnCmd: 'curl -fsSL https://open-claw.org.cn/install-cn.sh | bash',
+        npmOption: '🔹 npm 全局安装（适合已有 Node 环境）',
+        npmCmd: 'sudo npm install -g openclaw@latest',
+        onboard: '第三步 — 运行配置向导：',
+        onboardCmd: 'openclaw onboard --install-daemon',
+        verify: '第四步 — 验证安装：',
+        verifyCmd: 'openclaw --version\nopenclaw daemon status',
+        windows: '💡 Windows：请先安装 WSL2（推荐 Ubuntu），然后在 WSL 终端中执行以上 Linux 命令。',
+        mac: '💡 macOS：以上命令可直接在终端中执行，也可先用 `brew install node` 安装 Node.js。',
+        linux: '💡 Linux：Debian/Ubuntu 可直接执行以上命令。'
+      },
       install: {
-        title: '1. 安装插件与配置',
+        title: '1. 安装 StablePay 插件',
         desc: '在 OpenClaw 中安装 StablePay 插件：（请在终端中输入）'
       },
       wallet: {
@@ -369,7 +411,9 @@ export const translations = {
         user2: '创建一个',
         agent2: '钱包创建成功！\n新钱包信息：\n地址：123456789abcdefghijklmnopqrsduvwxyz\nDID：did:solana:123456789abcdefghijklmnopqrsduvwxyz\n钱包名：stablepay-your_name\n\n接下来需要配置支付限额吗？',
         user3: '配置一下',
-        agent3: '配置完成！\n支付限额设置：\n单次购买上限：10 USDC\n自动支付阈值：1 USDC（低于此金额自动确认，高于需手动确认）\n货币：USDC\n\n配置完成了。现在你可以：\n\n1. 查询余额\nstablepay_query_balance --did did:solana:...\n\n2. 执行付费技能\nstablepay_execute_paid_skill_demo\n\n3. 通过网关支付\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. 查询销售记录\nstablepay_query_sales --skill_did xxx'
+        agent3: '配置完成！\n支付限额设置：\n单次购买上限：10 USDC\n自动支付阈值：1 USDC（低于此金额自动确认，高于需手动确认）\n货币：USDC\n\n配置完成了。现在你可以：\n\n1. 查询余额\nstablepay_query_balance --did did:solana:...\n\n2. 执行付费技能\nstablepay_execute_paid_skill_demo\n\n3. 通过网关支付\nstablepay_pay_via_gateway --skill_name xxx --price 1.00\n\n4. 查询销售记录\nstablepay_query_sales --skill_did xxx',
+        user4: 'OK那应该可以查看一下商家商品吧？现在有哪些商品呢？',
+        agent4: '当前商家只有 1 个商品：\n\n**Labubu公仔**\n价格：0.02 USDC\n标签：潮玩、Labubu、盲盒\n状态：active（在售）\n图片：https://img.cdn1.vip/i/6a2d8a1f0571f_1781369375.webp\n\n需要我帮你购买吗？'
       },
       merchant: {
         title: '3. 体验商家示例（可选）',
@@ -387,7 +431,7 @@ export const translations = {
       faqs: [
         {
           q: '如何安装 StablePay OpenClaw 插件？',
-          a: '在 OpenClaw 中执行安装命令：openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.11 --force --dangerously-force-unsafe-install。安装完成后，创建 ~/.openclaw/.env 文件，并配置插件需要读取的本地加密密钥和平台 fee payer 设置。'
+          a: '在 OpenClaw 中执行安装命令：openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.19 --force --dangerously-force-unsafe-install。安装完成后，创建 ~/.openclaw/.env 文件，并配置插件需要读取的本地加密密钥和平台 fee payer 设置。'
         },
         {
           q: '本地 master key 是做什么的？',

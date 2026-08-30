@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stablepay-agentic/latency-breakdown.schema.json",
+  "title": "StablePay Agentic Latency Breakdown",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "timestamps",
+    "durations_ms"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "mock_windows",
+        "live_wsl",
+        "recorded_live"
+      ]
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "t_prompt_start",
+        "t_llm_decision",
+        "t_tool_exec_start",
+        "t_tool_exec_end",
+        "t_gateway_request_start",
+        "t_gateway_response_end",
+        "t_payment_event_publish",
+        "t_purchase_record_visible",
+        "t_task_complete"
+      ],
+      "properties": {
+        "t_prompt_start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_llm_decision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_tool_exec_start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_tool_exec_end": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_gateway_request_start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_gateway_response_end": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_payment_event_publish": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_purchase_record_visible": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "t_task_complete": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "durations_ms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "llm_selection_latency_ms",
+        "plugin_execution_latency_ms",
+        "gateway_payment_latency_ms",
+        "mq_to_purchase_record_latency_ms",
+        "retry_recovery_latency_ms",
+        "e2e_latency_ms"
+      ],
+      "properties": {
+        "llm_selection_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "plugin_execution_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "gateway_payment_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "mq_to_purchase_record_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "retry_recovery_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "e2e_latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "clock_note": {
+      "type": "string"
+    }
+  }
+}

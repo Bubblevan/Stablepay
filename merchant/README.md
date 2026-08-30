@@ -72,14 +72,14 @@ merchant/
 
 ---
 
-## API 接口（规划中）
+## API 接口
 
 | 方法 | 路径 | 说明 | 状态 |
 |------|------|------|------|
 | GET | `/healthz` | 健康检查 | ✅ 可用 |
 | GET | `/api/v1/products` | 商品列表 | 🔜 第2步 |
 | GET | `/api/v1/products/:id` | 商品详情 | 🔜 第2步 |
-| GET | `/api/v1/products/:id/execute` | 执行购买(x402) | 🔜 第3步 |
+| GET | `/api/v1/products/{id}/execute?agent_did={did}` | 执行购买(x402) | 🔜 第3步 |
 
 ## 相关项目
 

@@ -277,9 +277,9 @@ func scanProduct(row productScanner) (*entity.Product, error) {
 		&p.Currency,
 		&p.Author,
 		&tagsJSON,
+		&p.ImageURL,
 		&status,
 		&p.SkillDid,
-		&p.ImageURL,
 		&createdAt,
 		&updatedAt,
 	); err != nil {

@@ -1,0 +1,34 @@
+# Root build context is only used by payment-service Dockerfile.
+# Keep required directories, ignore everything else.
+*
+!payment-service/**
+!blockchain-adapter/**
+
+# Exclude heavy artifacts inside included dirs
+payment-service/.git
+payment-service/.git/**
+payment-service/vendor
+payment-service/vendor/**
+payment-service/*.exe
+payment-service/**/bin
+payment-service/**/dist
+payment-service/**/tmp
+payment-service/**/coverage
+payment-service/.cursor
+payment-service/.cursor/**
+payment-service/.idea
+payment-service/.idea/**
+
+blockchain-adapter/.git
+blockchain-adapter/.git/**
+blockchain-adapter/vendor
+blockchain-adapter/vendor/**
+blockchain-adapter/*.exe
+blockchain-adapter/**/bin
+blockchain-adapter/**/dist
+blockchain-adapter/**/tmp
+blockchain-adapter/**/coverage
+blockchain-adapter/.cursor
+blockchain-adapter/.cursor/**
+blockchain-adapter/.idea
+blockchain-adapter/.idea/**

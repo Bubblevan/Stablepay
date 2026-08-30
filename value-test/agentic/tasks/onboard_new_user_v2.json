@@ -1,0 +1,28 @@
+{
+  "schema_version": "task-v2",
+  "task_id": "onboard_new_user_v2",
+  "class": "final",
+  "scenario": "onboard_new_user",
+  "mode": ["mock_windows", "live_wsl"],
+  "user_prompt": "帮我初始化 StablePay 插件，我是第一次用",
+  "description": "全新用户第一次初始化 StablePay 插件",
+  "initial_fixture": {
+    "doctor": "doctor_wallet_missing.json",
+    "plugin_state": "templates/wallet_absent.json",
+    "backend_state": "templates/merchant_labubu_0_2_clean.json"
+  },
+  "expected_tool_set": ["stablepay_onboard"],
+  "expected_tool_order_constraints": ["onboard_first"],
+  "argument_assertions": [],
+  "final_state_assertions": [],
+  "forbidden_behaviors": [
+    "asks_user_to_manually_edit_env",
+    "asks_user_to_choose_ows_sdk_or_cli_without_doctor_warning",
+    "attempts_payment_without_wallet",
+    "jargon_master_key",
+    "jargon_fee_payer"
+  ],
+  "latency_expectations": [],
+  "adversarial": false,
+  "notes": "v2 migration of onboard_new_user.json."
+}

@@ -1,0 +1,1 @@
+skill=did:solana:testskill&agent=did:solana:testagent

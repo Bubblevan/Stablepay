@@ -501,12 +501,53 @@ function QuickStart() {
           <div className="eyebrow">{t.quickStart.eyebrow}</div>
           <h2>{t.quickStart.title}</h2>
         </div>
+        {/* Step 0: Install OpenClaw */}
+        <div className="quickstart-step">
+          <h3>{t.quickStart.openclawInstall.title}</h3>
+          <p>{t.quickStart.openclawInstall.desc}</p>
+
+          <p><strong>{t.quickStart.openclawInstall.nodeReq}</strong></p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.nodeCmd}</pre>
+          </div>
+
+          <p><strong>{t.quickStart.openclawInstall.methodTitle}</strong></p>
+          <p>{t.quickStart.openclawInstall.scriptOption}</p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.scriptCmd}</pre>
+          </div>
+          <p className="code-label">{t.quickStart.openclawInstall.scriptCn}</p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.scriptCnCmd}</pre>
+          </div>
+          <p>{t.quickStart.openclawInstall.npmOption}</p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.npmCmd}</pre>
+          </div>
+
+          <p><strong>{t.quickStart.openclawInstall.onboard}</strong></p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.onboardCmd}</pre>
+          </div>
+
+          <p><strong>{t.quickStart.openclawInstall.verify}</strong></p>
+          <div className="code-block">
+            <pre>{t.quickStart.openclawInstall.verifyCmd}</pre>
+          </div>
+
+          <div className="platform-notes">
+            <p>{t.quickStart.openclawInstall.windows}</p>
+            <p>{t.quickStart.openclawInstall.mac}</p>
+            <p>{t.quickStart.openclawInstall.linux}</p>
+          </div>
+        </div>
+
         {/* Step 1: Install Plugin */}
         <div className="quickstart-step">
           <h3>{t.quickStart.install.title}</h3>
           <p>{t.quickStart.install.desc}</p>
           <div className="code-block">
-            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.18 --force --dangerously-force-unsafe-install`}</pre>
+            <pre>{`openclaw plugins install clawhub:stablepay-agentpay-dev@0.3.19 --force --dangerously-force-unsafe-install`}</pre>
           </div>
         </div>
 
@@ -544,6 +585,14 @@ function QuickStart() {
             <div className="chat-bubble agent">
               <span className="chat-label">OpenClaw:</span>
               <pre>{t.quickStart.example.agent3}</pre>
+            </div>
+            <div className="chat-bubble user">
+              <span className="chat-label">User:</span>
+              <p>{t.quickStart.example.user4}</p>
+            </div>
+            <div className="chat-bubble agent">
+              <span className="chat-label">OpenClaw:</span>
+              <pre>{t.quickStart.example.agent4}</pre>
             </div>
           </div>
         </div>

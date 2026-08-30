@@ -1,0 +1,21 @@
+{
+  "fixture_type": "backend_state",
+  "fixture_id": "duplicate_replay_clean",
+  "merchant": {
+    "sku_id": "labubu",
+    "price": "0.2",
+    "currency": "USDC",
+    "seller_skill_did": "did:solana:merchant-labubu"
+  },
+  "database_preconditions": {
+    "payment_transactions_count": 0,
+    "payment_idempotency_keys_count": 0,
+    "purchase_records_count": 0
+  },
+  "security_expectations": {
+    "duplicate_nonce_should_be_rejected": true,
+    "same_idempotency_same_payload_should_coalesce": true,
+    "same_idempotency_different_payload_should_fail": true
+  },
+  "notes": "Backend fixture for replay and idempotency boundary cases."
+}

@@ -364,6 +364,7 @@ spec:
       labels:
         app: stablepay-rocketmq-broker
     spec:
+      nodeName: cn-hangzhou.10.25.60.203
       imagePullSecrets:
         - name: acr-secret
       containers:

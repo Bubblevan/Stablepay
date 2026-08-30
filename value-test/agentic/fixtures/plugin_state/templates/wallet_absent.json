@@ -1,0 +1,16 @@
+{
+  "fixture_type": "plugin_state",
+  "fixture_id": "wallet_absent",
+  "state_version": 1,
+  "master_key_fingerprint": null,
+  "wallet": null,
+  "did_registration": {
+    "registered": false,
+    "backend_did": null
+  },
+  "payment_limits": null,
+  "diagnostic_flags": [
+    "wallet_missing"
+  ],
+  "notes": "No local wallet is present. Onboarding is expected."
+}

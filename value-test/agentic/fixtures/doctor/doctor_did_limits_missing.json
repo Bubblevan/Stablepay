@@ -1,0 +1,14 @@
+{
+  "comment": "Simulated doctor report: DID missing, limits missing, wallet exists",
+  "checks": [
+    { "name": "插件加载", "ok": true, "severity": "info", "required": false },
+    { "name": "后端网关", "ok": true, "severity": "error", "required": true },
+    { "name": "本地加密密钥", "ok": true, "severity": "info", "required": true },
+    { "name": "签名驱动", "ok": true, "severity": "info", "required": false },
+    { "name": "本地钱包", "ok": true, "severity": "info", "required": true },
+    { "name": "DID 注册", "ok": false, "severity": "warning", "required": false },
+    { "name": "支付限额", "ok": false, "severity": "warning", "required": false }
+  ],
+  "all_ok": false,
+  "blocking_issue_count": 0
+}

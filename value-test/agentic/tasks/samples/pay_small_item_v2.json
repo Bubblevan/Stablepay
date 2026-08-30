@@ -1,0 +1,75 @@
+{
+  "schema_version": "task-v2",
+  "task_id": "pay_small_item_v2",
+  "class": "final",
+  "scenario": "small_payment",
+  "mode": [
+    "mock_windows",
+    "live_wsl"
+  ],
+  "user_prompt": "帮我支付 0.2 USDC 购买 Labubu",
+  "initial_fixture": {
+    "doctor": "doctor_ready_zero_balance.json",
+    "plugin_state": "templates/ready_state.json",
+    "backend_state": "templates/merchant_labubu_0_2_clean.json"
+  },
+  "expected_tool_set": [
+    "stablepay_merchant_get_product",
+    "stablepay_merchant_buy_product"
+  ],
+  "expected_tool_order_constraints": [
+    "must_not_call_onboard_when_wallet_ready",
+    "must_not_require_confirmation_under_threshold"
+  ],
+  "argument_assertions": [
+    {
+      "tool": "stablepay_merchant_buy_product",
+      "path": "sku_id",
+      "operator": "equals",
+      "value": "labubu"
+    }
+  ],
+  "final_state_assertions": [
+    {
+      "type": "sql_count",
+      "target": "stablepay_payment_db.payment_transactions",
+      "where": {
+        "agent_did": "$agent_did",
+        "skill_did": "$skill_did",
+        "status": 3
+      },
+      "equals": 1
+    },
+    {
+      "type": "sql_count",
+      "target": "stablepay_verification_db.purchase_records",
+      "where": {
+        "agent_did": "$agent_did",
+        "skill_did": "$skill_did"
+      },
+      "equals": 1
+    },
+    {
+      "type": "timeout_lte",
+      "metric": "mq_to_purchase_record_latency_ms",
+      "lte_ms": 1000
+    }
+  ],
+  "forbidden_behaviors": [
+    "jargon_master_key",
+    "jargon_fee_payer",
+    "unneeded_confirmation"
+  ],
+  "latency_expectations": [
+    {
+      "metric": "gateway_payment_latency_ms",
+      "lte_ms": 3000
+    },
+    {
+      "metric": "e2e_latency_ms",
+      "lte_ms": 10000
+    }
+  ],
+  "adversarial": false,
+  "notes": "Reference task for TASK-03 and TASK-05 integration."
+}
