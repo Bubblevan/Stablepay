@@ -21,8 +21,6 @@ type VerificationServiceClient interface {
 	Verify(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
 	BatchVerify(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
 	GetProof(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
-	VerifyXTweet(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
-	GetXVerificationStatus(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
 }
 
 type QueryServiceClient interface {

@@ -1,4 +1,4 @@
-module verification-service
+module github.com/stablepay/verification-service
 
 go 1.26.1
 
@@ -25,7 +25,6 @@ require (
 	github.com/cloudwego/runtimex v0.1.1 // indirect
 	github.com/cloudwego/thriftgo v0.4.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dghubble/oauth1 v0.7.3 // indirect
 	github.com/emirpasic/gods v1.12.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect

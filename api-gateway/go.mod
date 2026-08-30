@@ -1,4 +1,4 @@
-module stablepay/api-gateway
+module github.com/stablepay/api-gateway
 
 go 1.25.0
 

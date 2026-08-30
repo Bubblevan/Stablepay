@@ -9,10 +9,10 @@ import (
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/retry"
-	"stablepay/api-gateway/internal/application"
-	"stablepay/api-gateway/kitex_gen/stablepay/common"
-	"stablepay/api-gateway/kitex_gen/stablepay/query_service"
-	"stablepay/api-gateway/kitex_gen/stablepay/query_service/queryservice"
+	"github.com/stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/query_service"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/query_service/queryservice"
 )
 
 // KitexQueryClient 通过 Kitex RPC 调用 query-service（默认监听 8084）。

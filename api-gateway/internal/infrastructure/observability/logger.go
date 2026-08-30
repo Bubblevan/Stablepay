@@ -3,7 +3,7 @@ package observability
 import (
 	commonlog "code.wenfu.cn/stablepayai/stablepay-common/log"
 	"go.uber.org/zap"
-	"stablepay/api-gateway/internal/infrastructure/config"
+	"github.com/stablepay/api-gateway/internal/infrastructure/config"
 )
 
 type Logger struct {

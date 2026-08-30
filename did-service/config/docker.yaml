@@ -1,0 +1,24 @@
+# Docker development defaults. Production should mount a secret-managed file
+# and set CONFIG_PATH to that file.
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+log:
+  level: "info"
+  format: "json"
+
+database:
+  host: "stablepay-mysql"
+  port: 3306
+  user: "stablepay"
+  password: "stablepay123"
+  dbname: "stablepay_did_db"
+  charset: "utf8mb4"
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 3600
+
+encryption:
+  # Development-only key; replace through a mounted CONFIG_PATH in production.
+  key: "0123456789abcdef0123456789abcdef"

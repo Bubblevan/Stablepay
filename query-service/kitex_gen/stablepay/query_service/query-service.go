@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
-	"query-service/kitex_gen/stablepay/common"
+	"github.com/stablepay/query-service/kitex_gen/stablepay/common"
 )
 
 type TransactionType int64

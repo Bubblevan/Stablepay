@@ -15,7 +15,7 @@ coverage.out
 vendor/
 
 # Secrets & env（热钱包等勿提交）
-conf/hotwallet.json
+config/hotwallet.json
 .env
 .env.*
 !.env.example

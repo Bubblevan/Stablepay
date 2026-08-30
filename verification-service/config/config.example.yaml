@@ -1,0 +1,4 @@
+# verification-service currently reads connection settings from environment variables.
+# Keep this file as the stable configuration entry point for the next migration.
+server:
+  rpc_address: ":8085"

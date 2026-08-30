@@ -46,6 +46,7 @@ type PaymentApplicationService struct {
 	paymentValidator *service.PaymentValidator
 	nonceChecker     *service.NonceChecker
 	idempotencyGen   *service.IdempotencyKeyGenerator
+	agentHarness     *AgentPaymentHarness
 
 	// 基础设施
 	blockchainExec BlockchainExecutor
@@ -76,6 +77,8 @@ type PaymentConfig struct {
 
 	// InternalApiKey internal 端点鉴权密钥。空时 handler 直接 403。
 	InternalApiKey string
+
+	AgentHarness *AgentHarnessConfig
 }
 
 // ExpectedInternalAPIKey 返回 internal 端点鉴权密钥(供 handler 校验 X-Internal-Api-Key header)。
@@ -94,6 +97,18 @@ func NewPaymentApplicationService(
 	config *PaymentConfig,
 	logger *zap.Logger,
 ) *PaymentApplicationService {
+	if config == nil {
+		config = &PaymentConfig{}
+	}
+	if config.PollIntervalSeconds <= 0 {
+		config.PollIntervalSeconds = 3
+	}
+	if config.MaxPollCount <= 0 {
+		config.MaxPollCount = 20
+	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &PaymentApplicationService{
 		paymentRepo:      paymentRepo,
 		idempotencyRepo:  idempotencyRepo,
@@ -105,6 +120,34 @@ func NewPaymentApplicationService(
 		config:           config,
 		logger:           logger,
 	}
+}
+
+// SetAgentHarness installs the policy boundary after infrastructure wiring.
+// Keeping this explicit makes the trust boundary visible in composition root.
+func (s *PaymentApplicationService) SetAgentHarness(harness *AgentPaymentHarness) {
+	s.agentHarness = harness
+}
+
+func (s *PaymentApplicationService) CreatePaymentIntent(ctx context.Context, req *dto.CreatePaymentIntentRequest) (*dto.CreatePaymentIntentResponse, error) {
+	if s.agentHarness == nil {
+		return nil, errors.New(errors.PERMISSION_DENIED, "agent payment harness is not configured")
+	}
+	return s.agentHarness.Create(ctx, req)
+}
+
+func (s *PaymentApplicationService) ApprovePaymentIntent(ctx context.Context, req *dto.ApprovePaymentIntentRequest) (*dto.ApprovePaymentIntentResponse, error) {
+	if s.agentHarness == nil {
+		return nil, errors.New(errors.PERMISSION_DENIED, "agent payment harness is not configured")
+	}
+	return s.agentHarness.Approve(ctx, req, func(message string) error {
+		if err := s.paymentValidator.ValidateSignedMessage(ctx, req.AgentDID, message, req.Signature, req.Timestamp, req.Nonce); err != nil {
+			return err
+		}
+		// An approval is a privileged action in its own right. Recording its
+		// nonce after signature validation prevents replay without allowing an
+		// unsigned request to poison the nonce cache.
+		return s.nonceChecker.CheckAndRecord(ctx, req.Nonce)
+	})
 }
 
 // RegisterXRegistrationReward X 账号注册奖励:treasury -> 用户钱包发 USDC。
@@ -303,6 +346,16 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 	if err := s.paymentValidator.ValidatePaymentRequest(ctx, req.AgentDID, req.SkillDID, amount, signature); err != nil {
 		s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil) // 记录失败
 		return nil, err
+	}
+
+	// 6.5 The policy grant is consumed exactly once immediately before creating
+	// an executable payment. If enforcement is disabled this is a no-op, which
+	// keeps existing clients working during the migration period.
+	if s.agentHarness != nil {
+		if err := s.agentHarness.Consume(ctx, req.IntentID, req.AgentDID, req.SkillDID, amountMinor, currency); err != nil {
+			s.recordIdempotency(ctx, idempotencyKey, "", 2, req, nil)
+			return nil, err
+		}
 	}
 
 	// 7. 检查余额
@@ -670,7 +723,9 @@ func (s *PaymentApplicationService) checkIdempotencyByHash(
 		return nil, false, errors.New(errors.IDEMPOTENCY_KEY_MISMATCH,
 			"idempotency key used with different request")
 	}
-	if record.Status == 1 && record.TxID != nil {
+	// Idempotency status 0 means in-flight and 1 means completed. Both must
+	// return the original transaction; only status 2 (failed) is retryable.
+	if (record.Status == 0 || record.Status == 1) && record.TxID != nil {
 		payment, getErr := s.paymentRepo.GetByTxID(ctx, *record.TxID)
 		if getErr == nil && payment != nil {
 			return toRewardResponse(payment, s.config.TreasuryWalletAddress, true), true, nil

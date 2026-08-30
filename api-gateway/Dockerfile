@@ -12,7 +12,7 @@ COPY go.mod go.sum* ./
 COPY vendor ./vendor
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=vendor -o /out/api-gateway ./cmd/api-gateway
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=vendor -o /out/api-gateway ./cmd/server
 
 FROM alpine:latest
 
@@ -25,4 +25,4 @@ COPY --from=builder /out/api-gateway /app/api-gateway
 COPY configs /app/configs
 
 EXPOSE 8080
-ENTRYPOINT ["/app/api-gateway", "-config", "/app/configs/config.yaml"]
+ENTRYPOINT ["/app/api-gateway", "-config", "/app/config/config.yaml"]

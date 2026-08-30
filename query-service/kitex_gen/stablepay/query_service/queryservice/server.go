@@ -3,7 +3,7 @@ package queryservice
 
 import (
 	server "github.com/cloudwego/kitex/server"
-	query_service "query-service/kitex_gen/stablepay/query_service"
+	query_service "github.com/stablepay/query-service/kitex_gen/stablepay/query_service"
 )
 
 // NewServer creates a server.Server with the given handler and options.

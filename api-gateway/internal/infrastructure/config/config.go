@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
-	"stablepay/api-gateway/internal/domain"
+	"github.com/stablepay/api-gateway/internal/domain"
 )
 
 type Server struct {

@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/cloudwego/kitex/server"
-	"github.com/stablepay/blockchain-adapter/adapter/rpc"
-	"github.com/stablepay/blockchain-adapter/app/service"
-	"github.com/stablepay/blockchain-adapter/infrastructure/blockchain"
-	"github.com/stablepay/blockchain-adapter/infrastructure/repository"
+	"github.com/stablepay/blockchain-adapter/internal/adapter/rpc"
+	"github.com/stablepay/blockchain-adapter/internal/application/service"
+	"github.com/stablepay/blockchain-adapter/internal/infrastructure/blockchain"
+	"github.com/stablepay/blockchain-adapter/internal/infrastructure/repository"
 	"github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter/blockchainadapterservice"
 
 	"gopkg.in/yaml.v3"
@@ -31,9 +31,9 @@ type Config struct {
 		Port int    `yaml:"port"`
 	} `yaml:"server"`
 	Solana struct {
-		Network       string `yaml:"network"`
-		RPCEndpoint   string `yaml:"rpc_endpoint"`
-		HotWalletPath string `yaml:"hotwallet_path"`
+		Network       string  `yaml:"network"`
+		RPCEndpoint   string  `yaml:"rpc_endpoint"`
+		HotWalletPath string  `yaml:"hotwallet_path"`
 		SubsidyRatio  float64 `yaml:"subsidy_ratio"`
 	} `yaml:"solana"`
 	MySQL struct {
@@ -43,7 +43,7 @@ type Config struct {
 
 func main() {
 	var configPath string
-	flag.StringVar(&configPath, "config", "conf/dev.yaml", "配置文件路径")
+	flag.StringVar(&configPath, "config", "config/dev.yaml", "配置文件路径")
 	flag.Parse()
 
 	log.Println("============================================================")
@@ -78,6 +78,11 @@ func main() {
 	}
 	log.Printf("✅ 热钱包加载成功: %s", hotWallet.GetAddress())
 
+	solanaGateway, err = blockchain.NewSolanaGatewayWithFeePayer(cfg.Solana.Network, cfg.Solana.RPCEndpoint, hotWallet.GetAddress())
+	if err != nil {
+		log.Fatalf("failed to create Solana gateway: %v", err)
+	}
+
 	txBuilder := blockchain.NewTransactionBuilder(cfg.Solana.Network)
 
 	subsidyRepo := repository.NewGasSubsidyRepository(db)
@@ -87,7 +92,7 @@ func main() {
 	transferService := service.NewTransferCmdService(solanaGateway, subsidyRepo, hotWallet)
 	balanceService := service.NewBalanceQueryService(solanaGateway)
 	txStatusService := service.NewTxStatusQueryService(solanaGateway, subsidyRepo)
-	buildTxService := service.NewBuildTxService(solanaGateway, txBuilder)
+	buildTxService := service.NewBuildTxService(solanaGateway, txBuilder, hotWallet)
 	submitTxService := service.NewSubmitTxService(solanaGateway, subsidyRepo, hotWallet)
 	log.Println("✅ 应用服务初始化完成")
 

@@ -7,7 +7,7 @@ import (
 	"errors"
 	client "github.com/cloudwego/kitex/client"
 	kitex "github.com/cloudwego/kitex/pkg/serviceinfo"
-	did_service "stablepay/api-gateway/kitex_gen/stablepay/did_service"
+	did_service "github.com/stablepay/api-gateway/kitex_gen/stablepay/did_service"
 )
 
 var errInvalidMessageType = errors.New("invalid message type for service method handler")

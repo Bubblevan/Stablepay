@@ -26,6 +26,8 @@ struct InitiatePaymentRequest {
    */
   6: optional string signature,
   7: optional string timestamp,
+  8: optional string nonce,
+  9: optional string signed_tx_base64,
 }
 
 struct InitiatePaymentResponse {
@@ -73,9 +75,32 @@ struct ListPaymentHistoryResponse {
   3: common.PageResult page,
 }
 
+struct GetPaymentRequirementRequest {
+  1: common.BaseReq base,
+  2: common.DID skill_did,
+  3: optional common.DID agent_did,
+  4: optional string skill_name,
+  5: optional string amount,
+  6: optional string price,
+  7: optional common.Currency currency,
+  8: optional string message,
+}
+
+struct GetPaymentRequirementResponse {
+  1: common.BaseResp base,
+  2: bool already_purchased,
+  3: optional common.DID skill_did,
+  4: optional string skill_name,
+  5: optional string price,
+  6: optional common.Currency currency,
+  7: optional string message,
+  8: optional string payment_endpoint,
+}
+
 service PaymentService {
   InitiatePaymentResponse InitiatePayment(1: InitiatePaymentRequest req),
   GetPaymentStatusResponse GetPaymentStatus(1: GetPaymentStatusRequest req),
   ListPaymentHistoryResponse ListPaymentHistory(1: ListPaymentHistoryRequest req),
+  GetPaymentRequirementResponse GetPaymentRequirement(1: GetPaymentRequirementRequest req),
 }
 

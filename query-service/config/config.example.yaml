@@ -1,0 +1,5 @@
+# query-service currently reads connection settings from environment variables.
+# Keep this file as the stable configuration entry point for the next migration.
+server:
+  rpc_address: ":8084"
+  http_address: ":8083"

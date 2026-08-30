@@ -4,9 +4,9 @@ package redis
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/redis/go-redis/v9"
 	"github.com/stablepay/payment-service/internal/infrastructure/config"
 )
@@ -34,7 +34,7 @@ func NewRedisClient(cfg *config.Config) (*RedisClient, error) {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
-	hlog.Info("Redis connected successfully")
+	log.Print("Redis connected successfully")
 	return &RedisClient{client: client}, nil
 }
 
@@ -67,6 +67,13 @@ func (r *RedisClient) Set(ctx context.Context, key string, value interface{}, tt
 // Get 获取键值
 func (r *RedisClient) Get(ctx context.Context, key string) (string, error) {
 	return r.client.Get(ctx, key).Result()
+}
+
+// GetDel atomically reads and removes a one-shot execution grant. It is used by
+// the Agent Payment Harness so two concurrent tool calls cannot execute the
+// same approved intent twice.
+func (r *RedisClient) GetDel(ctx context.Context, key string) (string, error) {
+	return r.client.GetDel(ctx, key).Result()
 }
 
 // Del 删除键

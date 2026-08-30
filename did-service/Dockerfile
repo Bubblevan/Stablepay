@@ -40,7 +40,10 @@ WORKDIR /app
 COPY --from=builder /build/did-service .
 
 # 复制配置文件（如果有）
-COPY --from=builder /build/conf ./conf
+COPY --from=builder /build/config ./config
+
+# 可在运行时通过 -e CONFIG_PATH=/app/config/<file>.yaml 覆盖。
+ENV CONFIG_PATH=/app/config/docker.yaml
 
 # 暴露端口
 EXPOSE 8081

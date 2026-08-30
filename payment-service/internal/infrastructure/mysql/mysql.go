@@ -2,9 +2,9 @@ package mysql
 
 import (
 	"fmt"
+	"log"
 	"time"
 
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/stablepay/payment-service/internal/domain/entity"
 	"github.com/stablepay/payment-service/internal/infrastructure/config"
 	"gorm.io/driver/mysql"
@@ -46,7 +46,7 @@ func NewMySQLConnection(cfg *config.Config) (*gorm.DB, error) {
 		}
 	}
 
-	hlog.Info("MySQL connected successfully")
+	log.Print("MySQL connected successfully")
 	return db, nil
 }
 
@@ -60,6 +60,6 @@ func AutoMigrate(db *gorm.DB) error {
 		return fmt.Errorf("failed to auto migrate payment tables: %w", err)
 	}
 
-	hlog.Info("AutoMigrate completed")
+	log.Print("AutoMigrate completed")
 	return nil
 }

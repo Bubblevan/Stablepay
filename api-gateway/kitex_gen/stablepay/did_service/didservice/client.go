@@ -6,7 +6,7 @@ import (
 	"context"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
-	did_service "stablepay/api-gateway/kitex_gen/stablepay/did_service"
+	did_service "github.com/stablepay/api-gateway/kitex_gen/stablepay/did_service"
 )
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.

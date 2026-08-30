@@ -2,7 +2,7 @@
 RUN_NAME="did-service"
 
 mkdir -p output/bin
-cp script/* output/
+cp scripts/*.sh output/
 chmod +x output/bootstrap.sh
 
 if [ "$IS_SYSTEM_TEST_ENV" != "1" ]; then

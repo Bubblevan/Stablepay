@@ -502,7 +502,7 @@ func (i *Instance) Run() error {
 
 ### Step 5: 更新配置文件
 
-在 `configs/config.yaml` 中添加下游服务地址配置：
+在 `config/config.yaml` 中添加下游服务地址配置：
 
 ```yaml
 # 下游服务配置
@@ -541,7 +541,7 @@ type DownstreamConfig struct {
 
 ### Step 6: 修改入口文件
 
-修改 `cmd/api-gateway/main.go`：
+修改 `cmd/server/main.go`：
 
 ```go
 package main
@@ -557,7 +557,7 @@ import (
 
 func main() {
 	// 加载配置
-	cfg, err := config.Load("configs/config.yaml")
+	cfg, err := config.Load("config/config.yaml")
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
@@ -594,7 +594,7 @@ func main() {
 ```bash
 # 方式1: 环境变量
 export USE_MOCK=true
-go run cmd/api-gateway/main.go
+go run cmd/server/main.go
 
 # 方式2: 配置文件设置 environment: test
 ```
@@ -609,7 +609,7 @@ go run ../payment-service/cmd/payment-service/main.go  # 端口 8082
 
 # 然后启动 API Gateway（不使用 Mock）
 export USE_MOCK=false
-go run cmd/api-gateway/main.go
+go run cmd/server/main.go
 ```
 
 ## 验证迁移成功
@@ -677,7 +677,7 @@ client.WithLoadBalancer(loadbalance.NewWeightedBalancer()),
 
 ```
 api-gateway/
-├── cmd/api-gateway/main.go           # 修改：添加 useMock 参数
+├── cmd/server/main.go           # 修改：添加 useMock 参数
 ├── internal/                         # 从 internal_backup 迁移
 │   ├── app/bootstrap.go             # 修改：支持 Mock/RPC 切换
 │   ├── application/
@@ -690,5 +690,5 @@ api-gateway/
 │       ├── verification_rpc_client.go  # 新增
 │       └── query_rpc_client.go      # 新增
 ├── kitex_gen/                        # Kitex 生成（已完成）
-└── configs/config.yaml              # 修改：添加 downstream 配置
+└── config/config.yaml              # 修改：添加 downstream 配置
 ```

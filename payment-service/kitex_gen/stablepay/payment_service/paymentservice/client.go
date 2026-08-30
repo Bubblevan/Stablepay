@@ -14,6 +14,7 @@ type Client interface {
 	InitiatePayment(ctx context.Context, req *payment_service.InitiatePaymentRequest, callOptions ...callopt.Option) (r *payment_service.InitiatePaymentResponse, err error)
 	GetPaymentStatus(ctx context.Context, req *payment_service.GetPaymentStatusRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentStatusResponse, err error)
 	ListPaymentHistory(ctx context.Context, req *payment_service.ListPaymentHistoryRequest, callOptions ...callopt.Option) (r *payment_service.ListPaymentHistoryResponse, err error)
+	GetPaymentRequirement(ctx context.Context, req *payment_service.GetPaymentRequirementRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentRequirementResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +59,9 @@ func (p *kPaymentServiceClient) GetPaymentStatus(ctx context.Context, req *payme
 func (p *kPaymentServiceClient) ListPaymentHistory(ctx context.Context, req *payment_service.ListPaymentHistoryRequest, callOptions ...callopt.Option) (r *payment_service.ListPaymentHistoryResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ListPaymentHistory(ctx, req)
+}
+
+func (p *kPaymentServiceClient) GetPaymentRequirement(ctx context.Context, req *payment_service.GetPaymentRequirementRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentRequirementResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetPaymentRequirement(ctx, req)
 }

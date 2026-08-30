@@ -14,7 +14,7 @@ go mod tidy
 ## 3. 启动服务
 
 ```bash
-go run ./cmd/api-gateway -config configs/config.yaml
+go run ./cmd/server -config config/config.yaml
 ```
 
 ## 4. 关键配置

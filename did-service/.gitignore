@@ -15,7 +15,7 @@ coverage.out
 vendor/
 
 # Local / sensitive config（仓库内保留示例，勿提交本地密钥）
-conf/dev.yaml
+config/dev.yaml
 .env
 .env.*
 !.env.example

@@ -9,13 +9,15 @@ import (
 )
 
 type InitiatePaymentRequest struct {
-	Base        *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
-	AgentDid    common.DID      `thrift:"agent_did,2" frugal:"2,default,string" json:"agent_did"`
-	SkillDid    common.DID      `thrift:"skill_did,3" frugal:"3,default,string" json:"skill_did"`
-	AmountMinor int64           `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
-	Currency    common.Currency `thrift:"currency,5" frugal:"5,default,Currency" json:"currency"`
-	Signature   *string         `thrift:"signature,6,optional" frugal:"6,optional,string" json:"signature,omitempty"`
-	Timestamp   *string         `thrift:"timestamp,7,optional" frugal:"7,optional,string" json:"timestamp,omitempty"`
+	Base           *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	AgentDid       common.DID      `thrift:"agent_did,2" frugal:"2,default,string" json:"agent_did"`
+	SkillDid       common.DID      `thrift:"skill_did,3" frugal:"3,default,string" json:"skill_did"`
+	AmountMinor    int64           `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
+	Currency       common.Currency `thrift:"currency,5" frugal:"5,default,Currency" json:"currency"`
+	Signature      *string         `thrift:"signature,6,optional" frugal:"6,optional,string" json:"signature,omitempty"`
+	Timestamp      *string         `thrift:"timestamp,7,optional" frugal:"7,optional,string" json:"timestamp,omitempty"`
+	Nonce          *string         `thrift:"nonce,8,optional" frugal:"8,optional,string" json:"nonce,omitempty"`
+	SignedTxBase64 *string         `thrift:"signed_tx_base64,9,optional" frugal:"9,optional,string" json:"signed_tx_base64,omitempty"`
 }
 
 func NewInitiatePaymentRequest() *InitiatePaymentRequest {
@@ -67,6 +69,24 @@ func (p *InitiatePaymentRequest) GetTimestamp() (v string) {
 	}
 	return *p.Timestamp
 }
+
+var InitiatePaymentRequest_Nonce_DEFAULT string
+
+func (p *InitiatePaymentRequest) GetNonce() (v string) {
+	if !p.IsSetNonce() {
+		return InitiatePaymentRequest_Nonce_DEFAULT
+	}
+	return *p.Nonce
+}
+
+var InitiatePaymentRequest_SignedTxBase64_DEFAULT string
+
+func (p *InitiatePaymentRequest) GetSignedTxBase64() (v string) {
+	if !p.IsSetSignedTxBase64() {
+		return InitiatePaymentRequest_SignedTxBase64_DEFAULT
+	}
+	return *p.SignedTxBase64
+}
 func (p *InitiatePaymentRequest) SetBase(val *common.BaseReq) {
 	p.Base = val
 }
@@ -88,6 +108,12 @@ func (p *InitiatePaymentRequest) SetSignature(val *string) {
 func (p *InitiatePaymentRequest) SetTimestamp(val *string) {
 	p.Timestamp = val
 }
+func (p *InitiatePaymentRequest) SetNonce(val *string) {
+	p.Nonce = val
+}
+func (p *InitiatePaymentRequest) SetSignedTxBase64(val *string) {
+	p.SignedTxBase64 = val
+}
 
 func (p *InitiatePaymentRequest) IsSetBase() bool {
 	return p.Base != nil
@@ -99,6 +125,14 @@ func (p *InitiatePaymentRequest) IsSetSignature() bool {
 
 func (p *InitiatePaymentRequest) IsSetTimestamp() bool {
 	return p.Timestamp != nil
+}
+
+func (p *InitiatePaymentRequest) IsSetNonce() bool {
+	return p.Nonce != nil
+}
+
+func (p *InitiatePaymentRequest) IsSetSignedTxBase64() bool {
+	return p.SignedTxBase64 != nil
 }
 
 func (p *InitiatePaymentRequest) String() string {
@@ -116,6 +150,8 @@ var fieldIDToName_InitiatePaymentRequest = map[int16]string{
 	5: "currency",
 	6: "signature",
 	7: "timestamp",
+	8: "nonce",
+	9: "signed_tx_base64",
 }
 
 type InitiatePaymentResponse struct {
@@ -589,12 +625,324 @@ var fieldIDToName_ListPaymentHistoryResponse = map[int16]string{
 	3: "page",
 }
 
+type GetPaymentRequirementRequest struct {
+	Base      *common.BaseReq  `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	SkillDid  common.DID       `thrift:"skill_did,2" frugal:"2,default,string" json:"skill_did"`
+	AgentDid  *common.DID      `thrift:"agent_did,3,optional" frugal:"3,optional,string" json:"agent_did,omitempty"`
+	SkillName *string          `thrift:"skill_name,4,optional" frugal:"4,optional,string" json:"skill_name,omitempty"`
+	Amount    *string          `thrift:"amount,5,optional" frugal:"5,optional,string" json:"amount,omitempty"`
+	Price     *string          `thrift:"price,6,optional" frugal:"6,optional,string" json:"price,omitempty"`
+	Currency  *common.Currency `thrift:"currency,7,optional" frugal:"7,optional,Currency" json:"currency,omitempty"`
+	Message   *string          `thrift:"message,8,optional" frugal:"8,optional,string" json:"message,omitempty"`
+}
+
+func NewGetPaymentRequirementRequest() *GetPaymentRequirementRequest {
+	return &GetPaymentRequirementRequest{}
+}
+
+func (p *GetPaymentRequirementRequest) InitDefault() {
+}
+
+var GetPaymentRequirementRequest_Base_DEFAULT *common.BaseReq
+
+func (p *GetPaymentRequirementRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return GetPaymentRequirementRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *GetPaymentRequirementRequest) GetSkillDid() (v common.DID) {
+	return p.SkillDid
+}
+
+var GetPaymentRequirementRequest_AgentDid_DEFAULT common.DID
+
+func (p *GetPaymentRequirementRequest) GetAgentDid() (v common.DID) {
+	if !p.IsSetAgentDid() {
+		return GetPaymentRequirementRequest_AgentDid_DEFAULT
+	}
+	return *p.AgentDid
+}
+
+var GetPaymentRequirementRequest_SkillName_DEFAULT string
+
+func (p *GetPaymentRequirementRequest) GetSkillName() (v string) {
+	if !p.IsSetSkillName() {
+		return GetPaymentRequirementRequest_SkillName_DEFAULT
+	}
+	return *p.SkillName
+}
+
+var GetPaymentRequirementRequest_Amount_DEFAULT string
+
+func (p *GetPaymentRequirementRequest) GetAmount() (v string) {
+	if !p.IsSetAmount() {
+		return GetPaymentRequirementRequest_Amount_DEFAULT
+	}
+	return *p.Amount
+}
+
+var GetPaymentRequirementRequest_Price_DEFAULT string
+
+func (p *GetPaymentRequirementRequest) GetPrice() (v string) {
+	if !p.IsSetPrice() {
+		return GetPaymentRequirementRequest_Price_DEFAULT
+	}
+	return *p.Price
+}
+
+var GetPaymentRequirementRequest_Currency_DEFAULT common.Currency
+
+func (p *GetPaymentRequirementRequest) GetCurrency() (v common.Currency) {
+	if !p.IsSetCurrency() {
+		return GetPaymentRequirementRequest_Currency_DEFAULT
+	}
+	return *p.Currency
+}
+
+var GetPaymentRequirementRequest_Message_DEFAULT string
+
+func (p *GetPaymentRequirementRequest) GetMessage() (v string) {
+	if !p.IsSetMessage() {
+		return GetPaymentRequirementRequest_Message_DEFAULT
+	}
+	return *p.Message
+}
+func (p *GetPaymentRequirementRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *GetPaymentRequirementRequest) SetSkillDid(val common.DID) {
+	p.SkillDid = val
+}
+func (p *GetPaymentRequirementRequest) SetAgentDid(val *common.DID) {
+	p.AgentDid = val
+}
+func (p *GetPaymentRequirementRequest) SetSkillName(val *string) {
+	p.SkillName = val
+}
+func (p *GetPaymentRequirementRequest) SetAmount(val *string) {
+	p.Amount = val
+}
+func (p *GetPaymentRequirementRequest) SetPrice(val *string) {
+	p.Price = val
+}
+func (p *GetPaymentRequirementRequest) SetCurrency(val *common.Currency) {
+	p.Currency = val
+}
+func (p *GetPaymentRequirementRequest) SetMessage(val *string) {
+	p.Message = val
+}
+
+func (p *GetPaymentRequirementRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetAgentDid() bool {
+	return p.AgentDid != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetSkillName() bool {
+	return p.SkillName != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetAmount() bool {
+	return p.Amount != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetPrice() bool {
+	return p.Price != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetCurrency() bool {
+	return p.Currency != nil
+}
+
+func (p *GetPaymentRequirementRequest) IsSetMessage() bool {
+	return p.Message != nil
+}
+
+func (p *GetPaymentRequirementRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetPaymentRequirementRequest(%+v)", *p)
+}
+
+var fieldIDToName_GetPaymentRequirementRequest = map[int16]string{
+	1: "base",
+	2: "skill_did",
+	3: "agent_did",
+	4: "skill_name",
+	5: "amount",
+	6: "price",
+	7: "currency",
+	8: "message",
+}
+
+type GetPaymentRequirementResponse struct {
+	Base             *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	AlreadyPurchased bool             `thrift:"already_purchased,2" frugal:"2,default,bool" json:"already_purchased"`
+	SkillDid         *common.DID      `thrift:"skill_did,3,optional" frugal:"3,optional,string" json:"skill_did,omitempty"`
+	SkillName        *string          `thrift:"skill_name,4,optional" frugal:"4,optional,string" json:"skill_name,omitempty"`
+	Price            *string          `thrift:"price,5,optional" frugal:"5,optional,string" json:"price,omitempty"`
+	Currency         *common.Currency `thrift:"currency,6,optional" frugal:"6,optional,Currency" json:"currency,omitempty"`
+	Message          *string          `thrift:"message,7,optional" frugal:"7,optional,string" json:"message,omitempty"`
+	PaymentEndpoint  *string          `thrift:"payment_endpoint,8,optional" frugal:"8,optional,string" json:"payment_endpoint,omitempty"`
+}
+
+func NewGetPaymentRequirementResponse() *GetPaymentRequirementResponse {
+	return &GetPaymentRequirementResponse{}
+}
+
+func (p *GetPaymentRequirementResponse) InitDefault() {
+}
+
+var GetPaymentRequirementResponse_Base_DEFAULT *common.BaseResp
+
+func (p *GetPaymentRequirementResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return GetPaymentRequirementResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *GetPaymentRequirementResponse) GetAlreadyPurchased() (v bool) {
+	return p.AlreadyPurchased
+}
+
+var GetPaymentRequirementResponse_SkillDid_DEFAULT common.DID
+
+func (p *GetPaymentRequirementResponse) GetSkillDid() (v common.DID) {
+	if !p.IsSetSkillDid() {
+		return GetPaymentRequirementResponse_SkillDid_DEFAULT
+	}
+	return *p.SkillDid
+}
+
+var GetPaymentRequirementResponse_SkillName_DEFAULT string
+
+func (p *GetPaymentRequirementResponse) GetSkillName() (v string) {
+	if !p.IsSetSkillName() {
+		return GetPaymentRequirementResponse_SkillName_DEFAULT
+	}
+	return *p.SkillName
+}
+
+var GetPaymentRequirementResponse_Price_DEFAULT string
+
+func (p *GetPaymentRequirementResponse) GetPrice() (v string) {
+	if !p.IsSetPrice() {
+		return GetPaymentRequirementResponse_Price_DEFAULT
+	}
+	return *p.Price
+}
+
+var GetPaymentRequirementResponse_Currency_DEFAULT common.Currency
+
+func (p *GetPaymentRequirementResponse) GetCurrency() (v common.Currency) {
+	if !p.IsSetCurrency() {
+		return GetPaymentRequirementResponse_Currency_DEFAULT
+	}
+	return *p.Currency
+}
+
+var GetPaymentRequirementResponse_Message_DEFAULT string
+
+func (p *GetPaymentRequirementResponse) GetMessage() (v string) {
+	if !p.IsSetMessage() {
+		return GetPaymentRequirementResponse_Message_DEFAULT
+	}
+	return *p.Message
+}
+
+var GetPaymentRequirementResponse_PaymentEndpoint_DEFAULT string
+
+func (p *GetPaymentRequirementResponse) GetPaymentEndpoint() (v string) {
+	if !p.IsSetPaymentEndpoint() {
+		return GetPaymentRequirementResponse_PaymentEndpoint_DEFAULT
+	}
+	return *p.PaymentEndpoint
+}
+func (p *GetPaymentRequirementResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *GetPaymentRequirementResponse) SetAlreadyPurchased(val bool) {
+	p.AlreadyPurchased = val
+}
+func (p *GetPaymentRequirementResponse) SetSkillDid(val *common.DID) {
+	p.SkillDid = val
+}
+func (p *GetPaymentRequirementResponse) SetSkillName(val *string) {
+	p.SkillName = val
+}
+func (p *GetPaymentRequirementResponse) SetPrice(val *string) {
+	p.Price = val
+}
+func (p *GetPaymentRequirementResponse) SetCurrency(val *common.Currency) {
+	p.Currency = val
+}
+func (p *GetPaymentRequirementResponse) SetMessage(val *string) {
+	p.Message = val
+}
+func (p *GetPaymentRequirementResponse) SetPaymentEndpoint(val *string) {
+	p.PaymentEndpoint = val
+}
+
+func (p *GetPaymentRequirementResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetSkillDid() bool {
+	return p.SkillDid != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetSkillName() bool {
+	return p.SkillName != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetPrice() bool {
+	return p.Price != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetCurrency() bool {
+	return p.Currency != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetMessage() bool {
+	return p.Message != nil
+}
+
+func (p *GetPaymentRequirementResponse) IsSetPaymentEndpoint() bool {
+	return p.PaymentEndpoint != nil
+}
+
+func (p *GetPaymentRequirementResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetPaymentRequirementResponse(%+v)", *p)
+}
+
+var fieldIDToName_GetPaymentRequirementResponse = map[int16]string{
+	1: "base",
+	2: "already_purchased",
+	3: "skill_did",
+	4: "skill_name",
+	5: "price",
+	6: "currency",
+	7: "message",
+	8: "payment_endpoint",
+}
+
 type PaymentService interface {
 	InitiatePayment(ctx context.Context, req *InitiatePaymentRequest) (r *InitiatePaymentResponse, err error)
 
 	GetPaymentStatus(ctx context.Context, req *GetPaymentStatusRequest) (r *GetPaymentStatusResponse, err error)
 
 	ListPaymentHistory(ctx context.Context, req *ListPaymentHistoryRequest) (r *ListPaymentHistoryResponse, err error)
+
+	GetPaymentRequirement(ctx context.Context, req *GetPaymentRequirementRequest) (r *GetPaymentRequirementResponse, err error)
 }
 
 type PaymentServiceInitiatePaymentArgs struct {
@@ -822,5 +1170,81 @@ func (p *PaymentServiceListPaymentHistoryResult) String() string {
 }
 
 var fieldIDToName_PaymentServiceListPaymentHistoryResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceGetPaymentRequirementArgs struct {
+	Req *GetPaymentRequirementRequest `thrift:"req,1" frugal:"1,default,GetPaymentRequirementRequest" json:"req"`
+}
+
+func NewPaymentServiceGetPaymentRequirementArgs() *PaymentServiceGetPaymentRequirementArgs {
+	return &PaymentServiceGetPaymentRequirementArgs{}
+}
+
+func (p *PaymentServiceGetPaymentRequirementArgs) InitDefault() {
+}
+
+var PaymentServiceGetPaymentRequirementArgs_Req_DEFAULT *GetPaymentRequirementRequest
+
+func (p *PaymentServiceGetPaymentRequirementArgs) GetReq() (v *GetPaymentRequirementRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceGetPaymentRequirementArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceGetPaymentRequirementArgs) SetReq(val *GetPaymentRequirementRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceGetPaymentRequirementArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceGetPaymentRequirementArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceGetPaymentRequirementArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceGetPaymentRequirementArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceGetPaymentRequirementResult struct {
+	Success *GetPaymentRequirementResponse `thrift:"success,0,optional" frugal:"0,optional,GetPaymentRequirementResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceGetPaymentRequirementResult() *PaymentServiceGetPaymentRequirementResult {
+	return &PaymentServiceGetPaymentRequirementResult{}
+}
+
+func (p *PaymentServiceGetPaymentRequirementResult) InitDefault() {
+}
+
+var PaymentServiceGetPaymentRequirementResult_Success_DEFAULT *GetPaymentRequirementResponse
+
+func (p *PaymentServiceGetPaymentRequirementResult) GetSuccess() (v *GetPaymentRequirementResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceGetPaymentRequirementResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceGetPaymentRequirementResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GetPaymentRequirementResponse)
+}
+
+func (p *PaymentServiceGetPaymentRequirementResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceGetPaymentRequirementResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceGetPaymentRequirementResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceGetPaymentRequirementResult = map[int16]string{
 	0: "success",
 }

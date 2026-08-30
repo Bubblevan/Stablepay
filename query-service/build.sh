@@ -2,11 +2,11 @@
 RUN_NAME="query-service"
 
 mkdir -p output/bin
-cp script/* output/
+cp scripts/* output/
 chmod +x output/bootstrap.sh
 
 if [ "$IS_SYSTEM_TEST_ENV" != "1" ]; then
-    go build -o output/bin/${RUN_NAME}
+    go build -o output/bin/${RUN_NAME} ./cmd/server
 else
     go test -c -covermode=set -o output/bin/${RUN_NAME} -coverpkg=./...
 fi

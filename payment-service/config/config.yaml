@@ -7,10 +7,6 @@ app:
   env: docker
 
 server:
-  http:
-    port: 8082
-    read_timeout: 30s
-    write_timeout: 30s
   rpc:
     port: 8888
     timeout: 30s
@@ -70,6 +66,18 @@ payment:
   treasury_wallet_address: ""
   # 单笔 X 注册奖励的 USDC 数额(字符串支持小数)。可被 X_REGISTRATION_REWARD_USDC env 覆盖。
   x_registration_reward_usdc: "1.0"
+
+# Agent Payment Harness remains disabled for backward-compatible rollout.
+# When enabled, it issues short-lived policy grants; require_intent_for_payment
+# makes those grants mandatory before Blockchain Adapter can be called.
+agent_harness:
+  enabled: false
+  require_intent_for_payment: false
+  auto_approve_max_usdc: "5.00"
+  max_intent_amount_usdc: "50.00"
+  intent_ttl_seconds: 300
+  policy_version: "agent-payment-v1"
+  allowed_skill_dids: []
 
 security:
   signature_ttl_minutes: 5

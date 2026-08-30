@@ -32,7 +32,7 @@ cd payment-service
 go mod download
 
 # 编译
-CGO_ENABLED=0 GOOS=linux go build -o payment-service cmd/payment-service/main.go
+CGO_ENABLED=0 GOOS=linux go build -o payment-service ./cmd/server
 ```
 
 ### Docker 部署
@@ -42,14 +42,14 @@ FROM golang:1.21-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o payment-service cmd/payment-service/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o payment-service ./cmd/server
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=builder /app/payment-service .
 COPY --from=builder /app/config ./config
-EXPOSE 8080 8888
+EXPOSE 8888
 CMD ["./payment-service"]
 ```
 
@@ -81,7 +81,6 @@ spec:
       - name: payment-service
         image: stablepay/payment-service:v1.0.0
         ports:
-        - containerPort: 8080
         - containerPort: 8888
         env:
         - name: CONFIG_PATH
@@ -96,18 +95,6 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
       volumes:
       - name: config
         configMap:
@@ -122,9 +109,6 @@ spec:
   selector:
     app: payment-service
   ports:
-  - name: http
-    port: 8080
-    targetPort: 8080
   - name: rpc
     port: 8888
     targetPort: 8888

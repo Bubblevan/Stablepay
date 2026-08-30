@@ -9,7 +9,7 @@ test:
 	go test ./...
 
 run:
-	go run ./cmd/api-gateway -config configs/config.yaml
+	go run ./cmd/server -config config/config.yaml
 
 build:
-	go build -o bin/$(APP_NAME) ./cmd/api-gateway
+	go build -o bin/$(APP_NAME) ./cmd/server

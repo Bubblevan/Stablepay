@@ -19,7 +19,7 @@ RUN go mod download
 COPY . .
 
 RUN go clean -cache
-RUN CGO_ENABLED=0 go build -o query-service .
+RUN CGO_ENABLED=0 go build -o query-service ./cmd/server
 
 FROM alpine:latest
 
@@ -31,6 +31,6 @@ WORKDIR /app
 
 COPY --from=builder /build/query-service .
 
-EXPOSE 8084 8184
+EXPOSE 8084
 
 CMD ["./query-service"]

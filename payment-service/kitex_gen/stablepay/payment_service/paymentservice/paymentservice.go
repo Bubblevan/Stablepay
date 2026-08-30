@@ -34,6 +34,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"GetPaymentRequirement": kitex.NewMethodInfo(
+		getPaymentRequirementHandler,
+		newPaymentServiceGetPaymentRequirementArgs,
+		newPaymentServiceGetPaymentRequirementResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +161,24 @@ func newPaymentServiceListPaymentHistoryResult() interface{} {
 	return payment_service.NewPaymentServiceListPaymentHistoryResult()
 }
 
+func getPaymentRequirementHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceGetPaymentRequirementArgs)
+	realResult := result.(*payment_service.PaymentServiceGetPaymentRequirementResult)
+	success, err := handler.(payment_service.PaymentService).GetPaymentRequirement(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceGetPaymentRequirementArgs() interface{} {
+	return payment_service.NewPaymentServiceGetPaymentRequirementArgs()
+}
+
+func newPaymentServiceGetPaymentRequirementResult() interface{} {
+	return payment_service.NewPaymentServiceGetPaymentRequirementResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +214,16 @@ func (p *kClient) ListPaymentHistory(ctx context.Context, req *payment_service.L
 	_args.Req = req
 	var _result payment_service.PaymentServiceListPaymentHistoryResult
 	if err = p.c.Call(ctx, "ListPaymentHistory", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetPaymentRequirement(ctx context.Context, req *payment_service.GetPaymentRequirementRequest) (r *payment_service.GetPaymentRequirementResponse, err error) {
+	var _args payment_service.PaymentServiceGetPaymentRequirementArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceGetPaymentRequirementResult
+	if err = p.c.Call(ctx, "GetPaymentRequirement", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -3,7 +3,7 @@ package didservice
 
 import (
 	server "github.com/cloudwego/kitex/server"
-	did_service "stablepay/api-gateway/kitex_gen/stablepay/did_service"
+	did_service "github.com/stablepay/api-gateway/kitex_gen/stablepay/did_service"
 )
 
 // NewServer creates a server.Server with the given handler and options.

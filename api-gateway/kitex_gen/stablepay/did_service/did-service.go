@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
-	"stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
 )
 
 type UserType int64

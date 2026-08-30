@@ -24,7 +24,7 @@ RUN go mod download
 COPY . .
 
 # 构建可执行文件
-RUN go build -o verification-service .
+RUN go build -o verification-service ./cmd/server
 
 # 运行时镜像
 FROM alpine:latest
@@ -33,7 +33,7 @@ FROM alpine:latest
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 安装运行时依赖
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates netcat-openbsd
 
 WORKDIR /app
 
@@ -45,7 +45,7 @@ EXPOSE 8085
 
 # 健康检查
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:8085/health || exit 1
+    CMD nc -z 127.0.0.1 8085 || exit 1
 
 # 启动命令 - 设置端口为 8085
 CMD ["./verification-service"]

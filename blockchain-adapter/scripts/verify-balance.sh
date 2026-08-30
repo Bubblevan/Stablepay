@@ -42,7 +42,7 @@ kubectl get pods -n "$NAMESPACE" \
 
 echo ""
 echo "=== 2. blockchain-adapter 配置 ==="
-kubectl exec -n "$NAMESPACE" deploy/stablepay-blockchain-adapter -- cat /app/conf/docker.yaml || true
+kubectl exec -n "$NAMESPACE" deploy/stablepay-blockchain-adapter -- cat /app/config/cker.yaml || true
 
 echo ""
 echo "=== 3. query-service 环境变量 ==="

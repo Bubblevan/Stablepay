@@ -12,6 +12,9 @@ import (
 	bchain "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter"
 	bchainsvc "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/blockchain_adapter/blockchainadapterservice"
 	bcommon "github.com/stablepay/blockchain-adapter/kitex_gen/stablepay/common"
+	dcommon "github.com/stablepay/did-service/kitex_gen/stablepay/common"
+	did "github.com/stablepay/did-service/kitex_gen/stablepay/did_service"
+	didsvc "github.com/stablepay/did-service/kitex_gen/stablepay/did_service/didservice"
 	"github.com/stablepay/payment-service/internal/domain/service"
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
@@ -19,30 +22,46 @@ import (
 
 // DIDServiceClient DID Service RPC 客户端
 type DIDServiceClient struct {
-	address    string
-	timeout    time.Duration
-	retryCount int
+	cli didsvc.Client
 }
 
 // NewDIDServiceClient 创建 DID Service 客户端
-func NewDIDServiceClient(address string, timeoutMs int, retryCount int) *DIDServiceClient {
-	return &DIDServiceClient{
-		address:    address,
-		timeout:    time.Duration(timeoutMs) * time.Millisecond,
-		retryCount: retryCount,
+func NewDIDServiceClient(address string, timeoutMs int, retryCount int) (*DIDServiceClient, error) {
+	opts := []client.Option{client.WithHostPorts(address)}
+	if timeoutMs > 0 {
+		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))
 	}
+	if retryCount > 0 {
+		opts = append(opts, client.WithFailureRetry(retry.NewFailurePolicy()))
+	}
+	cli, err := didsvc.NewClient("did-service", opts...)
+	if err != nil {
+		return nil, fmt.Errorf("kitex did-service client: %w", err)
+	}
+	return &DIDServiceClient{cli: cli}, nil
 }
 
-// ValidateSignature 验证签名
-func (c *DIDServiceClient) Validate(ctx context.Context, did string, message string, signature string, timestamp string, nonce string) (bool, error) {
-	_ = ctx
-	_ = did
-	_ = message
-	_ = signature
-	_ = timestamp
-	_ = nonce
-	// TODO: Kitex 调用 did-service
-	return true, nil
+// Validate invokes DID Service rather than treating a signature as valid in
+// process. Both payment and intent-approval signatures therefore share the
+// same registered DID/public-key authority.
+func (c *DIDServiceClient) Validate(ctx context.Context, didID string, message string, signature string, timestamp string, nonce string) (bool, error) {
+	req := did.NewVerifySignatureRequest()
+	req.Base = dcommon.NewBaseReq()
+	req.Did = dcommon.DID(didID)
+	req.Message = message
+	req.Signature = signature
+	req.Timestamp = timestamp
+	if nonce != "" {
+		req.Nonce = &nonce
+	}
+	resp, err := c.cli.VerifySignature(ctx, req)
+	if err != nil {
+		return false, fmt.Errorf("did-service VerifySignature transport: %w", err)
+	}
+	if resp.GetBase() != nil && resp.GetBase().GetCode() != 0 {
+		return false, fmt.Errorf("did-service VerifySignature rejected: %s", resp.GetBase().GetMessage())
+	}
+	return resp.GetValid(), nil
 }
 
 var _ service.SignatureValidator = (*DIDServiceClient)(nil)

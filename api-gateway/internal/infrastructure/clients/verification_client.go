@@ -7,10 +7,10 @@ import (
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/retry"
-	"stablepay/api-gateway/internal/application"
-	"stablepay/api-gateway/kitex_gen/stablepay/common"
-	"stablepay/api-gateway/kitex_gen/stablepay/verification_service"
-	"stablepay/api-gateway/kitex_gen/stablepay/verification_service/verificationservice"
+	"github.com/stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/verification_service"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/verification_service/verificationservice"
 )
 
 // KitexVerificationClient 通过 Kitex RPC 调用 verification-service（默认监听 8085）。
@@ -111,59 +111,6 @@ func (c *KitexVerificationClient) GetProof(ctx context.Context, req map[string]i
 	}
 	if resp.IsSetProofVersion() {
 		out["proof_version"] = resp.GetProofVersion()
-	}
-	return out, 200, int(resp.GetBase().GetCode()), nil
-}
-
-func (c *KitexVerificationClient) VerifyXTweet(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	kreq := verification_service.NewVerifyXTweetRequest()
-	kreq.Base = &common.BaseReq{}
-	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
-	kreq.WalletAddress = stringFromIface(req["wallet_address"])
-	kreq.TweetUrl = stringFromIface(req["tweet_url"])
-	resp, err := c.cli.VerifyXTweet(ctx, kreq)
-	if err != nil {
-		return nil, 500, 0, err
-	}
-	out := map[string]interface{}{
-		"base":     baseToMap(resp.GetBase()),
-		"verified": resp.GetVerified(),
-	}
-	if resp.IsSetMessage() {
-		out["message"] = resp.GetMessage()
-	}
-	if resp.IsSetRewardAmountMinor() {
-		out["reward_amount_minor"] = resp.GetRewardAmountMinor()
-	}
-	if resp.IsSetRewardTxId() {
-		out["reward_tx_id"] = resp.GetRewardTxId()
-	}
-	return out, 200, int(resp.GetBase().GetCode()), nil
-}
-
-func (c *KitexVerificationClient) GetXVerificationStatus(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	kreq := verification_service.NewGetXVerificationStatusRequest()
-	kreq.Base = &common.BaseReq{}
-	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
-	resp, err := c.cli.GetXVerificationStatus(ctx, kreq)
-	if err != nil {
-		return nil, 500, 0, err
-	}
-	out := map[string]interface{}{
-		"base":     baseToMap(resp.GetBase()),
-		"verified": resp.GetVerified(),
-	}
-	if resp.IsSetTweetUrl() {
-		out["tweet_url"] = resp.GetTweetUrl()
-	}
-	if resp.IsSetVerifiedAt() {
-		out["verified_at"] = resp.GetVerifiedAt()
-	}
-	if resp.IsSetRewardAmountMinor() {
-		out["reward_amount_minor"] = resp.GetRewardAmountMinor()
-	}
-	if resp.IsSetRewardTxId() {
-		out["reward_tx_id"] = resp.GetRewardTxId()
 	}
 	return out, 200, int(resp.GetBase().GetCode()), nil
 }

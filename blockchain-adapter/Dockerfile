@@ -41,10 +41,10 @@ WORKDIR /app
 COPY --from=builder /build/blockchain-adapter .
 
 # 创建配置目录
-RUN mkdir -p /app/conf
+RUN mkdir -p /app/config
 
 # 复制配置文件（如果有）
-COPY --from=builder /build/conf ./conf
+COPY --from=builder /build/config ./config
 
 # 暴露端口
 EXPOSE 8888

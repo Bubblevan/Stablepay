@@ -1,4 +1,4 @@
-module query-service
+module github.com/stablepay/query-service
 
 go 1.26.1
 

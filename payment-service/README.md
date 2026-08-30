@@ -1,5 +1,7 @@
 # Payment Service
 
+Payment Service is an internal Kitex RPC service. Public HTTP requests terminate at api-gateway; this service does not expose a public HTTP listener. The RPC endpoint defaults to `:8888` and keeps the existing Application/Domain/Repository implementation behind the generated contract.
+
 StablePay AI 支付服务 - 处理 HTTP 402 协议支付流程的核心服务。
 
 ## 项目概述
@@ -95,7 +97,7 @@ mysql -u root -p < scripts/init_db.sql
 ### 运行
 
 ```bash
-go run cmd/payment-service/main.go
+go run ./cmd/server
 ```
 
 ### 测试
@@ -105,6 +107,10 @@ go test ./...
 ```
 
 ## 核心功能
+
+### Agent Payment Harness（可选治理层）
+
+支付服务新增了服务端 Agent Payment Harness，将 Agent 的“付款提议”与“链上执行”分离为固定的 `Normalize → Policy → Approval → Execute` DAG。它支持金额策略、商户 DID 白名单、DID 二次确认签名、短期一次性 intent 与原有支付链路的幂等衔接。详见 [Agent Payment Harness](docs/agent_payment_harness.md)。
 
 ### 支付状态机
 

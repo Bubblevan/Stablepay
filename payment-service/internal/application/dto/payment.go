@@ -13,6 +13,51 @@ type InitiatePaymentRequest struct {
 	Nonce          string `json:"nonce" binding:"required"`
 	// Partially-signed SPL tx (base64); hot wallet only adds fee-payer signature. Required for agent/OWS flows.
 	SignedTxBase64 string `json:"signed_tx_base64"`
+	// IntentID is required only when agent_harness.require_intent_for_payment is enabled.
+	// It binds a payment to the server-side policy decision made before execution.
+	IntentID string `json:"intent_id,omitempty"`
+}
+
+// CreatePaymentIntentRequest is the agent's proposed spend. It deliberately has
+// no transaction payload: an agent may propose, but it cannot execute until the
+// deterministic policy and (where needed) a DID-signed user approval pass.
+type CreatePaymentIntentRequest struct {
+	AgentDID    string `json:"agent_did" binding:"required"`
+	SkillDID    string `json:"skill_did" binding:"required"`
+	AmountStr   string `json:"amount" binding:"required"`
+	Currency    string `json:"currency" binding:"required,oneof=USDC USDT"`
+	Purpose     string `json:"purpose" binding:"required,max=512"`
+	ResourceURI string `json:"resource_uri,omitempty,max=1024"`
+}
+
+type CreatePaymentIntentResponse struct {
+	IntentID        string   `json:"intent_id"`
+	Status          string   `json:"status"`
+	Decision        string   `json:"decision"`
+	ReasonCodes     []string `json:"reason_codes"`
+	PolicyVersion   string   `json:"policy_version"`
+	ExpiresAt       string   `json:"expires_at"`
+	ApprovalPayload string   `json:"approval_payload,omitempty"`
+	Trace           []string `json:"trace"`
+}
+
+// ApprovePaymentIntentRequest must be signed by the same DID that owns the
+// intent. The signature covers the immutable intent fields rather than a free
+// form chat reply, so an approval cannot be replayed for another merchant.
+type ApprovePaymentIntentRequest struct {
+	IntentID  string `uri:"intent_id" binding:"required"`
+	AgentDID  string `json:"agent_did" binding:"required"`
+	Signature string `json:"signature" binding:"required"`
+	Timestamp int64  `json:"timestamp" binding:"required"`
+	Nonce     string `json:"nonce" binding:"required"`
+}
+
+type ApprovePaymentIntentResponse struct {
+	IntentID      string `json:"intent_id"`
+	Status        string `json:"status"`
+	Decision      string `json:"decision"`
+	PolicyVersion string `json:"policy_version"`
+	ExpiresAt     string `json:"expires_at"`
 }
 
 type InitiatePaymentResponse struct {

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/internal/application"
 )
 
 type MockDIDClient struct{}
@@ -162,21 +162,6 @@ func (m *MockVerificationClient) GetProof(ctx context.Context, req map[string]in
 	data["tx_hash"] = "mock_tx_hash"
 	data["proof_version"] = "v0.1"
 	return data, 200, 0, nil
-}
-
-func (m *MockVerificationClient) VerifyXTweet(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	return map[string]interface{}{
-		"success":   true,
-		"message":   "mock_verify_success",
-		"agent_did": req["agent_did"],
-	}, 200, 0, nil
-}
-
-func (m *MockVerificationClient) GetXVerificationStatus(_ context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	return map[string]interface{}{
-		"status":    "verified",
-		"agent_did": req["agent_did"],
-	}, 200, 0, nil
 }
 
 type MockQueryClient struct{}

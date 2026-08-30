@@ -1,104 +1,207 @@
 package clients
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
-	"stablepay/api-gateway/internal/application"
+	"github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/pkg/retry"
+	"github.com/stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/payment_service"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/payment_service/paymentservice"
 )
 
-type RealPaymentClient struct {
-	baseURL string
-	hc      *http.Client
+// KitexPaymentClient is the gateway's only payment-service client. The public
+// HTTP API is translated here into the canonical internal RPC contract.
+type KitexPaymentClient struct {
+	cli paymentservice.Client
 }
 
-// Payment may wait on Solana RPC + blockchain-adapter; 10s was too tight and produced
-// gateway 500 + ~10000ms latency while payment-service was still working.
-func NewRealPaymentClient(addr string) application.PaymentServiceClient {
-	return &RealPaymentClient{
-		baseURL: "http://" + addr,
-		hc:      &http.Client{Timeout: 90 * time.Second},
+func NewKitexPaymentClient(destService, hostPort string, timeoutMs, retryCount int) (application.PaymentServiceClient, error) {
+	opts := []client.Option{client.WithHostPorts(hostPort), client.WithResolver(nil)}
+	if timeoutMs > 0 {
+		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))
 	}
+	if retryCount > 0 {
+		opts = append(opts, client.WithFailureRetry(retry.NewFailurePolicy()))
+	}
+	cli, err := paymentservice.NewClient(destService, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("kitex payment client: %w", err)
+	}
+	return &KitexPaymentClient{cli: cli}, nil
 }
 
-func (c *RealPaymentClient) Pay(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	body, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/pay", bytes.NewReader(body))
+func (c *KitexPaymentClient) Pay(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	amountMinor, err := parseAmountMinor(req)
+	if err != nil {
+		return nil, 400, 10001, err
+	}
+	currency, err := parseCurrency(stringFromIface(req["currency"]))
+	if err != nil {
+		return nil, 400, 10001, err
+	}
+	kreq := payment_service.NewInitiatePaymentRequest()
+	kreq.Base = baseRequest(req)
+	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
+	kreq.SkillDid = common.DID(stringFromIface(req["skill_did"]))
+	kreq.AmountMinor = amountMinor
+	kreq.Currency = currency
+	setOptional(&kreq.Signature, stringFromIface(req["signature"]))
+	setOptional(&kreq.Timestamp, stringFromIface(req["timestamp"]))
+	setOptional(&kreq.Nonce, stringFromIface(req["nonce"]))
+	setOptional(&kreq.SignedTxBase64, stringFromIface(req["signed_tx_base64"]))
+
+	resp, err := c.cli.InitiatePayment(ctx, kreq)
 	if err != nil {
 		return nil, 500, 0, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if idempotencyKey, ok := req["idempotency_key"].(string); ok && idempotencyKey != "" {
-		httpReq.Header.Set("X-Idempotency-Key", idempotencyKey)
-	}
-	res, err := c.hc.Do(httpReq)
-	if err != nil {
-		return nil, 500, 0, err
-	}
-	defer res.Body.Close()
-	return c.parseResp(res)
+	return map[string]interface{}{
+		"base":         baseToMap(resp.GetBase()),
+		"tx_id":        string(resp.GetTxId()),
+		"tx_hash":      string(resp.GetTxHash()),
+		"status":       resp.GetStatus().String(),
+		"created_at":   resp.GetCreatedAt(),
+		"confirmed_at": resp.GetConfirmedAt(),
+		"failed_at":    resp.GetFailedAt(),
+	}, 200, baseCode(resp.GetBase()), nil
 }
 
-func (c *RealPaymentClient) GetPaymentRequirement(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	values := url.Values{}
-	// 优先传递 amount，如果不存在则传递 price（向后兼容）
-	for _, key := range []string{"skill_did", "agent_did", "skill_name", "amount", "price", "currency", "message"} {
-		if value, ok := req[key]; ok && value != nil {
-			str := fmt.Sprintf("%v", value)
-			if str != "" {
-				values.Set(key, str)
-			}
+func (c *KitexPaymentClient) GetPaymentRequirement(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	kreq := payment_service.NewGetPaymentRequirementRequest()
+	kreq.Base = baseRequest(req)
+	kreq.SkillDid = common.DID(stringFromIface(req["skill_did"]))
+	setOptional(&kreq.AgentDid, stringFromIface(req["agent_did"]))
+	setOptional(&kreq.SkillName, stringFromIface(req["skill_name"]))
+	setOptional(&kreq.Amount, stringFromIface(req["amount"]))
+	setOptional(&kreq.Price, stringFromIface(req["price"]))
+	setOptional(&kreq.Message, stringFromIface(req["message"]))
+	if value := stringFromIface(req["currency"]); value != "" {
+		currency, err := parseCurrency(value)
+		if err != nil {
+			return nil, 400, 10001, err
 		}
+		kreq.Currency = &currency
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/pay/require?"+values.Encode(), nil)
+	resp, err := c.cli.GetPaymentRequirement(ctx, kreq)
 	if err != nil {
 		return nil, 500, 0, err
 	}
-	res, err := c.hc.Do(httpReq)
+	out := map[string]interface{}{
+		"base":              baseToMap(resp.GetBase()),
+		"already_purchased": resp.GetAlreadyPurchased(),
+		"skill_did":         resp.GetSkillDid(),
+		"skill_name":        resp.GetSkillName(),
+		"price":             resp.GetPrice(),
+		"currency":          resp.GetCurrency().String(),
+		"message":           resp.GetMessage(),
+		"payment_endpoint":  resp.GetPaymentEndpoint(),
+	}
+	if resp.GetAlreadyPurchased() {
+		return out, 200, baseCode(resp.GetBase()), nil
+	}
+	return out, 402, 402, nil
+}
+
+func (c *KitexPaymentClient) GetPayment(ctx context.Context, txID string) (map[string]interface{}, int, int, error) {
+	kreq := payment_service.NewGetPaymentStatusRequest()
+	kreq.Base = common.NewBaseReq()
+	kreq.TxId = common.TxId(txID)
+	resp, err := c.cli.GetPaymentStatus(ctx, kreq)
 	if err != nil {
 		return nil, 500, 0, err
 	}
-	defer res.Body.Close()
-	return c.parseResp(res)
+	return map[string]interface{}{
+		"base":         baseToMap(resp.GetBase()),
+		"tx_id":        string(resp.GetTxId()),
+		"status":       resp.GetStatus().String(),
+		"tx_hash":      string(resp.GetTxHash()),
+		"confirmed_at": resp.GetConfirmedAt(),
+		"failed_at":    resp.GetFailedAt(),
+	}, 200, baseCode(resp.GetBase()), nil
 }
 
-func (c *RealPaymentClient) GetPayment(ctx context.Context, txID string) (map[string]interface{}, int, int, error) {
-	res, err := c.hc.Get(fmt.Sprintf("%s/api/v1/pay/%s", c.baseURL, txID))
+func (c *KitexPaymentClient) GetPaymentHistory(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	page := intFromReq(req, "page", 1)
+	pageSize := intFromReq(req, "page_size", 20)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	kreq := payment_service.NewListPaymentHistoryRequest()
+	kreq.Base = baseRequest(req)
+	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
+	kreq.Page = &common.PageRequest{Limit: int32(pageSize), Offset: int32((page - 1) * pageSize)}
+	resp, err := c.cli.ListPaymentHistory(ctx, kreq)
 	if err != nil {
 		return nil, 500, 0, err
 	}
-	defer res.Body.Close()
-	return c.parseResp(res)
+	items := make([]map[string]interface{}, 0, len(resp.GetItems()))
+	for _, item := range resp.GetItems() {
+		if item == nil {
+			continue
+		}
+		items = append(items, map[string]interface{}{
+			"tx_id": item.GetTxId(), "skill_did": item.GetSkillDid(),
+			"amount_minor": item.GetAmountMinor(), "currency": item.GetCurrency().String(),
+			"status": item.GetStatus().String(), "created_at": item.GetCreatedAt(),
+		})
+	}
+	total := int32(0)
+	if resp.GetPage() != nil {
+		total = resp.GetPage().GetTotal()
+	}
+	return map[string]interface{}{
+		"base": baseToMap(resp.GetBase()), "items": items, "total": total,
+		"page": page, "page_size": pageSize,
+	}, 200, baseCode(resp.GetBase()), nil
 }
 
-func (c *RealPaymentClient) GetPaymentHistory(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
-	agentDID, _ := req["agent_did"].(string)
-	url := fmt.Sprintf("%s/api/v1/pay/history?agent_did=%s", c.baseURL, agentDID)
-	res, err := c.hc.Get(url)
+func baseRequest(req map[string]interface{}) *common.BaseReq {
+	base := common.NewBaseReq()
+	setOptional(&base.RequestId, stringFromIface(req["request_id"]))
+	setOptional(&base.TraceId, stringFromIface(req["trace_id"]))
+	setOptional(&base.IdempotencyKey, stringFromIface(req["idempotency_key"]))
+	return base
+}
+
+func parseAmountMinor(req map[string]interface{}) (int64, error) {
+	value := stringFromIface(req["amount_minor"])
+	if value == "" {
+		return 0, fmt.Errorf("amount_minor is required")
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid amount_minor: %q", value)
+	}
+	return n, nil
+}
+
+func parseCurrency(value string) (common.Currency, error) {
+	currency, err := common.CurrencyFromString(strings.ToUpper(strings.TrimSpace(value)))
 	if err != nil {
-		return nil, 500, 0, err
+		return 0, fmt.Errorf("unsupported currency: %s", value)
 	}
-	defer res.Body.Close()
-	return c.parseResp(res)
+	return currency, nil
 }
 
-func (c *RealPaymentClient) parseResp(res *http.Response) (map[string]interface{}, int, int, error) {
-	data, _ := io.ReadAll(res.Body)
-	var m map[string]interface{}
-	_ = json.Unmarshal(data, &m)
-	appCode := 0
-	if code, ok := m["code"].(float64); ok {
-		appCode = int(code)
+func setOptional(target **string, value string) {
+	if value != "" {
+		*target = &value
 	}
-	if inner, ok := m["data"].(map[string]interface{}); ok {
-		return inner, res.StatusCode, appCode, nil
-	}
-	return m, res.StatusCode, appCode, nil
 }
+
+func baseCode(base *common.BaseResp) int {
+	if base == nil {
+		return 0
+	}
+	return int(base.GetCode())
+}
+
+var _ application.PaymentServiceClient = (*KitexPaymentClient)(nil)

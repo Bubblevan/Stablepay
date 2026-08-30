@@ -10,7 +10,7 @@ import (
 
 	"github.com/cloudwego/gopkg/protocol/thrift"
 
-	"stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
 )
 
 var (

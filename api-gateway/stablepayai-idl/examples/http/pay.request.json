@@ -1,9 +1,0 @@
-{
-  "agent_did": "did:solana:agent123",
-  "skill_did": "did:solana:skill456",
-  "amount": "5.00",
-  "currency": "USDC",
-  "signature": "base64_or_hex_signature",
-  "timestamp": "2026-02-27T12:00:00Z"
-}
-

@@ -3,24 +3,25 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"gopkg.in/yaml.v3"
 )
 
 // Config 应用配置
 type Config struct {
-	App       AppConfig       `yaml:"app"`
-	Server    ServerConfig    `yaml:"server"`
-	Database  DatabaseConfig  `yaml:"database"`
-	Redis     RedisConfig     `yaml:"redis"`
-	RocketMQ  RocketMQConfig  `yaml:"rocketmq"`
-	RpcClients RpcClientsConfig `yaml:"rpc_clients"`
-	Payment   PaymentConfig   `yaml:"payment"`
-	Security  SecurityConfig  `yaml:"security"`
-	RateLimit RateLimitConfig `yaml:"rate_limit"`
-	Log       LogConfig       `yaml:"log"`
+	App          AppConfig          `yaml:"app"`
+	Server       ServerConfig       `yaml:"server"`
+	Database     DatabaseConfig     `yaml:"database"`
+	Redis        RedisConfig        `yaml:"redis"`
+	RocketMQ     RocketMQConfig     `yaml:"rocketmq"`
+	RpcClients   RpcClientsConfig   `yaml:"rpc_clients"`
+	Payment      PaymentConfig      `yaml:"payment"`
+	AgentHarness AgentHarnessConfig `yaml:"agent_harness"`
+	Security     SecurityConfig     `yaml:"security"`
+	RateLimit    RateLimitConfig    `yaml:"rate_limit"`
+	Log          LogConfig          `yaml:"log"`
 }
 
 // AppConfig 应用配置
@@ -32,8 +33,7 @@ type AppConfig struct {
 
 // ServerConfig 服务配置
 type ServerConfig struct {
-	Http HttpServerConfig `yaml:"http"`
-	Rpc  RpcServerConfig  `yaml:"rpc"`
+	Rpc RpcServerConfig `yaml:"rpc"`
 }
 
 // HttpServerConfig HTTP 服务配置
@@ -79,17 +79,17 @@ type RedisConfig struct {
 
 // RocketMQConfig RocketMQ 配置
 type RocketMQConfig struct {
-	NameServers   []string              `yaml:"name_servers"`
-	ProducerGroup string                `yaml:"producer_group"`
-	RetryTimes    int                   `yaml:"retry_times"`
-	SendTimeout   int                   `yaml:"send_timeout"`
-	Topics        map[string]string     `yaml:"topics"`
+	NameServers   []string          `yaml:"name_servers"`
+	ProducerGroup string            `yaml:"producer_group"`
+	RetryTimes    int               `yaml:"retry_times"`
+	SendTimeout   int               `yaml:"send_timeout"`
+	Topics        map[string]string `yaml:"topics"`
 }
 
 // RpcClientsConfig RPC 客户端配置
 type RpcClientsConfig struct {
-	DIDService         RpcClientConfig `yaml:"did_service"`
-	BlockchainAdapter  RpcClientConfig `yaml:"blockchain_adapter"`
+	DIDService        RpcClientConfig `yaml:"did_service"`
+	BlockchainAdapter RpcClientConfig `yaml:"blockchain_adapter"`
 }
 
 // RpcClientConfig RPC 客户端配置
@@ -118,11 +118,23 @@ type PaymentConfig struct {
 	XRegistrationRewardUsdc string `yaml:"x_registration_reward_usdc"`
 }
 
+// AgentHarnessConfig is opt-in during migration. Enabling require_intent_for_payment
+// turns policy decisions into a mandatory server-side gate before transfer.
+type AgentHarnessConfig struct {
+	Enabled                 bool     `yaml:"enabled"`
+	RequireIntentForPayment bool     `yaml:"require_intent_for_payment"`
+	AutoApproveMaxUsdc      string   `yaml:"auto_approve_max_usdc"`
+	MaxIntentAmountUsdc     string   `yaml:"max_intent_amount_usdc"`
+	IntentTTLSeconds        int      `yaml:"intent_ttl_seconds"`
+	PolicyVersion           string   `yaml:"policy_version"`
+	AllowedSkillDIDs        []string `yaml:"allowed_skill_dids"`
+}
+
 // SecurityConfig 安全配置
 type SecurityConfig struct {
-	SignatureTtlMinutes       int `yaml:"signature_ttl_minutes"`
-	NonceCacheMinutes         int `yaml:"nonce_cache_minutes"`
-	IdempotencyKeyTtlMinutes  int `yaml:"idempotency_key_ttl_minutes"`
+	SignatureTtlMinutes      int `yaml:"signature_ttl_minutes"`
+	NonceCacheMinutes        int `yaml:"nonce_cache_minutes"`
+	IdempotencyKeyTtlMinutes int `yaml:"idempotency_key_ttl_minutes"`
 
 	// InternalApiKey internal 端点共享密钥（如 /api/v1/internal/rewards/...）。
 	// 必填,空时 internal 端点直接 403。
@@ -131,9 +143,9 @@ type SecurityConfig struct {
 
 // RateLimitConfig 限流配置
 type RateLimitConfig struct {
-	IpLimitPerMinute       int `yaml:"ip_limit_per_minute"`
-	DidLimitPerMinute      int `yaml:"did_limit_per_minute"`
-	PaymentLimitPerMinute  int `yaml:"payment_limit_per_minute"`
+	IpLimitPerMinute      int `yaml:"ip_limit_per_minute"`
+	DidLimitPerMinute     int `yaml:"did_limit_per_minute"`
+	PaymentLimitPerMinute int `yaml:"payment_limit_per_minute"`
 }
 
 // LogConfig 日志配置
@@ -169,7 +181,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	// 允许 env 覆盖关键配置（生产环境通过 secret manager 注入）
 	applyEnvOverrides(&config)
 
-	hlog.Infof("Config loaded from: %s", configPath)
+	log.Printf("config loaded from: %s", configPath)
 	return &config, nil
 }
 
@@ -188,9 +200,6 @@ func applyEnvOverrides(c *Config) {
 
 // applyDefaults 应用默认值
 func applyDefaults(c *Config) {
-	if c.Server.Http.Port == "" {
-		c.Server.Http.Port = "8080"
-	}
 	if c.Server.Rpc.Port == "" {
 		c.Server.Rpc.Port = "8888"
 	}
@@ -220,6 +229,15 @@ func applyDefaults(c *Config) {
 	}
 	if c.Payment.XRegistrationRewardUsdc == "" {
 		c.Payment.XRegistrationRewardUsdc = "1.0"
+	}
+	if c.AgentHarness.AutoApproveMaxUsdc == "" {
+		c.AgentHarness.AutoApproveMaxUsdc = "5.00"
+	}
+	if c.AgentHarness.MaxIntentAmountUsdc == "" {
+		c.AgentHarness.MaxIntentAmountUsdc = c.Payment.MaxAmountUsdc
+	}
+	if c.AgentHarness.IntentTTLSeconds == 0 {
+		c.AgentHarness.IntentTTLSeconds = 300
 	}
 }
 

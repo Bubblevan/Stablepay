@@ -28,7 +28,7 @@ type BalanceChecker interface {
 
 // PaymentValidator 支付验证领域服务
 type PaymentValidator struct {
-	sigValidator  SignatureValidator
+	sigValidator   SignatureValidator
 	balanceChecker BalanceChecker
 	maxAmountMinor int64
 }
@@ -66,6 +66,27 @@ func (v *PaymentValidator) ValidatePaymentRequest(ctx context.Context, agentDID,
 		return errors.New(errors.SIGNATURE_VERIFICATION_FAILED, "invalid signature")
 	}
 
+	return nil
+}
+
+// ValidateSignedMessage validates a short-lived DID signature for a privileged
+// agent-control action, such as confirming a payment intent. It intentionally
+// shares the same verifier as the payment request but keeps the canonical
+// approval payload separate from the transaction payload.
+func (v *PaymentValidator) ValidateSignedMessage(ctx context.Context, did, message, signature string, timestamp int64, nonce string) error {
+	if timestamp <= 0 || nonce == "" || signature == "" {
+		return errors.New(errors.INVALID_PARAMETERS, "missing signed message fields")
+	}
+	if vo.NewSignature(signature, timestamp, nonce, message).IsExpired(constants.SignatureTTLMinutes) {
+		return errors.New(errors.SIGNATURE_VERIFICATION_FAILED, "signature has expired")
+	}
+	valid, err := v.sigValidator.Validate(ctx, did, message, signature, fmt.Sprintf("%d", timestamp), nonce)
+	if err != nil {
+		return errors.Wrap(errors.SIGNATURE_VERIFICATION_FAILED, err, "failed to validate signed message")
+	}
+	if !valid {
+		return errors.New(errors.SIGNATURE_VERIFICATION_FAILED, "invalid signature")
+	}
 	return nil
 }
 

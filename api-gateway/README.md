@@ -54,8 +54,8 @@ curl http://127.0.0.1:8080/readyz
 
 ## 配置
 
-主配置文件：`configs/config.yaml`
-本地覆盖示例：`configs/config.local.yaml.example`
+主配置文件：`config/config.yaml`
+本地覆盖示例：`config/config.local.yaml.example`
 
 ## 测试
 

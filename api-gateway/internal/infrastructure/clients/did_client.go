@@ -8,10 +8,10 @@ import (
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/retry"
-	"stablepay/api-gateway/internal/application"
-	"stablepay/api-gateway/kitex_gen/stablepay/common"
-	"stablepay/api-gateway/kitex_gen/stablepay/did_service"
-	"stablepay/api-gateway/kitex_gen/stablepay/did_service/didservice"
+	"github.com/stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/did_service"
+	"github.com/stablepay/api-gateway/kitex_gen/stablepay/did_service/didservice"
 )
 
 // KitexDIDClient 通过 Kitex RPC 调用 did-service（与 did-service 监听端口一致，默认 8081）。

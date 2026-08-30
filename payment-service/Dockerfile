@@ -18,13 +18,13 @@ COPY payment-service /src/payment-service
 WORKDIR /src/payment-service
 RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service ./cmd/payment-service
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service ./cmd/server
 
 FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-RUN apk --no-cache add ca-certificates wget
+RUN apk --no-cache add ca-certificates
 
 RUN addgroup -g 1000 -S appgroup && \
     adduser -u 1000 -S appuser -G appgroup
@@ -38,10 +38,7 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
-EXPOSE 8082 8888
+EXPOSE 8888
 
 # 勿用 wget --spider：会发 HEAD；Hertz 仅注册了 GET /health，HEAD 常返回 405 → 容器一直 unhealthy
-HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-    CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:8082/health || exit 1
-
 CMD ["./payment-service"]

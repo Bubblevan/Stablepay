@@ -7,8 +7,6 @@ app:
   env: development
 
 server:
-  http:
-    port: 8080
   rpc:
     port: 8888
 
@@ -42,3 +40,16 @@ rpc_clients:
 payment:
   max_amount_usdc: "1000.00"
   timeout_minutes: 5
+
+# Optional server-side control plane for AI Agent spending. Enable it first in
+# observe mode; then turn require_intent_for_payment on after clients start
+# sending intent_id to POST /api/v1/pay.
+agent_harness:
+  enabled: false
+  require_intent_for_payment: false
+  auto_approve_max_usdc: "5.00"
+  max_intent_amount_usdc: "50.00"
+  intent_ttl_seconds: 300
+  policy_version: "agent-payment-v1"
+  # Empty means any merchant can be proposed; a non-empty list is a strict allowlist.
+  allowed_skill_dids: []

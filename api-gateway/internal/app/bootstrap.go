@@ -7,14 +7,14 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/redis/go-redis/v9"
-	"stablepay/api-gateway/internal/application"
-	"stablepay/api-gateway/internal/infrastructure/auth"
-	"stablepay/api-gateway/internal/infrastructure/clients"
-	"stablepay/api-gateway/internal/infrastructure/config"
-	"stablepay/api-gateway/internal/infrastructure/observability"
-	"stablepay/api-gateway/internal/infrastructure/ratelimit"
-	"stablepay/api-gateway/internal/interfaces/http"
-	"stablepay/api-gateway/internal/interfaces/http/middleware"
+	"github.com/stablepay/api-gateway/internal/adapter/http"
+	"github.com/stablepay/api-gateway/internal/adapter/http/middleware"
+	"github.com/stablepay/api-gateway/internal/application"
+	"github.com/stablepay/api-gateway/internal/infrastructure/auth"
+	"github.com/stablepay/api-gateway/internal/infrastructure/clients"
+	"github.com/stablepay/api-gateway/internal/infrastructure/config"
+	"github.com/stablepay/api-gateway/internal/infrastructure/observability"
+	"github.com/stablepay/api-gateway/internal/infrastructure/ratelimit"
 )
 
 type Instance struct {
@@ -61,7 +61,15 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 	if err != nil {
 		return nil, fmt.Errorf("did client: %w", err)
 	}
-	paymentClient := clients.NewRealPaymentClient(cfg.Downstream.PaymentServiceAddr)
+	paymentClient, err := clients.NewKitexPaymentClient(
+		cfg.Downstream.PaymentService,
+		cfg.Downstream.PaymentServiceAddr,
+		cfg.Resilience.DefaultTimeoutMS,
+		cfg.Resilience.DefaultRetry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("payment client: %w", err)
+	}
 	verificationClient, err := clients.NewKitexVerificationClient(
 		cfg.Downstream.VerificationService,
 		cfg.Downstream.VerificationServiceAddr,

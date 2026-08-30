@@ -14,7 +14,7 @@ all: build
 
 # 构建
 build:
-	go build $(LDFLAGS) -o bin/$(APP_NAME) cmd/$(APP_NAME)/main.go
+	go build $(LDFLAGS) -o bin/$(APP_NAME) ./cmd/server
 
 # 测试
 test:
@@ -31,7 +31,7 @@ clean:
 
 # 运行
 run:
-	go run cmd/$(APP_NAME)/main.go
+	go run ./cmd/server
 
 # 格式化代码
 fmt:
@@ -48,7 +48,7 @@ deps:
 
 # 生成代码（如使用 thriftgo）
 generate:
-	# thriftgo -g go -o ./idl idl/payment-service.thrift
+	go run github.com/cloudwego/kitex/tool/cmd/kitex@v0.16.1 -module github.com/stablepay/payment-service -service payment_service -I ../stablepayai-idl/idl ../stablepayai-idl/idl/payment-service.thrift
 
 # Docker 构建
 docker:

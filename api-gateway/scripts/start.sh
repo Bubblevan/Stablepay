@@ -4,4 +4,4 @@ set -euo pipefail
 export GOCACHE="$(pwd)/.gocache"
 export GOMODCACHE="$(pwd)/.gomodcache"
 
-go run ./cmd/api-gateway -config configs/config.yaml
+go run ./cmd/server -config config/config.yaml
