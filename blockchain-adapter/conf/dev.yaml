@@ -1,0 +1,8 @@
+solana:
+  network: "devnet"
+  rpc_endpoint: "https://api.devnet.solana.com"
+  ws_endpoint: "wss://api.devnet.solana.com"
+  hotwallet_path: "conf/hotwallet.json"
+
+mysql:
+  dsn: "root:rootpassword@tcp(stablepay-mysql:3306)/stablepay_payment_db?charset=utf8mb4&parseTime=True&loc=Local"

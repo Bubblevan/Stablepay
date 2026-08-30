@@ -1,0 +1,14 @@
+{
+  "address": "你的Solana钱包地址",
+  "did": "did:solana:你的Solana钱包地址",
+  "public_key": "你的Solana钱包地址",
+  "private_key": "Base58编码的私钥（64字节，完整keypair）",
+  "role": "hot_wallet",
+  "description": "DevNet测试热钱包"
+}
+
+# 生成方法：
+# 1. 在WSL中: solana-keygen new
+# 2. 导出私钥: cat ~/.config/solana/id.json | python3 -c "import sys,json,base58; d=json.load(sys.stdin); print(base58.b58encode(bytes(d)).decode())"
+# 3. 把输出的字符串填入 private_key
+# 4. 地址用: solana address
