@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StablePay X Verification</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .did-display {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            word-break: break-all;
+            margin-bottom: 30px;
+            font-family: monospace;
+        }
+        .step {
+            margin-bottom: 24px;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            position: relative;
+        }
+        .step.active {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .step.completed {
+            border-color: #4caf50;
+            background: #f1f8f4;
+        }
+        .step-number {
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: #667eea;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .step.completed .step-number {
+            background: #4caf50;
+        }
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        .step-desc {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 12px;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #1da1f2;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #1a91da;
+        }
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #45a049;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .input-group {
+            margin-top: 12px;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .status {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+        .status.error {
+            display: block;
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status.success {
+            display: block;
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .connected-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+        .connected-user img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+        }
+        .connected-user .info {
+            flex: 1;
+        }
+        .connected-user .username {
+            font-weight: 600;
+            color: #333;
+        }
+        .connected-user .handle {
+            font-size: 12px;
+            color: #666;
+        }
+        .tweet-preview {
+            background: #f5f5f5;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 12px 0;
+            font-size: 14px;
+            line-height: 1.6;
+            border-left: 4px solid #1da1f2;
+        }
+        .hidden {
+            display: none !important;
+        }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 X Verification</h1>
+        <p class="subtitle">Connect your X account to verify your DID and claim 1 USDC</p>
+
+        <div class="did-display" id="didDisplay">
+            Loading DID...
+        </div>
+
+        <!-- Step 1: Connect X -->
+        <div class="step" id="step1">
+            <div class="step-number">1</div>
+            <div class="step-title">Connect X Account</div>
+            <div class="step-desc">Authorize StablePay to verify your X identity</div>
+            <button class="btn btn-primary" id="connectBtn" onclick="startOAuth()">
+                Connect with X
+            </button>
+            <div class="connected-user hidden" id="connectedUser">
+                <div class="info">
+                    <div class="username" id="connectedUsername">Connected</div>
+                    <div class="handle" id="connectedHandle">@username</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Post Verification Tweet -->
+        <div class="step" id="step2">
+            <div class="step-number">2</div>
+            <div class="step-title">Post Verification Tweet</div>
+            <div class="step-desc">Post a public verification tweet with your DID</div>
+            <div class="tweet-preview" id="tweetPreview">
+                I'm verifying my StablePay DID: <span id="didInTweet">...</span>
+
+                Join me on @StablePay to enable AI Agent payments on Solana!
+
+                #StablePay #Solana #AIAgent
+            </div>
+            <button class="btn btn-primary" id="postTweetBtn" onclick="postTweet()" disabled>
+                Post on X
+            </button>
+        </div>
+
+        <!-- Step 3: Verify & Claim -->
+        <div class="step" id="step3">
+            <div class="step-number">3</div>
+            <div class="step-title">Verify & Claim</div>
+            <div class="step-desc">Paste your tweet URL to complete verification</div>
+            <div class="input-group">
+                <input type="text" id="tweetUrl" placeholder="https://x.com/username/status/123456..." disabled>
+            </div>
+            <button class="btn btn-success" id="verifyBtn" onclick="verifyTweet()" disabled>
+                Verify & Claim 1 USDC
+            </button>
+            <div class="status" id="status"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let did = '';
+        let username = '';
+
+        // Parse DID from URL
+        function init() {
+            const params = new URLSearchParams(window.location.search);
+            did = params.get('did');
+
+            if (!did) {
+                document.getElementById('didDisplay').textContent = 'Error: No DID provided in URL';
+                return;
+            }
+
+            document.getElementById('didDisplay').textContent = did;
+            document.getElementById('didInTweet').textContent = did;
+
+            // Check OAuth callback result
+            const oauth = params.get('oauth');
+            username = params.get('username');
+
+            if (oauth === 'success' && username) {
+                // OAuth completed, update UI
+                updateStep1Complete(username);
+                checkStatus();
+            } else if (oauth === 'failed') {
+                showStatus('OAuth failed: ' + (params.get('reason') || 'Unknown error'), 'error');
+                checkStatus();
+            } else {
+                // Check current status
+                checkStatus();
+            }
+        }
+
+        // Check OAuth status
+        async function checkStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/x/oauth/status?did=${encodeURIComponent(did)}`);
+                const data = await response.json();
+
+                if (data.connected) {
+                    updateStep1Complete(data.username);
+
+                    // Check if already verified
+                    const verifyResponse = await fetch(`${API_BASE}/api/v1/verify?did=${encodeURIComponent(did)}`);
+                    const verifyData = await verifyResponse.json();
+
+                    if (verifyData.verified) {
+                        showComplete(verifyData.twitter_handle, verifyData.reward_tx);
+                    }
+                }
+            } catch (err) {
+                console.error('Status check failed:', err);
+            }
+        }
+
+        // Update Step 1 to completed state
+        function updateStep1Complete(user) {
+            username = user;
+            document.getElementById('step1').classList.add('completed');
+            document.getElementById('connectBtn').classList.add('hidden');
+            document.getElementById('connectedUser').classList.remove('hidden');
+            document.getElementById('connectedUsername').textContent = 'Connected';
+            document.getElementById('connectedHandle').textContent = '@' + user;
+
+            // Enable Step 2
+            document.getElementById('step2').classList.add('active');
+            document.getElementById('postTweetBtn').disabled = false;
+        }
+
+        // Start OAuth flow
+        async function startOAuth() {
+            const btn = document.getElementById('connectBtn');
+            btn.innerHTML = 'Connecting<span class="loading"></span>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/x/oauth/start?did=${encodeURIComponent(did)}`);
+                const data = await response.json();
+
+                if (data.authorize_url) {
+                    window.location.href = data.authorize_url;
+                } else {
+                    throw new Error('No authorize URL returned');
+                }
+            } catch (err) {
+                showStatus('Failed to start OAuth: ' + err.message, 'error');
+                btn.innerHTML = 'Connect with X';
+                btn.disabled = false;
+            }
+        }
+
+        // Open X to post tweet
+        function postTweet() {
+            const tweetText = document.getElementById('tweetPreview').innerText;
+            const encodedText = encodeURIComponent(tweetText);
+            const xUrl = `https://x.com/intent/tweet?text=${encodedText}`;
+            window.open(xUrl, '_blank');
+
+            // Enable Step 3
+            document.getElementById('step2').classList.add('completed');
+            document.getElementById('step3').classList.add('active');
+            document.getElementById('tweetUrl').disabled = false;
+            document.getElementById('verifyBtn').disabled = false;
+        }
+
+        // Verify tweet
+        async function verifyTweet() {
+            const tweetUrl = document.getElementById('tweetUrl').value.trim();
+            const btn = document.getElementById('verifyBtn');
+
+            if (!tweetUrl) {
+                showStatus('Please enter your tweet URL', 'error');
+                return;
+            }
+
+            btn.innerHTML = 'Verifying<span class="loading"></span>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/verify-twitter`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        did: did,
+                        tweet_url: tweetUrl
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showComplete(data.twitter_handle, data.reward_tx);
+                } else {
+                    throw new Error(data.message || 'Verification failed');
+                }
+            } catch (err) {
+                showStatus('Verification failed: ' + err.message, 'error');
+                btn.innerHTML = 'Verify & Claim 1 USDC';
+                btn.disabled = false;
+            }
+        }
+
+        // Show complete state
+        function showComplete(handle, tx) {
+            document.getElementById('step3').classList.add('completed');
+            document.getElementById('verifyBtn').classList.add('hidden');
+            showStatus(`✅ Verified as ${handle}! 1 USDC sent. TX: ${tx}`, 'success');
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = 'status ' + type;
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
