@@ -1,0 +1,80 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: stablepay-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: stablepay_payment_db
+      MYSQL_USER: stablepay
+      MYSQL_PASSWORD: stablepay123
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../scripts/init-db:/docker-entrypoint-initdb.d:ro
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stablepay-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: stablepay-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - stablepay-network
+
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.3.2
+    container_name: stablepay-rocketmq-nameserver
+    ports:
+      - "9876:9876"
+    environment:
+      - JAVA_OPT_EXT=-server -Xms512m -Xmx512m
+    command: sh mqnamesrv
+    restart: on-failure
+    networks:
+      - stablepay-network
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.2
+    container_name: stablepay-rocketmq-broker
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+      - "18080:8080"
+      - "18081:8081"
+    environment:
+      - NAMESRV_ADDR=rocketmq-nameserver:9876
+      - JAVA_OPT_EXT=-server -Xms512m -Xmx512m
+    volumes:
+      - ./broker.conf:/home/rocketmq/rocketmq-5.3.2/conf/broker.conf:ro
+    # 先启动 broker（10911），避免只起 proxy 导致 mqadmin 连不上
+    command: sh -c "sleep 8 && sh /home/rocketmq/rocketmq-5.3.2/bin/mqbroker -c /home/rocketmq/rocketmq-5.3.2/conf/broker.conf"
+    depends_on:
+      - rocketmq-nameserver
+    restart: on-failure
+    networks:
+      - stablepay-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  stablepay-network:
+    driver: bridge

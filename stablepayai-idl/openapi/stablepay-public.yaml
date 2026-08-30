@@ -1,0 +1,567 @@
+openapi: 3.0.3
+info:
+  title: StablePay DEMO Public API
+  version: 0.1.0
+  description: |
+    StablePay DEMO 一期对外 HTTP API（通过 API Gateway 暴露）。
+
+    约定：
+    - canonical API：/api/v1/*
+    - 短链接兼容入口：/pay、/verify（面向 skill.md 嵌入场景）
+    - 统一响应格式：code/message/data
+servers:
+  - url: https://api.stablepay.co
+tags:
+  - name: did
+    description: DID 管理
+  - name: payment
+    description: 支付处理
+  - name: verification
+    description: 购买验证
+  - name: query
+    description: 数据查询
+  - name: shortcut
+    description: skill.md 短链接入口
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 用于开发者后端调用验证接口（一期最小可用）
+    DidSignatureAuth:
+      type: apiKey
+      in: header
+      name: X-StablePay-Signature
+      description: |
+        DID 签名认证（一期建议字段；签名串拼装与其它头部字段待与 stablepay-common 对齐）。
+  schemas:
+    BaseResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+        data:
+          type: object
+    Currency:
+      type: string
+      enum: [USDC, USDT]
+    AmountDecimal:
+      type: string
+      description: 字符串 decimal，例如 "5.00"、"0.50"
+      example: "5.00"
+    Did:
+      type: string
+      example: did:solana:agent123
+    TxId:
+      type: string
+      example: pay_xxx
+    TxHash:
+      type: string
+      example: solana_tx_hash
+
+paths:
+  /api/v1/did:
+    post:
+      tags: [did]
+      summary: 创建 DID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_type]
+              properties:
+                user_type:
+                  type: string
+                  enum: [agent, developer]
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          did: { $ref: "#/components/schemas/Did" }
+                          public_key: { type: string }
+                          wallet_address: { type: string }
+                          created_at: { type: string, description: ISO8601 }
+
+  /api/v1/did/verify:
+    post:
+      tags: [did]
+      summary: 验证 DID 签名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [did, message, signature, timestamp]
+              properties:
+                did: { $ref: "#/components/schemas/Did" }
+                message: { type: string }
+                signature: { type: string }
+                timestamp: { type: string, description: ISO8601 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          valid: { type: boolean }
+
+  /api/v1/did/{did}:
+    get:
+      tags: [did]
+      summary: 查询 DID 信息
+      parameters:
+        - in: path
+          name: did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          did: { $ref: "#/components/schemas/Did" }
+                          public_key: { type: string }
+                          wallet_address: { type: string }
+
+  /api/v1/pay:
+    post:
+      tags: [payment]
+      summary: 发起支付（canonical）
+      description: |
+        一期：真正的支付提交走该接口。短链接 /pay 仅用于引导/兼容入口。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_did, skill_did, amount, currency, signature, timestamp]
+              properties:
+                agent_did: { $ref: "#/components/schemas/Did" }
+                skill_did:
+                  $ref: "#/components/schemas/Did"
+                  description: 一期等同于收款方 DID（developer/payee DID）
+                amount: { $ref: "#/components/schemas/AmountDecimal" }
+                currency: { $ref: "#/components/schemas/Currency" }
+                signature: { type: string }
+                timestamp: { type: string, description: ISO8601 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tx_id: { $ref: "#/components/schemas/TxId" }
+                          tx_hash: { $ref: "#/components/schemas/TxHash" }
+                          status:
+                            type: string
+                            enum: [confirmed, failed, pending]
+                          confirmed_at:
+                            type: string
+                            description: ISO8601（建议字段）
+
+  /api/v1/pay/{tx_id}:
+    get:
+      tags: [payment]
+      summary: 查询支付状态
+      parameters:
+        - in: path
+          name: tx_id
+          required: true
+          schema: { $ref: "#/components/schemas/TxId" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tx_id: { $ref: "#/components/schemas/TxId" }
+                          status:
+                            type: string
+                            enum: [confirmed, failed, pending]
+                          tx_hash:
+                            allOf:
+                              - $ref: "#/components/schemas/TxHash"
+                            description: 建议字段
+                          confirmed_at:
+                            type: string
+                            description: ISO8601（建议字段）
+                          failed_at:
+                            type: string
+                            description: ISO8601（建议字段）
+
+  /api/v1/pay/history:
+    get:
+      tags: [payment]
+      summary: 支付历史
+      parameters:
+        - in: query
+          name: agent_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+        - in: query
+          name: limit
+          required: true
+          schema: { type: integer, format: int32, example: 20 }
+        - in: query
+          name: offset
+          required: true
+          schema: { type: integer, format: int32, example: 0 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                tx_id: { $ref: "#/components/schemas/TxId" }
+                                skill_did: { $ref: "#/components/schemas/Did" }
+                                amount: { $ref: "#/components/schemas/AmountDecimal" }
+                                currency: { $ref: "#/components/schemas/Currency" }
+                                status:
+                                  type: string
+                                  enum: [confirmed, failed, pending]
+                                created_at: { type: string, description: ISO8601 }
+                          total: { type: integer, format: int32 }
+
+  /api/v1/verify:
+    get:
+      tags: [verification]
+      summary: 验证购买记录
+      description: 支持 API Key 或 DID 签名认证（一期最小可用）
+      security:
+        - ApiKeyAuth: []
+        - DidSignatureAuth: []
+      parameters:
+        - in: query
+          name: agent_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+        - in: query
+          name: skill_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          purchased: { type: boolean }
+                          purchase_time: { type: string, description: ISO8601 }
+                          tx_id: { $ref: "#/components/schemas/TxId" }
+                          amount: { $ref: "#/components/schemas/AmountDecimal" }
+                          currency: { $ref: "#/components/schemas/Currency" }
+
+  /api/v1/verify/batch:
+    post:
+      tags: [verification]
+      summary: 批量验证
+      security:
+        - ApiKeyAuth: []
+        - DidSignatureAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_did, skill_dids]
+              properties:
+                agent_did: { $ref: "#/components/schemas/Did" }
+                skill_dids:
+                  type: array
+                  items: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                skill_did: { $ref: "#/components/schemas/Did" }
+                                purchased: { type: boolean }
+                                purchase_time: { type: string }
+                                tx_id: { $ref: "#/components/schemas/TxId" }
+
+  /api/v1/verify/proof:
+    get:
+      tags: [verification]
+      summary: 获取购买证明
+      security:
+        - ApiKeyAuth: []
+        - DidSignatureAuth: []
+      parameters:
+        - in: query
+          name: agent_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+        - in: query
+          name: skill_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          purchased: { type: boolean }
+                          purchase_time: { type: string, description: ISO8601 }
+                          tx_id: { $ref: "#/components/schemas/TxId" }
+                          amount: { $ref: "#/components/schemas/AmountDecimal" }
+                          currency: { $ref: "#/components/schemas/Currency" }
+                          tx_hash:
+                            allOf:
+                              - $ref: "#/components/schemas/TxHash"
+                            description: 建议字段
+                          proof_version:
+                            type: string
+                            description: 建议字段
+
+  /api/v1/balance:
+    get:
+      tags: [query]
+      summary: 余额查询
+      parameters:
+        - in: query
+          name: agent_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          balance: { $ref: "#/components/schemas/AmountDecimal" }
+                          currency: { $ref: "#/components/schemas/Currency" }
+                          monthly_spent: { $ref: "#/components/schemas/AmountDecimal" }
+                          monthly_limit: { $ref: "#/components/schemas/AmountDecimal" }
+
+  /api/v1/transactions:
+    get:
+      tags: [query]
+      summary: 交易记录查询
+      parameters:
+        - in: query
+          name: did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+        - in: query
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [purchase, revenue]
+        - in: query
+          name: limit
+          required: true
+          schema: { type: integer, format: int32 }
+        - in: query
+          name: offset
+          required: true
+          schema: { type: integer, format: int32 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                tx_id: { $ref: "#/components/schemas/TxId" }
+                                skill_did: { $ref: "#/components/schemas/Did" }
+                                amount: { $ref: "#/components/schemas/AmountDecimal" }
+                                currency: { $ref: "#/components/schemas/Currency" }
+                                type:
+                                  type: string
+                                  enum: [purchase, revenue]
+                                created_at: { type: string, description: ISO8601 }
+                          total: { type: integer, format: int32 }
+
+  /api/v1/revenue:
+    get:
+      tags: [query]
+      summary: 收益统计查询
+      parameters:
+        - in: query
+          name: skill_did
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/BaseResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_revenue: { $ref: "#/components/schemas/AmountDecimal" }
+                          total_sales: { type: integer, format: int32, example: 24 }
+                          currency: { $ref: "#/components/schemas/Currency" }
+                          sales_trend:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                date: { type: string, example: "2026-02-13" }
+                                amount: { $ref: "#/components/schemas/AmountDecimal" }
+
+  /pay:
+    get:
+      tags: [shortcut]
+      summary: 支付短链接入口（skill.md 场景）
+      description: |
+        一期约定：/pay 更像支付挑战/引导入口/网关兼容短链；
+        真正的支付提交仍走 POST /api/v1/pay。
+        返回结构可按统一响应格式返回引导信息（待对齐实现细节）。
+      parameters:
+        - in: query
+          name: skill
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+          description: skill_did（一期等同于收款方 DID）
+        - in: query
+          name: price
+          required: true
+          schema: { $ref: "#/components/schemas/AmountDecimal" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /verify:
+    get:
+      tags: [shortcut]
+      summary: 验证短链接入口（skill.md 场景）
+      description: |
+        一期约定：/verify 由网关映射到 GET /api/v1/verify。
+      parameters:
+        - in: query
+          name: skill
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+        - in: query
+          name: agent
+          required: true
+          schema: { $ref: "#/components/schemas/Did" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"

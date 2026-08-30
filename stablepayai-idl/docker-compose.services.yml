@@ -1,0 +1,104 @@
+services:
+  did-service:
+    build:
+      context: ../did-service
+    image: stablepay-did-service:latest
+    container_name: stablepay-did-service
+    environment:
+      - CONFIG_PATH=conf/docker.yaml
+    ports:
+      - "8081:8081"
+      - "8181:8181"
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: payment-service/Dockerfile
+    image: stablepay-payment-service:latest
+    container_name: stablepay-payment-service
+    environment:
+      - CONFIG_PATH=config/docker.yaml
+    ports:
+      - "8082:8082"
+    depends_on:
+      - did-service
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  blockchain-adapter:
+    build:
+      context: ../blockchain-adapter
+    image: stablepay-blockchain-adapter:latest
+    container_name: stablepay-blockchain-adapter
+    command: ["./blockchain-adapter", "-config", "conf/docker.yaml"]
+    volumes:
+      - ../blockchain-adapter/conf:/app/conf:ro
+    ports:
+      - "8083:8083"
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  verification-service:
+    build:
+      context: ../verification-service
+    image: stablepay-verification-service:latest
+    container_name: stablepay-verification-service
+    environment:
+      - ROCKETMQ_NAMESERVER=stablepay-rocketmq-nameserver:9876
+      - MYSQL_HOST=stablepay-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=stablepay
+      - MYSQL_PASSWORD=stablepay123
+      - MYSQL_DBNAME=stablepay_verification_db
+    ports:
+      - "8085:8085"
+      - "8185:8185"
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  query-service:
+    build:
+      context: ../query-service
+    image: stablepay-query-service:latest
+    container_name: stablepay-query-service
+    ports:
+      - "8084:8084"
+      - "8184:8184"
+    environment:
+      - MYSQL_HOST=stablepay-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=stablepay
+      - MYSQL_PASSWORD=stablepay123
+      - MYSQL_DBNAME=stablepay_query_db
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ../api-gateway
+      args:
+        GITTOKEN: ${GITTOKEN:-}
+    image: stablepay-api-gateway:latest
+    container_name: stablepay-api-gateway
+    ports:
+      - "28080:8080"
+    depends_on:
+      - did-service
+      - payment-service
+      - verification-service
+      - query-service
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+networks:
+  stablepay-network:
+    external: true
+    name: root_stablepay-network
