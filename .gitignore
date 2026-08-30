@@ -1,0 +1,48 @@
+# Sensitive local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*_ed25519*
+hotwallet.json
+**/hotwallet.json
+
+# Dependency installs and local build caches
+**/node_modules/
+**/.gomodcache/
+**/.gocache/
+**/.vite/
+**/.cache/
+**/.parcel-cache/
+
+# Build and test artifacts
+**/bin/
+**/dist/
+**/out/
+**/build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+coverage.out
+*.coverprofile
+
+# Logs and temporary files
+*.log
+logs/
+**/tmp/
+
+# Local tooling and editor state
+.codex-tmp/
+.claude/
+.agents/
+.migration-stage/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
