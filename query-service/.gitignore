@@ -1,0 +1,45 @@
+# Binaries / build output
+/bin/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
+coverage.out
+*.coverprofile
+vendor/
+
+# Local DB / generated run artifacts
+test.db
+output/
+
+# 注意：kitex_gen 为 Kitex 自 Thrift 生成代码，云效/ Docker 构建必须随仓库提交，勿忽略
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.sublime-project
+*.sublime-workspace
+
+# Logs & temp
+*.log
+logs/
+**/tmp/
+/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+.codex-tmp/
