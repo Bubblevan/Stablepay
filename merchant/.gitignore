@@ -1,0 +1,30 @@
+## 目录
+- .gocache/
+- data/
+- tmp/
+
+## 临时文件
+*.log
+*.out
+*.test
+
+## IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+## 环境变量
+.env
+.env.local
+.env.*.local
+
+## 二进制
+merchant-server.exe
+merchant-server
+*.exe
+
+_adapter_patch/
+_application_patch/
+_domain_patch/
+_infrastructure_patch/
