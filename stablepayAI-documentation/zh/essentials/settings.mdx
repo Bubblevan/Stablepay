@@ -1,0 +1,174 @@
+---
+title: '配置'
+description: '使用 `docs.json` 文件自定义你的站点'
+icon: 'gear'
+---
+
+每个 Mintlify 站点通过项目根目录中的 `docs.json` 文件进行配置。更改在本地预览中立即可见。
+
+## 身份
+
+设置站点的名称、主题和视觉标识。
+
+```json docs.json
+{
+  "name": "Acme Docs",
+  "theme": "mint",
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  }
+}
+```
+
+<ResponseField name="name" type="string" required>
+  你的项目名称。显示在浏览器标签标题和站点元数据中。
+</ResponseField>
+
+<ResponseField name="theme" type="string">
+  视觉主题。选项：`mint`、`maple`、`willow`、`sequoia`、`prism`。
+</ResponseField>
+
+<ResponseField name="favicon" type="string">
+  favicon 的路径。推荐使用 SVG 以获得在所有尺寸下的清晰渲染。
+</ResponseField>
+
+<ResponseField name="logo" type="object">
+  <Expandable title="Logo">
+    <ResponseField name="light" type="string">浅色模式下显示的 logo。</ResponseField>
+    <ResponseField name="dark" type="string">深色模式下显示的 logo。</ResponseField>
+    <ResponseField name="href" type="string" default="/">logo 链接的 URL。</ResponseField>
+  </Expandable>
+</ResponseField>
+
+## 颜色
+
+```json docs.json
+{
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#07C983",
+    "dark": "#15803D"
+  }
+}
+```
+
+<ResponseField name="colors.primary" type="string" required>
+  主品牌色。用于浅色模式下的高亮、活动状态和强调。
+</ResponseField>
+
+<ResponseField name="colors.light" type="string">
+  深色模式的主色。
+</ResponseField>
+
+<ResponseField name="colors.dark" type="string">
+  用于按钮和重要的交互元素。
+</ResponseField>
+
+<ResponseField name="colors.background" type="object">
+  覆盖默认页面背景色。
+  <Expandable title="背景">
+    <ResponseField name="light" type="string">浅色模式下的背景十六进制颜色。</ResponseField>
+    <ResponseField name="dark" type="string">深色模式下的背景十六进制颜色。</ResponseField>
+  </Expandable>
+</ResponseField>
+
+## 导航栏
+
+配置顶部导航栏链接和主要行动号召。
+
+```json docs.json
+{
+  "navbar": {
+    "links": [
+      { "label": "支持", "href": "mailto:support@example.com" }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "控制面板",
+      "href": "https://dashboard.example.com"
+    }
+  }
+}
+```
+
+<ResponseField name="navbar.links" type="array">
+  显示在顶部导航栏的文本链接。
+  <Expandable title="链接">
+    <ResponseField name="label" type="string">链接的显示文本。</ResponseField>
+    <ResponseField name="href" type="string">链接指向的 URL。</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="navbar.primary" type="object">
+  右上角突出的行动号召。
+  <Expandable title="主要">
+    <ResponseField name="type" type='"button" | "github"'>
+      `button` 渲染 CTA 按钮。`github` 渲染星标计数徽章。
+    </ResponseField>
+    <ResponseField name="label" type="string">按钮标签。type 为 `button` 时必需。</ResponseField>
+    <ResponseField name="href" type="string">按钮或徽章链接的 URL。</ResponseField>
+  </Expandable>
+</ResponseField>
+
+## 导航
+
+将页面组织到标签页和分组中。完整详情请参阅[导航](/essentials/navigation)指南。
+
+```json docs.json
+{
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "指南",
+        "groups": [
+          {
+            "group": "快速开始",
+            "pages": ["index", "quickstart"]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "博客",
+          "href": "https://example.com/blog",
+          "icon": "newspaper"
+        }
+      ]
+    }
+  }
+}
+```
+
+## 上下文工具栏
+
+上下文工具栏浮动在每一页上，为读者提供一键访问 AI 工具和集成。完整选项列表请参阅[上下文工具栏](/agent-ready/contextual)。
+
+```json docs.json
+{
+  "contextual": {
+    "options": ["copy", "view", "claude", "mcp", "cursor", "vscode"]
+  }
+}
+```
+
+## 页脚
+
+```json docs.json
+{
+  "footer": {
+    "socials": {
+      "x": "https://x.com/yourhandle",
+      "github": "https://github.com/yourorg",
+      "linkedin": "https://linkedin.com/company/yourco"
+    }
+  }
+}
+```
+
+<ResponseField name="footer.socials" type="object">
+  页脚中显示的社交链接。支持的键：`x`、`github`、`linkedin`、`discord`、`slack`、`facebook`、`instagram`、`website`。
+</ResponseField>

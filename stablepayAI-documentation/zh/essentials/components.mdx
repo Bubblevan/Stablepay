@@ -1,0 +1,207 @@
+---
+title: '组件'
+description: '标注、卡片、步骤、标签页等'
+icon: 'puzzle-piece'
+---
+
+Mintlify 组件让你能够使用 MDX 构建丰富的交互式文档页面。以下是一些常用组件。
+
+完整列表请参阅 Mintlify 文档中的[组件概览](https://mintlify.com/docs/components)。
+
+## 标注
+
+使用标注来引起对重要信息的注意。
+
+<Note>**Note** 用于帮助读者的一般信息。</Note>
+
+<Tip>**Tip** 高亮有用的快捷方式或最佳实践。</Tip>
+
+<Warning>**Warning** 标记可能导致问题的内容。</Warning>
+
+<Info>**Info** 标注提供补充上下文。</Info>
+
+```mdx
+<Note>**Note** 用于帮助读者的一般信息。</Note>
+
+<Tip>**Tip** 高亮有用的快捷方式或最佳实践。</Tip>
+
+<Warning>**Warning** 标记可能导致问题的内容。</Warning>
+
+<Info>**Info** 标注提供补充上下文。</Info>
+```
+
+## 卡片
+
+卡片将读者链接到其他页面或资源。
+
+<Columns cols={2}>
+  <Card title="API 参考" icon="terminal" href="/api-reference/introduction">
+    从你的 OpenAPI 规范自动生成的文档。
+  </Card>
+  <Card title="快速开始" icon="rocket" href="/quickstart">
+    三步启动你的文档。
+  </Card>
+</Columns>
+
+```mdx
+<Columns cols={2}>
+  <Card title="API 参考" icon="terminal" href="/api-reference/introduction">
+    从你的 OpenAPI 规范自动生成的文档。
+  </Card>
+  <Card title="快速开始" icon="rocket" href="/quickstart">
+    三步启动你的文档。
+  </Card>
+</Columns>
+```
+
+使用 `<Columns cols={N}>` 控制网格宽度。不带 `href` 的卡片渲染为信息面板。
+
+## 步骤
+
+步骤清晰地呈现编号流程。
+
+<Steps>
+  <Step title="安装包">
+    ```bash
+    npm install my-package
+    ```
+  </Step>
+  <Step title="初始化">
+    在项目根目录运行 init 命令。
+    ```bash
+    npx my-package init
+    ```
+  </Step>
+  <Step title="准备就绪">
+    开始在代码中使用该包。
+  </Step>
+</Steps>
+
+````mdx
+<Steps>
+  <Step title="安装包">
+    ```bash
+    npm install my-package
+    ```
+  </Step>
+  <Step title="初始化">
+    在项目根目录运行 init 命令。
+  </Step>
+  <Step title="准备就绪">
+    开始在代码中使用该包。
+  </Step>
+</Steps>
+````
+
+## 标签页
+
+标签页让读者在不同替代内容之间切换——不同的语言、环境或平台。
+
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm install my-package
+    ```
+  </Tab>
+  <Tab title="yarn">
+    ```bash
+    yarn add my-package
+    ```
+  </Tab>
+  <Tab title="pnpm">
+    ```bash
+    pnpm add my-package
+    ```
+  </Tab>
+</Tabs>
+
+````mdx
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm install my-package
+    ```
+  </Tab>
+  <Tab title="yarn">
+    ```bash
+    yarn add my-package
+    ```
+  </Tab>
+  <Tab title="pnpm">
+    ```bash
+    pnpm add my-package
+    ```
+  </Tab>
+</Tabs>
+````
+
+## 手风琴
+
+手风琴将内容折叠在切换按钮后面——适用于 FAQ 或可选细节。
+
+<AccordionGroup>
+  <Accordion title="这个产品做什么？">
+    对第一个问题的简要回答。保持简洁。
+  </Accordion>
+  <Accordion title="定价如何计算？">
+    这里是另一个答案。可以使用任意长度。
+  </Accordion>
+</AccordionGroup>
+
+```mdx
+<AccordionGroup>
+  <Accordion title="这个产品做什么？">
+    对第一个问题的简要回答。
+  </Accordion>
+  <Accordion title="定价如何计算？">
+    这里是另一个答案。
+  </Accordion>
+</AccordionGroup>
+```
+
+## 框架
+
+用 `Frame` 包裹图片或其他内容，添加风格化边框和圆角。
+
+<Frame>
+  <img src="https://mintlify-assets.b-cdn.net/bigbend.jpg" alt="Big Bend 风景" />
+</Frame>
+
+```mdx
+<Frame>
+  <img src="/images/screenshot.png" alt="应用截图" />
+</Frame>
+```
+
+## 代码组
+
+`CodeGroup` 将多个代码片段显示为标签页——非常适合展示同一示例的多种语言。
+
+<CodeGroup>
+  ```typescript TypeScript
+  const response = await fetch('https://api.example.com/users');
+  const users = await response.json();
+  ```
+
+  ```python Python
+  import requests
+  response = requests.get('https://api.example.com/users')
+  users = response.json()
+  ```
+
+  ```bash curl
+  curl https://api.example.com/users
+  ```
+</CodeGroup>
+
+````mdx
+<CodeGroup>
+  ```typescript TypeScript
+  const response = await fetch('https://api.example.com/users');
+  ```
+
+  ```python Python
+  response = requests.get('https://api.example.com/users')
+  ```
+</CodeGroup>
+````

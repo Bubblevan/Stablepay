@@ -1,0 +1,187 @@
+---
+title: "Quickstart"
+description: "Add StablePay payment to your skill in under 5 minutes"
+icon: 'rocket'
+---
+
+## Add payment to your skill
+
+Open your skill's `skill.md`. Paste this at the top or bottom — replace two values.
+
+```markdown
+## 💰 StablePay Payment
+
+This Skill requires {PRICE} USDC to unlock.
+
+Payment endpoint:
+https://api.stablepay.co/pay?skill={SKILL_DID}&price={PRICE}
+
+Verify purchase:
+https://api.stablepay.co/verify?skill={SKILL_DID}&agent={AGENT_DID}
+```
+
+| Variable | Replace with |
+|----------|--------------|
+| `{PRICE}` | Your price in USDC (e.g., `5`) |
+| `{SKILL_DID}` | Your developer DID (`did:solana:AbCdEf...`) |
+| `{AGENT_DID}` | **Leave as-is** — the buyer's agent fills this at runtime |
+
+<Tip>
+  Don't have a DID yet? The section below walks you through one-time wallet setup. You only do this once — after that, adding payment to each skill is just the template above.
+</Tip>
+
+### How it works
+
+```
+Buyer's Agent reads your skill.md
+    → Sees the payment block
+    → Runs stablepay_pay_via_gateway in conversation
+    → Signs the SPL transfer with their wallet
+    → USDC sent directly to your wallet (skill_did)
+    → Buyer's Agent gets access
+```
+
+### For backend-enforced security
+
+The skill.md template is the simplest path. If you want server-side enforcement (so users can't remove the payment block), your backend should return HTTP 402 and call the verify API. See [Integrating x402 payments](/integrating-payment) for backend examples in Go, Node.js, and the x402 format reference.
+
+---
+
+## One-time setup
+
+Before your first paid skill, set up your wallet and register your DID. This takes about 5 minutes and you only do it once.
+
+### Sandbox vs Production
+
+<Tabs>
+  <Tab title="Production">
+    ```bash
+    # Install the plugin
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://api.stablepay.co",
+              "solanaRpcUrl": "https://api.mainnet-beta.solana.com",
+              "splTokenMintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
+        }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
+      }
+    }
+
+    # Environment variables
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+    export STABLEPAY_FEE_PAYER_SOL="<prod-hotwallet-pubkey>"
+    ```
+  </Tab>
+  <Tab title="Sandbox">
+    ```bash
+    # Install the plugin
+    openclaw plugins install clawhub:stablepay-agentpay-dev
+
+    # openclaw.json
+    {
+      "plugins": {
+        "entries": {
+          "stablepay-agentpay-dev": {
+            "enabled": true,
+            "config": {
+              "backendBaseUrl": "https://ai.wenfu.cn",
+              "solanaRpcUrl": "https://api.devnet.solana.com",
+              "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+              "owsRuntime": "auto",
+              "didRegisterPath": "/api/v1/did/register",
+              "requestTimeoutMs": 90000
+            }
+          }
+        }
+      },
+      "tools": {
+        "allow": [
+          "stablepay_runtime_status",
+          "stablepay_create_local_wallet",
+          "stablepay_bind_existing_wallet",
+          "stablepay_register_local_did",
+          "stablepay_configure_payment_limits",
+          "stablepay_sign_message",
+          "stablepay_pay_via_gateway",
+          "stablepay_query_balance",
+          "stablepay_query_sales"
+        ]
+      }
+    }
+
+    # Environment variables
+    export STABLEPAY_PLUGIN_MASTER_KEY="your-long-random-secret"
+    export STABLEPAY_FEE_PAYER_SOL="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Production Mainnet payments are not yet deployed — the Sandbox gateway currently serves all traffic. API endpoints, authentication, and transaction flows are identical across both environments. See [Environments](/api-reference/introduction#environments).
+</Note>
+
+### Create your wallet and DID
+
+After configuring, restart the gateway and enter TUI:
+
+```bash
+openclaw gateway restart
+openclaw tui
+```
+
+Walk through these three steps in conversation:
+
+> Run stablepay_create_local_wallet with user_type "developer", runtime "auto"
+
+> Run stablepay_register_local_did with user_type "developer"
+
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 1000, auto_purchase_threshold_usdc 50
+
+Record the `did` from the output — that's your `{SKILL_DID}`.
+
+### You're done
+
+Now go back to the top of this page, copy the payment template, paste it into your skill.md, and replace `{SKILL_DID}` with your DID and `{PRICE}` with your price. That's it.
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="End-to-end testing" icon="flask" href="/testing">
+    Verify the full payment chain: wallet → DID → limits → pay → balance.
+  </Card>
+  <Card title="Backend x402 integration" icon="server" href="/integrating-payment">
+    Add server-side payment enforcement with HTTP 402 and purchase verification.
+  </Card>
+  <Card title="Publish on MoltBay" icon="store" href="/moltbay">
+    List your service on the Agent marketplace.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Full REST API documentation.
+  </Card>
+</CardGroup>

@@ -1,0 +1,41 @@
+---
+title: "Claude Code 设置"
+description: "为你的文档工作流配置 Claude Code"
+icon: "asterisk"
+---
+
+设置 Claude Code 来帮助你编写和维护 Mintlify 文档。
+
+## 前置条件
+
+- 活跃的 Claude 订阅（Pro、Max 或 API 访问）
+
+## 设置
+
+<Steps>
+<Step title="安装 Claude Code">
+  ```bash
+  npm install -g @anthropic-ai/claude-code
+  ```
+</Step>
+
+<Step title="安装 Mintlify 技能">
+  在你的文档目录中运行：
+
+  ```bash
+  npx skills add https://mintlify.com/docs
+  ```
+
+  这为 Claude Code 提供 Mintlify 的组件参考、写作标准和工作流指导。
+</Step>
+
+<Step title="自定义项目说明">
+  编辑项目根目录中的 `AGENTS.md`，添加项目特定的术语、风格偏好和内容边界。
+</Step>
+
+<Step title="开始使用 Claude Code 写作">
+  ```bash
+  claude
+  ```
+</Step>
+</Steps>

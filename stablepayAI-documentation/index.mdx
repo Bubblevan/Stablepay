@@ -1,0 +1,185 @@
+---
+title: "Introduction"
+description: "StablePay — decentralized micropayments for AI Agents. Built on did:solana and x402 protocol."
+icon: 'star'
+---
+
+## What is StablePay?
+
+StablePay is a decentralized payment infrastructure for the AI Agent economy. It lets your Agent **discover, purchase, and pay for services** — all through natural conversation, settled instantly on Solana.
+
+Built on open standards:
+- **W3C `did:solana`** — decentralized identity; your wallet is your identity
+- **x402 / HTTP 402** — the payment protocol for the machine economy
+- **A2A Protocol** — Agent-to-Agent service discovery and negotiation
+
+<Card
+  title="Get started in 5 minutes"
+  icon="rocket"
+  href="/quickstart"
+  horizontal
+>
+  Install the plugin, create a wallet, register your DID, and make your first payment.
+</Card>
+
+## Who is this for?
+
+<Columns cols={2}>
+  <Card
+    title="I'm a Service Developer"
+    icon="hammer"
+    href="/wallet-setup"
+  >
+    Create a wallet, register a developer DID, integrate x402 payments into your skill, publish on MoltBay, and earn revenue.
+  </Card>
+  <Card
+    title="I'm an Agent User"
+    icon="user"
+    href="/quickstart"
+  >
+    Set up your wallet, configure spending limits, and let your Agent discover and purchase services automatically.
+  </Card>
+</Columns>
+
+## Architecture
+
+The payment flow has three phases. Click through each tab to follow the full lifecycle.
+
+<Tabs>
+  <Tab title="1. 402 Challenge">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Verify as Verification Service
+    end
+
+    Agent->>Server: 1. Request resource
+    Server->>Gateway: 2. Check purchase (verify API)
+    Gateway->>Verify: 3. Query record
+    Verify-->>Gateway: Not purchased
+    Gateway-->>Server: purchased=false
+    Server-->>Agent: 4. HTTP 402 + payment challenge
+```
+
+The developer's backend returns **HTTP 402 Payment Required** with an [x402 payment challenge](/x402-format). The agent's StablePay plugin recognizes this automatically.
+
+  </Tab>
+  <Tab title="2. Payment & Settlement">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Gateway as API Gateway
+    participant Payment as Payment Service
+    participant DID as DID Service
+    participant Adapter as Blockchain Adapter
+    participant Solana as Solana
+
+    Note over Agent: 5. Build & sign SPL transfer tx
+    Note over Agent: (local OWS wallet signature)
+
+    Agent->>Gateway: 6. POST /api/v1/pay
+    Gateway->>Payment: 7. Forward payment
+    Payment->>DID: 8. Verify agent signature
+    DID-->>Payment: Signature valid
+    Payment->>Adapter: 9. Execute SPL transfer
+    Adapter->>Solana: 10. Broadcast tx
+    Solana-->>Adapter: Tx confirmed
+    Adapter-->>Payment: Settlement confirmed
+    Payment-->>Gateway: Payment result
+    Gateway-->>Agent: 11. tx_id + status
+```
+
+The plugin builds and signs the SPL token transfer locally using OWS. The gateway forwards the signed transaction to Solana for on-chain settlement. **USDC moves directly from buyer to seller** — no intermediaries.
+
+  </Tab>
+  <Tab title="3. Verification & Retry">
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#dcfce7", "primaryBorderColor": "#16A34A", "primaryTextColor": "#222325", "actorBkg": "#f0faf5", "actorBorder": "#16A34A", "actorTextColor": "#222325", "actorLineColor": "#86efac", "signalColor": "#222325", "signalTextColor": "#222325", "noteBkgColor": "#fef3c7", "noteBorderColor": "#f59e0b", "noteTextColor": "#222325"}}}%%
+
+sequenceDiagram
+    participant Agent as Client Agent
+    participant Server as Developer Backend
+    box StablePay Backend
+        participant Gateway as API Gateway
+        participant Verify as Verification Service
+    end
+    participant Payment as Payment Service
+
+    Note over Payment,Verify: 12. RocketMQ async → Write purchase record
+
+    Agent->>Server: 13. Retry resource request
+    Server->>Gateway: 14. Check purchase again
+    Gateway->>Verify: 15. Query record
+    Verify-->>Gateway: purchased=true
+    Gateway-->>Server: purchased=true
+    Server-->>Agent: 16. 200 OK + result
+```
+
+Purchase records are written **asynchronously** (typically &lt;5 seconds). The agent retries the original request, the developer's backend re-checks purchase status, and on success returns the paid resource.
+
+  </Tab>
+</Tabs>
+
+<style>{`
+  .svg-pan-zoom-control { display: none !important; }
+`}</style>
+
+## Core concepts
+
+<Columns cols={2}>
+  <Card
+    title="DID = Identity + Wallet"
+    icon="fingerprint"
+    href="/wallet-setup"
+  >
+    Your `did:solana:<pubkey>` is both your decentralized identity and your Solana wallet address. No separate accounts needed.
+  </Card>
+  <Card
+    title="skill_did = Payee"
+    icon="arrow-right-arrow-left"
+    href="/integrating-payment"
+  >
+    For developers: your DID is your `skill_did`. Payments go directly to your wallet — instant settlement, no intermediaries.
+  </Card>
+  <Card
+    title="OWS Signing"
+    icon="key"
+    href="/development"
+  >
+    Private keys stay on your machine. The plugin uses OWS (Open Wallet Standard) to sign transactions locally. Multiple runtime options: SDK, CLI, or REST.
+  </Card>
+  <Card
+    title="Fee Payer Model"
+    icon="coins"
+    href="/development#fee-payer"
+  >
+    Users pay only for the service (USDC). Gas fees (SOL) are covered by the platform hotwallet. No need to hold SOL.
+  </Card>
+</Columns>
+
+## Ready to start?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install, configure, and pay in under 5 minutes.
+  </Card>
+  <Card title="Wallet & DID" icon="wallet" href="/wallet-setup">
+    Deep dive into wallet creation and DID management.
+  </Card>
+  <Card title="x402 Integration" icon="credit-card" href="/integrating-payment">
+    Add payment to your skill with HTTP 402.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Full REST API documentation.
+  </Card>
+</CardGroup>

@@ -1,0 +1,100 @@
+---
+title: "可复用片段"
+description: "一次编写，处处复用。使用片段保持内容跨页面同步"
+icon: "recycle"
+---
+
+任何你在多个页面重复的内容都适合作为片段。在 `snippets/` 目录中创建一次文件，在需要的地方导入，更新会自动传播到所有地方。
+
+<Note>
+  `snippets/` 中的文件不会渲染为独立页面。它们只在你导入它们的地方出现。
+</Note>
+
+## 内容片段
+
+最简单的模式：在片段文件中编写 MDX 内容并将其作为组件导入。
+
+```mdx snippets/prerequisites.mdx
+开始之前，请确保具备：
+- Node.js 18 或更高版本
+- 来自[控制面板](https://dashboard.example.com)的 API 密钥
+```
+
+使用根相对路径将其导入任何页面：
+
+```mdx your-page.mdx
+---
+title: 安装 SDK
+---
+
+import Prerequisites from '/snippets/prerequisites.mdx';
+
+<Prerequisites />
+
+## 安装
+...
+```
+
+你也可以使用相对导入，这可以在编辑器中通过 CMD+点击导航到片段：
+
+```mdx
+import Prerequisites from '../snippets/prerequisites.mdx';
+```
+
+## 变量片段
+
+从片段文件导出命名常量以复用产品名称、版本号或 URL 等值。
+
+```mdx snippets/vars.mdx
+export const sdkVersion = '3.2.0';
+export const baseUrl = 'https://api.example.com/v1';
+```
+
+导入并内联使用它们：
+
+```mdx your-page.mdx
+import { sdkVersion, baseUrl } from '/snippets/vars.mdx';
+
+当前 SDK 版本为 **{sdkVersion}**。
+
+所有请求发送至 `{baseUrl}`。
+```
+
+## 组件片段
+
+对于需要根据使用位置变化的片段，导出一个接受 props 的箭头函数组件。
+
+```mdx snippets/endpoint-note.mdx
+export const EndpointNote = ({ method, path }) => (
+  <Note>
+    本指南涵盖 <code>{method} {path}</code> 端点。
+    完整详情请参阅 <a href="/api-reference/introduction">API 参考</a>。
+  </Note>
+);
+```
+
+* 使用箭头函数语法（`const Foo = () => ...`）。
+* 片段文件中不支持 `function` 关键字。
+* MDX 语法不会在箭头函数体内编译。请在其中使用纯 HTML 标签，或改用默认导出。
+
+传入 props 来渲染它：
+
+```mdx your-page.mdx
+import { EndpointNote } from '/snippets/endpoint-note.mdx';
+
+<EndpointNote method="POST" path="/v1/users" />
+```
+
+## 片段导入片段
+
+片段可以导入其他片段，这在将较大的共享部分组合成较小部分时非常有用。
+
+```mdx snippets/auth-intro.mdx
+import AuthNote from '/snippets/auth-note.mdx';
+
+## 认证
+
+所有端点都需要 bearer token。
+
+<AuthNote />
+```

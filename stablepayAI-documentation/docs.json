@@ -1,0 +1,249 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "StablePay",
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#22C55E",
+    "dark": "#15803D"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "languages": [
+      {
+        "language": "en",
+        "tabs": [
+          {
+            "tab": "Guides",
+            "groups": [
+              {
+                "group": "Getting started",
+                "pages": [
+                  "index",
+                  "quickstart",
+                  "testing",
+                  "development"
+                ]
+              },
+              {
+                "group": "Identity & wallet",
+                "pages": [
+                  "wallet-setup",
+                  "did-registration"
+                ]
+              },
+              {
+                "group": "Payment integration",
+                "pages": [
+                  "integrating-payment",
+                  "backend-verification",
+                  "x402-format"
+                ]
+              },
+              {
+                "group": "Marketplace",
+                "pages": [
+                  "moltbay",
+                  "revenue",
+                  "settlement"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API reference",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "api-reference/introduction"
+                ]
+              },
+              {
+                "group": "Errors",
+                "pages": [
+                  "api-reference/errors/error-codes",
+                  "api-reference/errors/retry-idempotency"
+                ]
+              },
+              {
+                "group": "DID endpoints",
+                "pages": [
+                  "api-reference/endpoint/did-register",
+                  "api-reference/endpoint/did-get",
+                  "api-reference/endpoint/did-verify"
+                ]
+              },
+              {
+                "group": "Payment endpoints",
+                "pages": [
+                  "api-reference/endpoint/pay-require",
+                  "api-reference/endpoint/pay-submit",
+                  "api-reference/endpoint/pay-status"
+                ]
+              },
+              {
+                "group": "Verification endpoints",
+                "pages": [
+                  "api-reference/endpoint/verify-purchase",
+                  "api-reference/endpoint/verify-batch"
+                ]
+              },
+              {
+                "group": "Query endpoints",
+                "pages": [
+                  "api-reference/endpoint/balance",
+                  "api-reference/endpoint/sales",
+                  "api-reference/endpoint/revenue"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "language": "zh",
+        "tabs": [
+          {
+            "tab": "指南",
+            "groups": [
+              {
+                "group": "快速开始",
+                "pages": [
+                  "zh/index",
+                  "zh/quickstart",
+                  "zh/testing",
+                  "zh/development"
+                ]
+              },
+              {
+                "group": "身份与钱包",
+                "pages": [
+                  "zh/wallet-setup",
+                  "zh/did-registration"
+                ]
+              },
+              {
+                "group": "支付集成",
+                "pages": [
+                  "zh/integrating-payment",
+                  "zh/backend-verification",
+                  "zh/x402-format"
+                ]
+              },
+              {
+                "group": "市场",
+                "pages": [
+                  "zh/moltbay",
+                  "zh/revenue",
+                  "zh/settlement"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API 参考",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/api-reference/introduction"
+                ]
+              },
+              {
+                "group": "DID 端点",
+                "pages": [
+                  "zh/api-reference/endpoint/did-register",
+                  "zh/api-reference/endpoint/did-get",
+                  "zh/api-reference/endpoint/did-verify"
+                ]
+              },
+              {
+                "group": "支付端点",
+                "pages": [
+                  "zh/api-reference/endpoint/pay-require",
+                  "zh/api-reference/endpoint/pay-submit",
+                  "zh/api-reference/endpoint/pay-status"
+                ]
+              },
+              {
+                "group": "验证端点",
+                "pages": [
+                  "zh/api-reference/endpoint/verify-purchase",
+                  "zh/api-reference/endpoint/verify-batch"
+                ]
+              },
+              {
+                "group": "查询端点",
+                "pages": [
+                  "zh/api-reference/endpoint/balance",
+                  "zh/api-reference/endpoint/sales",
+                  "zh/api-reference/endpoint/revenue"
+                ]
+              },
+              {
+                "group": "错误",
+                "pages": [
+                  "zh/api-reference/errors/error-codes",
+                  "zh/api-reference/errors/retry-idempotency"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "MoltBay",
+          "href": "https://www.moltbay.com",
+          "icon": "store"
+        },
+        {
+          "anchor": "OpenClaw",
+          "href": "https://openclaw.ai",
+          "icon": "robot"
+        },
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/stablepay",
+          "icon": "github"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:support@stablepay.co"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "MoltBay",
+      "href": "https://www.moltbay.com"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/MoltBay_AI",
+      "github": "https://github.com/stablepay"
+    }
+  }
+}

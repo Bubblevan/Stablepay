@@ -1,0 +1,137 @@
+---
+title: "End-to-end testing"
+description: "Step through every StablePay tool to verify your setup end to end"
+icon: 'flask'
+---
+
+## Purpose
+
+This guide walks through every plugin tool in order. Use it for:
+
+- Verifying your first-time setup works correctly
+- Debugging a payment failure step by step
+- Understanding what each tool does at the API level
+
+If you just want to add payment to your skill, start with the [Quickstart](/quickstart) instead — this is the detailed verification path.
+
+## Prerequisites
+
+- Plugin installed (`openclaw plugins list` shows `stablepay-agentpay-dev`)
+- `openclaw.json` configured ([Quickstart](/quickstart#one-time-setup))
+- Environment variables set (`STABLEPAY_PLUGIN_MASTER_KEY`, `STABLEPAY_FEE_PAYER_SOL`)
+- Gateway restarted (`openclaw gateway restart`)
+
+## Step-by-step verification
+
+Start the TUI:
+
+```bash
+openclaw tui
+```
+
+### Step 1: Check runtime status
+
+> Run stablepay_runtime_status
+
+Confirm:
+- `has_wallet: false` (no wallet yet on first run)
+- An active driver is selected (`ows-sdk`, `ows-cli`, etc.)
+- No errors in `notes`
+
+If this fails, the plugin isn't loading. Check `openclaw.json` syntax, restart the gateway, and verify the `plugins.entries` key is `stablepay-agentpay-dev`.
+
+### Step 2: Create or bind a wallet
+
+**New wallet:**
+
+> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+
+**Existing wallet:**
+
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "`<Solana Base58 address>`"
+
+Record these from the output:
+- `did` (format: `did:solana:AbCdEf...`)
+- `wallet_address` (Solana public key in Base58)
+- `wallet_id`
+
+### Step 3: Register your DID
+
+> Run stablepay_register_local_did with user_type "developer"
+
+This calls `POST /api/v1/did/register` to bind your public key to the StablePay backend. The response includes `backend_did` — this is what payment recipients use as `skill_did`.
+
+Verify: run `stablepay_runtime_status` again. It should now show:
+
+```
+has_wallet: true
+wallet.backend_did: did:solana:AbCdEf...
+```
+
+### Step 4: Set payment limits
+
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 100, auto_purchase_threshold_usdc 10
+
+| Parameter | Meaning |
+|-----------|---------|
+| `single_purchase_limit_usdc` | Hard cap per transaction. Payments above this are rejected before signing. |
+| `auto_purchase_threshold_usdc` | Purchases at or below this amount skip confirmation. Set to `0` to require confirmation for every payment. |
+
+Limits are stored in your encrypted local state — they never leave your machine.
+
+### Step 5: Make a test payment
+
+> Run stablepay_pay_via_gateway with skill_did "did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z", skill_name "test-payment", price "1.00", currency "USDC"
+
+<Tip>
+  The address `FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z` is the Sandbox hotwallet. Use it as a test `skill_did` target — the payment goes through the full chain but you're sending to a known test address.
+</Tip>
+
+What happens under the hood:
+1. Plugin calls `GET /api/v1/pay/require` — checks if payment is needed
+2. Receives HTTP 402 with the payment challenge
+3. Checks your local payment limits against the quoted price
+4. Builds a partially-signed SPL transfer transaction (fetches blockhash from Solana)
+5. Signs the transaction message bytes with your OWS wallet
+6. Creates a business signature: `sha256(signed_tx_base64)` signed by your wallet
+7. Creates a gateway canonical signature over the POST body
+8. Submits `POST /api/v1/pay` with all signatures
+9. Returns `tx_id` — the payment is now being confirmed on-chain
+
+If the price exceeds `auto_purchase_threshold_usdc`, the tool asks for confirmation. Pass `confirm_over_threshold: true` to proceed.
+
+**Common failures:**
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| "No local wallet found" | Skipped Step 2 | Create or bind a wallet first |
+| "No backend DID mapping" | Skipped Step 3 | Register your DID |
+| "No local payment limits" | Skipped Step 4 | Configure payment limits |
+| "Missing fee payer" | `STABLEPAY_FEE_PAYER_SOL` not set | Set the env var or `feePayerSolanaAddress` in config |
+| "insufficient balance" | Wallet has no USDC | Deposit USDC to your wallet address |
+
+### Step 6: Query your balance
+
+> Run stablepay_query_balance with did "`<your-did>`"
+
+This calls `GET /api/v1/balance` with DID signature authentication. The response queries Solana on-chain for your real USDC balance, plus monthly spending stats from the Query Service.
+
+### Step 7 (optional): Query sales
+
+> Run stablepay_query_sales with skill_did "`<your-did>`"
+
+Developer-only. Returns individual purchase records for your skill. Requires DID signature authentication — you must sign with the wallet that owns the `skill_did`.
+
+---
+
+## Full payment lifecycle diagram
+
+For a visual walkthrough of every service involved in a payment, see the [Architecture diagram](/index#architecture).
+
+## Related tools not in this flow
+
+| Tool | Use |
+|------|-----|
+| `stablepay_sign_message` | Sign an arbitrary message with your wallet (used to generate auth headers for direct API calls) |
+| `stablepay_build_payment_policy` | Generate a local OWS-ready payment policy manifest from your limits |
+| `stablepay_execute_paid_skill_demo` | Full demo flow: call a skill backend, handle 402, pay, retry — with configurable retry count and delay |

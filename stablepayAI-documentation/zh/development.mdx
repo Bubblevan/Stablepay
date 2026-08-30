@@ -1,0 +1,335 @@
+---
+title: "插件配置"
+description: "StablePay 插件所有配置选项的完整参考"
+icon: 'gear'
+---
+
+## 配置概览
+
+StablePay 插件在两个位置进行配置：
+
+| 位置 | 配置内容 |
+|----------|-------------------|
+| `~/.openclaw/openclaw.json` → `plugins.entries.stablepay-agentpay-dev.config` | 插件行为、端点、运行时 |
+| 环境变量 | 密钥、秘钥、调试标志 |
+
+## `openclaw.json` 配置模式
+
+`config` 对象的所有配置字段：
+
+```json
+{
+  "backendBaseUrl": "https://ai.wenfu.cn",
+  "feePayerSolanaAddress": "",
+  "solanaRpcUrl": "https://api.devnet.solana.com",
+  "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  "verifyPageBaseUrl": "",
+  "requestTimeoutMs": 90000,
+  "rewardAmount": 1,
+  "localStatePath": "",
+  "localStateKeyEnv": "STABLEPAY_PLUGIN_MASTER_KEY",
+  "owsVaultPath": "",
+  "owsPassphraseEnv": "STABLEPAY_OWS_PASSPHRASE",
+  "owsRuntime": "auto",
+  "walletNamePrefix": "stablepay",
+  "didRegisterPath": "/api/v1/did/register",
+  "owsRestBaseUrl": "",
+  "owsRestSignPath": "/v1/sign/message",
+  "owsRestApiKeyEnv": "STABLEPAY_OWS_REST_API_KEY",
+  "owsRestAuthMode": "bearer",
+  "owsRestWalletId": "",
+  "owsRestChainId": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  "pluginDebug": false
+}
+```
+
+### 核心选项
+
+<AccordionGroup>
+  <Accordion title="backendBaseUrl">
+    **默认值：** `https://ai.wenfu.cn`
+
+    StablePay API 网关的基地址。所有 API 调用（DID 注册、支付、余额等）都通过此端点。仅在为开发运行本地网关时更改。
+
+    ```json
+    "backendBaseUrl": "https://ai.wenfu.cn"
+    ```
+  </Accordion>
+  <Accordion title="feePayerSolanaAddress">
+    **默认值：** `""`（空 — 真实支付时必须设置）
+
+    支付 Gas 费的平台热钱包 Solana 公钥。这仅是**公钥**——私钥仅存在于服务端 `blockchain-adapter`。
+
+    也可以通过环境变量 `STABLEPAY_FEE_PAYER_SOL` 设置（优先级更高）。
+
+    当前 DevNet 热钱包：`FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z`
+
+    ```json
+    "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
+    ```
+  </Accordion>
+  <Accordion title="solanaRpcUrl">
+    **默认值：** `https://api.devnet.solana.com`
+
+    用于获取 blockhash 和构建 SPL 转账交易的 Solana RPC 端点。当前指向 DevNet。
+
+    ```json
+    "solanaRpcUrl": "https://api.devnet.solana.com"
+    ```
+  </Accordion>
+  <Accordion title="splTokenMintAddress">
+    **默认值：** `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
+
+    支付货币的 SPL Token 铸币地址。默认为 DevNet USDC。
+
+    ```json
+    "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    ```
+  </Accordion>
+  <Accordion title="requestTimeoutMs">
+    **默认值：** `90000`（90 秒）
+
+    HTTP 请求超时，以毫秒为单位。支付流程因 Solana 确认需要 60 秒以上。最小 1000ms，最大 180000ms。
+
+    ```json
+    "requestTimeoutMs": 90000
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### 钱包与状态
+
+<AccordionGroup>
+  <Accordion title="localStatePath">
+    **默认值：** `~/.stablepay-openclaw/stablepay-local-state.enc`
+
+    加密本地状态文件的路径。包含你的钱包信息、支付限额和策略清单。使用 AES-256-GCM 加密。
+
+    ```json
+    "localStatePath": "/home/user/.stablepay-openclaw/stablepay-local-state.enc"
+    ```
+  </Accordion>
+  <Accordion title="localStateKeyEnv">
+    **默认值：** `STABLEPAY_PLUGIN_MASTER_KEY`
+
+    提供本地状态文件主加密密钥的环境变量名称。
+
+    <Warning>
+      **保管好此密钥。** 如果丢失，你将无法解密本地状态，需要重新创建钱包绑定。
+    </Warning>
+  </Accordion>
+  <Accordion title="walletNamePrefix">
+    **默认值：** `stablepay`
+
+    自动生成钱包名称时使用的前缀。最终名称为 `{prefix}-{user_id}` 或 `{prefix}-{random}`。
+
+    ```json
+    "walletNamePrefix": "stablepay"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### OWS 签名运行时 {#ows-runtime}
+
+<AccordionGroup>
+  <Accordion title="owsRuntime">
+    **默认值：** `auto`
+
+    用于签名的 OWS 运行时。选项：
+
+    | 值 | 描述 | 使用场景 |
+    |-------|-------------|-------------|
+    | `auto` | 自动检测（推荐） | 按 SDK → REST → CLI 顺序尝试 |
+    | `ows-sdk` | 进程内 `@open-wallet-standard/core` | SDK 可加载时的默认选择 |
+    | `ows-cli` | 通过 shell 调用 `ows` 命令 | OWS CLI 在 PATH 上时 |
+    | `wsl-ows` | 与 `ows-cli` 相同 | WSL 环境 |
+    | `ows-rest` | HTTP 签名服务 | 使用 OWS 访问层时 |
+
+    ```json
+    "owsRuntime": "auto"
+    ```
+  </Accordion>
+  <Accordion title="owsVaultPath">
+    **默认值：** `""`（OWS 默认 vault 路径）
+
+    OWS vault 目录的自定义路径。
+
+    ```json
+    "owsVaultPath": "/home/user/.ows/vault"
+    ```
+  </Accordion>
+  <Accordion title="owsPassphraseEnv">
+    **默认值：** `STABLEPAY_OWS_PASSPHRASE`
+
+    存储 OWS 密码或 API 令牌的环境变量，用于无人值守签名。
+  </Accordion>
+</AccordionGroup>
+
+### ows-rest 选项
+
+以下选项仅在 `owsRuntime` 为 `ows-rest` 时有效。
+
+<AccordionGroup>
+  <Accordion title="owsRestBaseUrl">
+    **默认值：** `""`（ows-rest 已禁用）
+
+    OWS REST 签名服务的基地址。设置后启用 `ows-rest` 运行时。
+
+    ```json
+    "owsRestBaseUrl": "http://localhost:3000"
+    ```
+  </Accordion>
+  <Accordion title="owsRestSignPath">
+    **默认值：** `/v1/sign/message`
+
+    附加到 `owsRestBaseUrl` 后面的 `signMessage` 请求 POST 路径。
+  </Accordion>
+  <Accordion title="owsRestApiKeyEnv">
+    **默认值：** `STABLEPAY_OWS_REST_API_KEY`
+
+    保存 ows-rest 认证 API 令牌的环境变量。
+  </Accordion>
+  <Accordion title="owsRestAuthMode">
+    **默认值：** `bearer`
+
+    发送 API 令牌的方式。选项：`bearer`（Authorization: Bearer）、`x_api_key`（X-API-Key 头）、`raw`（原始 Authorization 值）。
+  </Accordion>
+  <Accordion title="owsRestWalletId">
+    **默认值：** `""`
+
+    创建钱包时未提供时的默认 OWS 钱包 UUID。
+  </Accordion>
+  <Accordion title="owsRestChainId">
+    **默认值：** `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`
+
+    Solana 的 CAIP-2 链标识符。
+  </Accordion>
+</AccordionGroup>
+
+### 其他选项
+
+<AccordionGroup>
+  <Accordion title="didRegisterPath">
+    **默认值：** `/api/v1/did/register`
+
+    注册客户端持有钱包 DID 的 API 路径。使用 `POST /api/v1/did/register`，该接口绑定公钥（客户端持有私钥）。这与服务端生成密钥的 `POST /api/v1/did` 不同。
+
+    ```json
+    "didRegisterPath": "/api/v1/did/register"
+    ```
+  </Accordion>
+  <Accordion title="verifyPageBaseUrl">
+    **默认值：** `{backendBaseUrl}/verify`
+
+    X 验证页面的基地址。仅与可选的 X/Twitter 验证流程相关。
+  </Accordion>
+  <Accordion title="rewardAmount">
+    **默认值：** `1`
+
+    X 验证演示流程中显示的奖励金额（USDC）。
+  </Accordion>
+  <Accordion title="pluginDebug">
+    **默认值：** `false`
+
+    启用详细调试日志（钱包字段、ATA 地址、手续费支付方 vs 转账授权方）。也可以通过 `STABLEPAY_PLUGIN_DEBUG=1` 启用。
+
+    ```json
+    "pluginDebug": true
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## 环境变量
+
+| 变量 | 是否必需 | 用途 |
+|----------|----------|---------|
+| `STABLEPAY_PLUGIN_MASTER_KEY` | **是** | 本地状态 AES-256-GCM 加密的主密钥 |
+| `STABLEPAY_FEE_PAYER_SOL` | 支付时需要 | 热钱包公钥（优先级高于 `feePayerSolanaAddress`） |
+| `STABLEPAY_OWS_PASSPHRASE` | 可选 | 无人值守签名的 OWS 密码 |
+| `STABLEPAY_OWS_REST_API_KEY` | 仅 ows-rest | REST 签名服务的 API 令牌 |
+| `STABLEPAY_PLUGIN_DEBUG` | 可选 | 设为 `1` 输出详细调试日志 |
+
+### 手续费支付方优先级 {#fee-payer}
+
+手续费支付方地址按以下顺序解析：
+
+1. `STABLEPAY_FEE_PAYER_SOL` 环境变量
+2. `openclaw.json` 配置中的 `feePayerSolanaAddress`
+3. 报错 — 支付失败
+
+<Warning>
+  手续费支付方地址仅为**公钥**。私钥仅由服务端 `blockchain-adapter` 持有。你永远不需要接触它。
+</Warning>
+
+## `tools.allow` 白名单
+
+如果你在 `openclaw.json` 中配置了 `tools.allow` 列表，你必须显式包含每个可用工具。推荐的最小集合：
+
+```json
+"tools": {
+  "allow": [
+    "stablepay_runtime_status",
+    "stablepay_create_local_wallet",
+    "stablepay_bind_existing_wallet",
+    "stablepay_register_local_did",
+    "stablepay_configure_payment_limits",
+    "stablepay_sign_message",
+    "stablepay_pay_via_gateway",
+    "stablepay_execute_paid_skill_demo",
+    "stablepay_query_balance",
+    "stablepay_query_sales"
+  ]
+}
+```
+
+## 最小 vs 完整配置
+
+<Tabs>
+  <Tab title="最小配置（买家）">
+    ```json
+    {
+      "backendBaseUrl": "https://ai.wenfu.cn",
+      "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
+      "owsRuntime": "auto"
+    }
+    ```
+  </Tab>
+  <Tab title="完整配置（开发者）">
+    ```json
+    {
+      "backendBaseUrl": "https://ai.wenfu.cn",
+      "feePayerSolanaAddress": "FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z",
+      "solanaRpcUrl": "https://api.devnet.solana.com",
+      "splTokenMintAddress": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "requestTimeoutMs": 90000,
+      "owsRuntime": "auto",
+      "didRegisterPath": "/api/v1/did/register",
+      "pluginDebug": false
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## 故障排除
+
+<AccordionGroup>
+  <Accordion title="TUI 中未出现插件工具">
+    1. 检查 `plugins.entries` 键是否为 `stablepay-agentpay-dev`（不是其他名称）
+    2. 运行 `openclaw plugins list` 确认插件处于 `enabled` 状态
+    3. 如果使用 `tools.allow`，确保所有需要的工具名称都在列表中
+    4. 任何配置变更后运行 `openclaw gateway restart`
+  </Accordion>
+  <Accordion title="加载本地插件状态失败">
+    当前使用的 `STABLEPAY_PLUGIN_MASTER_KEY` 与创建状态文件时使用的不匹配。删除状态文件并重新创建：
+    ```bash
+    rm ~/.stablepay-openclaw/stablepay-local-state.enc
+    ```
+    然后重新创建钱包并重新注册 DID。
+  </Accordion>
+  <Accordion title="支付时报缺少手续费支付方错误">
+    既没有设置 `STABLEPAY_FEE_PAYER_SOL` 环境变量，也没有设置 `feePayerSolanaAddress` 配置。插件需要热钱包**公钥**来构建 Solana 交易。
+  </Accordion>
+  <Accordion title="ows-sdk 未加载">
+    `@open-wallet-standard/core` 包可能在你的 Node.js 环境中不可用。如果已安装 OWS CLI，尝试 `owsRuntime: "ows-cli"`，或使用 `owsRuntime: "auto"` 自动检测最佳可用运行时。
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,137 @@
+---
+title: "端到端测试"
+description: "逐步验证每个 StablePay 工具，确保设置端到端正常工作"
+icon: 'flask'
+---
+
+## 目的
+
+本指南按顺序使用每个插件工具。用途：
+
+- 验证你的首次设置是否正确
+- 逐步调试支付失败
+- 理解每个工具在 API 层级的作用
+
+如果你只是想为技能添加支付，从[快速开始](/quickstart)开始——这是详细的验证路径。
+
+## 前置条件
+
+- 插件已安装（`openclaw plugins list` 显示 `stablepay-agentpay-dev`）
+- `openclaw.json` 已配置（[快速开始](/quickstart#one-time-setup)）
+- 环境变量已设置（`STABLEPAY_PLUGIN_MASTER_KEY`、`STABLEPAY_FEE_PAYER_SOL`）
+- 网关已重启（`openclaw gateway restart`）
+
+## 逐步验证
+
+启动 TUI：
+
+```bash
+openclaw tui
+```
+
+### 步骤 1：检查运行时状态
+
+> Run stablepay_runtime_status
+
+确认：
+- `has_wallet: false`（首次运行时还没有钱包）
+- 已选择活跃驱动（`ows-sdk`、`ows-cli` 等）
+- `notes` 中无错误
+
+如果失败，说明插件未加载。检查 `openclaw.json` 语法，重启网关，确认 `plugins.entries` 键为 `stablepay-agentpay-dev`。
+
+### 步骤 2：创建或绑定钱包
+
+**新钱包：**
+
+> Run stablepay_create_local_wallet with user_id "alice", runtime "auto"
+
+**已有钱包：**
+
+> Run stablepay_bind_existing_wallet with wallet_name "my-wallet", public_key "`<Solana Base58 address>`"
+
+记录输出中的：
+- `did`（格式：`did:solana:AbCdEf...`）
+- `wallet_address`（Solana 公钥，Base58）
+- `wallet_id`
+
+### 步骤 3：注册你的 DID
+
+> Run stablepay_register_local_did with user_type "developer"
+
+这会调用 `POST /api/v1/did/register` 将你的公钥绑定到 StablePay 后端。响应包含 `backend_did`——支付接收方将其用作 `skill_did`。
+
+验证：再次运行 `stablepay_runtime_status`。现在应显示：
+
+```
+has_wallet: true
+wallet.backend_did: did:solana:AbCdEf...
+```
+
+### 步骤 4：设置支付限额
+
+> Run stablepay_configure_payment_limits with single_purchase_limit_usdc 100, auto_purchase_threshold_usdc 10
+
+| 参数 | 含义 |
+|-----------|---------|
+| `single_purchase_limit_usdc` | 每笔交易硬上限。超出此金额的支付在签名前被拒绝。 |
+| `auto_purchase_threshold_usdc` | 低于或等于此金额的购买跳过确认。设为 `0` 要求每笔支付都需要确认。 |
+
+限额存储在加密的本地状态中——永远不会离开你的机器。
+
+### 步骤 5：测试支付
+
+> Run stablepay_pay_via_gateway with skill_did "did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z", skill_name "test-payment", price "1.00", currency "USDC"
+
+<Tip>
+  地址 `FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z` 是 Sandbox 热钱包。将其用作测试 `skill_did` 目标——支付走完整链路，但你是发送到已知的测试地址。
+</Tip>
+
+背后发生的事情：
+1. 插件调用 `GET /api/v1/pay/require` — 检查是否需要支付
+2. 收到包含支付挑战的 HTTP 402
+3. 对照报价价格检查你的本地支付限额
+4. 构建部分签名的 SPL 转账交易（从 Solana 获取 blockhash）
+5. 使用你的 OWS 钱包签名交易消息字节
+6. 创建业务签名：`sha256(signed_tx_base64)` 由你的钱包签名
+7. 创建网关规范签名覆盖 POST body
+8. 连同所有签名提交 `POST /api/v1/pay`
+9. 返回 `tx_id`——支付现在正在链上确认
+
+如果价格超过 `auto_purchase_threshold_usdc`，工具会要求确认。传入 `confirm_over_threshold: true` 继续。
+
+**常见失败：**
+
+| 症状 | 可能原因 | 修复方式 |
+|---------|-------------|-----|
+| "No local wallet found" | 跳过了步骤 2 | 先创建或绑定钱包 |
+| "No backend DID mapping" | 跳过了步骤 3 | 注册你的 DID |
+| "No local payment limits" | 跳过了步骤 4 | 配置支付限额 |
+| "Missing fee payer" | `STABLEPAY_FEE_PAYER_SOL` 未设置 | 设置环境变量或 config 中的 `feePayerSolanaAddress` |
+| "insufficient balance" | 钱包没有 USDC | 向你的钱包地址存入 USDC |
+
+### 步骤 6：查询余额
+
+> Run stablepay_query_balance with did "`<your-did>`"
+
+这会调用 `GET /api/v1/balance` 并使用 DID 签名认证。响应从 Solana 链上查询真实的 USDC 余额，加上来自 Query Service 的月度支出统计。
+
+### 步骤 7（可选）：查询销售
+
+> Run stablepay_query_sales with skill_did "`<your-did>`"
+
+仅开发者可用。返回你技能的单个购买记录。需要 DID 签名认证——你必须使用拥有 `skill_did` 的钱包签名。
+
+---
+
+## 完整支付生命周期图
+
+关于支付中涉及每个服务的可视化示意图，参见[架构图](/index#architecture)。
+
+## 本流程中未涉及的相关工具
+
+| 工具 | 用途 |
+|------|-----|
+| `stablepay_sign_message` | 使用你的钱包签名任意消息（用于生成直接 API 调用的认证头） |
+| `stablepay_build_payment_policy` | 根据你的限额生成本地 OWS 就绪的支付策略清单 |
+| `stablepay_execute_paid_skill_demo` | 完整演示流程：调用技能后端，处理 402，支付，重试——支持可配置的重试次数和延迟 |
