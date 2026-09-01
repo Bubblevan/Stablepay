@@ -1,38 +1,85 @@
-### 3 分钟了解如何进入开发
+# StablePay DID Service
 
-欢迎使用云效代码管理 Codeup，通过阅读以下内容，你可以快速熟悉 Codeup ，并立即开始今天的工作。
+## 1. 定位
 
-### 提交**文件**
+`did-service` 是 StablePay 的 DID 权威服务。它只提供 Kitex RPC，默认监听 `:8081`，负责 DID 文档、密钥登记、DID 查询和签名验证。
 
-Codeup 支持两种方式进行代码提交：网页端提交，以及本地 Git 客户端提交。
+它不负责支付、余额、链上交易或公网 HTTP 路由。api-gateway 和 payment-service 通过 RPC 调用它。
 
-* 如需体验本地命令行操作，请先安装 Git 工具，安装方法参见[安装Git](https://help.aliyun.com/document_detail/153800.html)。
+## 2. 责任范围
 
-* 如需体验 SSH 方式克隆和提交代码，请先在平台账号内配置 SSH 公钥，配置方法参见[配置 SSH 密钥](https://help.aliyun.com/document_detail/153709.html)。
+- 创建和注册 Agent/Developer DID。
+- 保存 DID 公钥、钱包地址、状态、版本和元数据。
+- 查询 DID Document 的当前权威信息。
+- 验证签名、时间戳和 nonce。
+- 通过乐观锁更新 DID 配置。
+- 使用加密组件保护需要持久化的敏感数据。
 
-* 如需体验 HTTP 方式克隆和提交代码，请先在平台账号内配置克隆账密，配置方法参见[配置 HTTPS 克隆账号密码](https://help.aliyun.com/document_detail/153710.html)。
+## 3. RPC 与依赖
 
-现在，你可以在 Codeup 中提交代码文件了，跟着文档「[__提交第一行代码__](https://help.aliyun.com/document_detail/153707.html?spm=a2c4g.153710.0.0.3c213774PFSMIV#6a5dbb1063ai5)」一起操作试试看吧。
+| 连接 | 协议/端口 | 用途 |
+|---|---|---|
+| api-gateway -> did-service | Kitex `:8081` | 公网 DID API 的内部实现 |
+| payment-service -> did-service | Kitex `:8081` | 支付签名和 DID 归属校验 |
+| did-service -> MySQL | TCP `3306` | DID 和配置持久化 |
 
-<img src="https://img.alicdn.com/imgextra/i3/O1CN013zHrNR1oXgGu8ccvY_!!6000000005235-0-tps-2866-1268.jpg" width="100%" />
+## 4. 目录说明
 
+```text
+did-service/
+├── cmd/server/main.go                # 唯一启动入口
+├── internal/
+│   ├── app/bootstrap.go              # 配置、Repository、Application、Kitex 组装
+│   ├── application/did_app_service.go # DID 用例
+│   ├── domain/
+│   │   ├── entity/did.go             # DID 领域实体
+│   │   └── gateway/did_repository.go # Repository 接口
+│   ├── adapter/did_handler.go        # Kitex RPC -> Application
+│   └── infrastructure/
+│       ├── config/                   # YAML 与 CONFIG_PATH
+│       ├── repository/               # MySQL Repository 实现
+│       └── encryption/               # AES 等敏感数据保护
+├── kitex_gen/                        # did-service.thrift 生成代码
+├── config/                           # dev/docker 配置
+├── migrations/
+├── scripts/rpc-test*/                # RPC 验证工具
+├── tests/
+├── Dockerfile
+├── Makefile
+└── go.mod
+```
 
-### 进行代码检测
+生产环境使用数据库 Repository；内存实现只允许出现在单元测试替身中，不作为正式启动默认值。
 
-开发过程中，为了更好的维护你的代码质量，你可以开启 Codeup 内置开箱即用的「[代码检测服务](https://help.aliyun.com/document_detail/434321.html)」，开启后提交或合并请求的变更将自动触发检测，识别代码编写规范和安全漏洞问题，并及时提供结果报表和修复建议。
+## 5. Kitex 方法
 
-<img src="https://img.alicdn.com/imgextra/i2/O1CN01BRzI1I1IO0CR2i4Aw_!!6000000000882-0-tps-2862-1362.jpg" width="100%" />
+| RPC | 作用 |
+|---|---|
+| `CreateDID` | 创建 DID 和初始公钥配置 |
+| `RegisterDID` | 登记外部 DID |
+| `GetDID` | 查询 DID Document 所需权威数据 |
+| `VerifySignature` | 按 DID 公钥验证签名 |
+| `UpdateDIDConfig` | 版本化更新 DID 配置 |
 
-### 开展代码评审
+## 6. 配置与启动
 
-功能开发完毕后，通常你需要发起「[代码评审并执行合并](https://help.aliyun.com/document_detail/153872.html)」，Codeup 支持多人协作的代码评审服务，你可以通过「[保护分支设置合并规则](https://help.aliyun.com/document_detail/153873.html?spm=a2c4g.203108.0.0.430765d1l9tTRR#p-4on-aep-l5q)」策略及「[__合并请求设置__](https://help.aliyun.com/document_detail/153874.html?spm=a2c4g.153871.0.0.3d38686cJpcdJI)」对合并过程进行流程化管控，同时提供在线代码评审及冲突解决能力，让评审过程更加流畅。
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8081
+```
 
-<img src="https://img.alicdn.com/imgextra/i1/O1CN01MaBDFH1WWcGnQqMHy_!!6000000002796-0-tps-2592-1336.jpg" width="100%" />
+```powershell
+$env:CONFIG_PATH = "config/docker.yaml"
+go run ./cmd/server
+go test ./...
+```
 
-### 成员协作
+Docker/Kubernetes 必须通过 `CONFIG_PATH` 指向挂载配置，不应依赖工作目录下恰好存在的配置文件。
 
-是时候邀请成员一起编写卓越的代码工程了，请点击左下角「成员」邀请你的小伙伴开始协作吧！
+## 7. 维护规则
 
-### 更多
-
-Git 使用教学、高级功能指引等更多说明，参见[Codeup帮助文档](https://help.aliyun.com/document_detail/153402.html)。
+- DID 校验必须经过 DID Service，其他服务不得复制公钥查询和验签逻辑。
+- 领域层不直接读环境变量或数据库。
+- `kitex_gen/` 只能由 canonical IDL 重新生成。
+- DID Document 扩展字段要保持版本兼容，并通过 `UpdateDIDConfig` 的版本控制更新。

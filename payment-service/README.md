@@ -1,179 +1,113 @@
-# Payment Service
+# StablePay Payment Service
 
-Payment Service is an internal Kitex RPC service. Public HTTP requests terminate at api-gateway; this service does not expose a public HTTP listener. The RPC endpoint defaults to `:8888` and keeps the existing Application/Domain/Repository implementation behind the generated contract.
+## 1. 定位
 
-StablePay AI 支付服务 - 处理 HTTP 402 协议支付流程的核心服务。
+`payment-service` 是内部支付编排服务。它只提供 Kitex RPC，默认监听 `:8888`；公网 HTTP 请求必须先到 api-gateway。
 
-## 项目概述
+服务保留 Application、Domain、Repository 逻辑，负责把支付请求变成可审计的支付实体，并协调 DID 验签、余额检查、链上转账、状态轮询和支付事件发布。
 
-Payment Service 负责：
-- HTTP 402 Payment Required 协议处理
-- 支付流程控制与状态管理
-- 签名验证（调用 DID Service）
-- 链上交易协调（调用 Blockchain Adapter）
-- 支付历史查询
-- 支付事件发布（RocketMQ）
+## 2. 责任范围
 
-## 技术栈
+- 幂等键和 nonce 防重放。
+- 支付金额、币种、签名和支付策略校验。
+- 支付生命周期：`CREATED -> PENDING -> CONFIRMED -> COMPLETED`，失败进入 `FAILED/CANCELLED`。
+- 调用 did-service 验证签名和 DID 归属。
+- 调用 blockchain-adapter 构造或提交链上交易。
+- 将支付结果发布到 RocketMQ `payment_events`。
+- 保存支付、幂等记录和链上状态。
 
-- **语言**: Go 1.21+
-- **HTTP 框架**: [Hertz](https://github.com/cloudwego/hertz) (CloudWeGo)
-- **RPC 框架**: [Kitex](https://github.com/cloudwego/kitex) (CloudWeGo)
-- **数据库**: MySQL 8.0+
-- **缓存**: Redis 7.0+
-- **消息队列**: RocketMQ 5.0+
+Agent Payment Harness 属于 Application 内部策略能力；X 相关旧 Application 逻辑不作为公网接口，也没有对应的 Kitex RPC。
 
-## 项目结构
+## 3. RPC 与依赖
 
-```
+| 连接 | 协议/端口 | 用途 |
+|---|---|---|
+| api-gateway -> payment-service | Kitex `:8888` | 支付、状态、历史、支付要求 |
+| payment-service -> did-service | Kitex `:8081` | DID 签名验证 |
+| payment-service -> blockchain-adapter | Kitex `:8083` | 余额、转账、交易状态 |
+| payment-service -> MySQL | TCP `3306` | 支付与幂等数据 |
+| payment-service -> Redis | TCP `6379` | nonce、intent 和短期状态 |
+| payment-service -> RocketMQ | NameServer `9876` | 发布支付事件 |
+
+## 4. 目录说明
+
+```text
 payment-service/
-├── api/                      # 接入层 (Adapter)
-│   └── http/                 # Hertz HTTP 处理器
-│       ├── handler/          # HTTP 处理器
-│       └── router/           # 路由配置
-├── cmd/
-│   └── payment-service/      # 主入口
-│       └── main.go
-├── config/                   # 配置文件
-│   ├── config.yaml           # 默认配置
-│   └── config.example.yaml   # 配置示例
-├── internal/                 # 内部实现
-│   ├── adapter/              # 适配器层
-│   │   ├── repository/       # 数据仓库实现
-│   │   ├── rpc/              # RPC 客户端
-│   │   └── mq/               # MQ 生产者
-│   ├── application/          # 应用层
-│   │   ├── dto/              # 数据传输对象
-│   │   └── service/          # 应用服务
-│   ├── domain/               # 领域层
-│   │   ├── entity/           # 领域实体
-│   │   ├── service/          # 领域服务
-│   │   ├── vo/               # 值对象
-│   │   └── repository/       # 仓库接口
-│   └── infrastructure/       # 基础设施层
-│       ├── config/           # 配置管理
-│       ├── mysql/            # MySQL 连接
-│       └── redis/            # Redis 连接
-├── pkg/                      # 公共包
-│   ├── constants/            # 常量定义
-│   ├── errors/               # 错误码定义
-│   └── utils/                # 工具函数
-├── scripts/                  # 数据库脚本
-│   └── init_db.sql           # 数据库初始化脚本
-├── go.mod
-└── README.md
+├── cmd/server/main.go                # 唯一启动入口，只启动 Kitex
+├── internal/
+│   ├── app/                          # 当前入口由 cmd 组装
+│   ├── application/
+│   │   ├── dto/                      # 用例输入输出与事件 DTO
+│   │   └── service/                  # 支付用例、Agent 策略
+│   ├── domain/
+│   │   ├── entity/                   # Payment、幂等实体
+│   │   ├── service/                  # 签名、金额、nonce 等规则
+│   │   ├── vo/                       # 金额、签名、分页值对象
+│   │   └── repository/               # Repository 接口
+│   ├── adapter/
+│   │   ├── rpc/                      # Kitex 客户端与 Payment RPC Handler
+│   │   ├── repository/               # GORM Repository 实现
+│   │   └── mq/                       # RocketMQ Producer
+│   └── infrastructure/
+│       ├── config/
+│       ├── mysql/
+│       └── redis/
+├── kitex_gen/                        # payment-service.thrift 生成代码
+├── config/                           # example/local/docker 配置
+├── migrations/                       # 本服务数据库迁移
+├── tests/                            # 集成测试说明
+├── Dockerfile
+├── Makefile
+└── go.mod
 ```
 
-## 快速开始
+## 5. Kitex 方法
 
-### 环境要求
+契约源：`../stablepayai-idl/idl/payment-service.thrift`。
 
-- Go 1.21+
-- MySQL 8.0+
-- Redis 7.0+
-- RocketMQ 5.0+
+| RPC | 作用 |
+|---|---|
+| `InitiatePayment` | 创建并执行支付流程 |
+| `GetPaymentStatus` | 查询支付状态 |
+| `ListPaymentHistory` | 查询 Agent 支付历史 |
+| `GetPaymentRequirement` | 返回购买所需金额和支付说明 |
 
-### 安装依赖
+`PaymentServiceHandler` 只做协议 DTO 与 Application DTO 的转换；业务规则不能写在生成代码或 RPC Handler 中。
 
-```bash
-go mod download
+## 6. 配置
+
+```yaml
+server:
+  rpc:
+    port: "8888"
+
+rpc_clients:
+  did_service:
+    address: "did-service:8081"
+  blockchain_adapter:
+    address: "blockchain-adapter:8083"
 ```
 
-### 配置
+生产环境用 `CONFIG_PATH` 指向挂载配置文件。数据库、Redis、RocketMQ 和钱包相关敏感配置不得提交到仓库。
 
-1. 复制配置文件
-```bash
-cp config/config.example.yaml config/config.yaml
-```
+## 7. 启动与测试
 
-2. 修改 `config/config.yaml` 中的数据库、Redis、RocketMQ 连接信息
-
-### 数据库初始化
-
-```bash
-mysql -u root -p < scripts/init_db.sql
-```
-
-### 运行
-
-```bash
+```powershell
+go test ./...
 go run ./cmd/server
 ```
 
-### 测试
+本服务没有 `/health` HTTP 端点；容器探活应使用 Kitex/TCP 探针或平台级 RPC 探针。
 
-```bash
-go test ./...
-```
+修改支付契约时：
 
-## 核心功能
+1. 修改 `stablepayai-idl/idl/payment-service.thrift`。
+2. 重新生成 api-gateway 和 payment-service 的 `kitex_gen/`。
+3. 执行六服务测试与契约检查。
 
-### Agent Payment Harness（可选治理层）
+## 8. 维护规则
 
-支付服务新增了服务端 Agent Payment Harness，将 Agent 的“付款提议”与“链上执行”分离为固定的 `Normalize → Policy → Approval → Execute` DAG。它支持金额策略、商户 DID 白名单、DID 二次确认签名、短期一次性 intent 与原有支付链路的幂等衔接。详见 [Agent Payment Harness](docs/agent_payment_harness.md)。
-
-### 支付状态机
-
-```
-CREATED -> PENDING -> CONFIRMED -> COMPLETED
-   |         |          |
-   v         v          v
-  FAILED <- FAILED <- FAILED
-   |
-   v
-CANCELLED
-```
-
-### HTTP 接口
-
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/v1/pay | 发起支付 |
-| GET | /api/v1/pay/:tx_id | 查询支付状态 |
-| GET | /api/v1/pay/history | 查询支付历史 |
-| GET | /api/v1/pay/require | 获取支付要求（HTTP 402） |
-
-### 短链兼容（API Gateway 映射）
-
-| 方法 | 路径 | 映射到 |
-|------|------|--------|
-| GET | /pay?skill=...&price=... | /api/v1/pay/require |
-| GET | /verify?skill=...&agent=... | /api/v1/verify |
-
-## 幂等性设计
-
-- 客户端生成 `X-Idempotency-Key` 请求头
-- 服务端以 `agent_did + skill_did + idempotency_key` 做幂等保护
-- 幂等键有效期 30 分钟
-
-## 安全特性
-
-- 签名有效期检查（5分钟）
-- Nonce 防重放攻击
-- 金额上限限制（1000 USDC）
-- 请求限流
-
-## 错误码
-
-| 错误码 | 说明 |
-|--------|------|
-| 0 | 成功 |
-| 10001 | 参数错误 |
-| 10004 | 签名验证失败 |
-| 20001 | 余额不足 |
-| 20002 | 重复支付 |
-| 20003 | 区块链网络错误 |
-| 20005 | 支付金额超限 |
-| 30001 | 内部服务器错误 |
-
-## 下游依赖
-
-### DID Service
-- 验证 DID 签名
-- 获取 DID 对应的钱包地址
-
-### Blockchain Adapter
-- 执行链上转账
-- 查询交易状态
-- 查询余额
-
+- 不在本服务新增公网 HTTP Handler。
+- 不在 Application/Domain 中创建 DB、Redis、MQ、RPC 客户端。
+- `kitex_gen/` 禁止手工修改。
+- 所有支付结果必须能通过支付记录和事件追踪。

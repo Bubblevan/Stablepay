@@ -2,4 +2,3 @@
 # Keep this file as the stable configuration entry point for the next migration.
 server:
   rpc_address: ":8084"
-  http_address: ":8083"
