@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/stablepay/payment-service/pkg/constants"
 	"gopkg.in/yaml.v3"
 )
 
@@ -180,6 +181,9 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// 允许 env 覆盖关键配置（生产环境通过 secret manager 注入）
 	applyEnvOverrides(&config)
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 
 	log.Printf("config loaded from: %s", configPath)
 	return &config, nil
@@ -187,6 +191,12 @@ func LoadConfig(configPath string) (*Config, error) {
 
 // applyEnvOverrides 用环境变量覆盖敏感 / 部署相关字段
 func applyEnvOverrides(c *Config) {
+	if v := os.Getenv("PAYMENT_ROCKETMQ_TOPIC"); v != "" {
+		if c.RocketMQ.Topics == nil {
+			c.RocketMQ.Topics = map[string]string{}
+		}
+		c.RocketMQ.Topics["payment_events"] = v
+	}
 	if v := os.Getenv("TREASURY_WALLET_ADDRESS"); v != "" {
 		c.Payment.TreasuryWalletAddress = v
 	}
@@ -196,6 +206,23 @@ func applyEnvOverrides(c *Config) {
 	if v := os.Getenv("INTERNAL_API_KEY"); v != "" {
 		c.Security.InternalApiKey = v
 	}
+}
+
+// Validate enforces the local deterministic-plane contract. A producer using a
+// different physical topic can start successfully but can never close the
+// payment -> verification loop, so fail before connecting to dependencies.
+func (c *Config) Validate() error {
+	topic := ""
+	if c.RocketMQ.Topics != nil {
+		topic = c.RocketMQ.Topics["payment_events"]
+	}
+	if topic != constants.MQTopicPaymentEvents {
+		return fmt.Errorf("rocketmq.topics.payment_events must be %q, got %q", constants.MQTopicPaymentEvents, topic)
+	}
+	if len(c.RocketMQ.NameServers) == 0 {
+		return fmt.Errorf("rocketmq.name_servers must not be empty")
+	}
+	return nil
 }
 
 // applyDefaults 应用默认值

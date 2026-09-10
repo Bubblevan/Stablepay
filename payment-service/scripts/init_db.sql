@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS `payment_transactions` (
     `created_at`      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `confirmed_at`    DATETIME            DEFAULT NULL COMMENT '确认时间',
+    `request_id`      VARCHAR(128)         DEFAULT NULL COMMENT '请求关联ID',
+    `trace_id`        VARCHAR(128)         DEFAULT NULL COMMENT '链路关联ID',
     `expires_at`      DATETIME            NOT NULL COMMENT '超时时间',
 
     UNIQUE KEY `uk_tx_id` (`tx_id`),

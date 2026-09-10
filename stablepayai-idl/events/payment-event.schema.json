@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stablepay.local/contracts/events/payment-event.schema.json",
+  "title": "StablePay payment event",
+  "type": "object",
+  "required": [
+    "event_id", "event_type", "schema_version", "idempotency_key", "tx_id",
+    "agent_did", "skill_did", "amount_minor", "currency", "status", "occurred_at"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"enum": ["payment.success", "payment.failed"]},
+    "schema_version": {"const": 1},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "tx_id": {"type": "string", "minLength": 1},
+    "agent_did": {"type": "string", "minLength": 1},
+    "skill_did": {"type": "string", "minLength": 1},
+    "amount_minor": {"type": "integer", "exclusiveMinimum": 0},
+    "currency": {"enum": ["USDC", "USDT"]},
+    "tx_hash": {"type": "string"},
+    "status": {"enum": ["COMPLETED", "CONFIRMED", "FAILED", "CANCELLED"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "confirmed_at": {"type": "string", "format": "date-time"},
+    "request_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "timestamp": {"type": "integer"},
+    "error_code": {"type": "string"},
+    "error_msg": {"type": "string"},
+    "reward_purpose": {"type": "string"},
+    "from_wallet": {"type": "string"},
+    "to_wallet": {"type": "string"}
+  },
+  "additionalProperties": false
+}

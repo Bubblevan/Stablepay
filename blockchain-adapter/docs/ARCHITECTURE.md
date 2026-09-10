@@ -969,10 +969,10 @@ mysql:
 
 ```json
 {
-  "address": "8H3WykS8arWGqPkD2jy4Ler77nyvirSuKx2jfgpZiSeQ",
-  "did": "did:solana:8H3WykS8arWGqPkD2jy4Ler77nyvirSuKx2jfgpZiSeQ",
-  "public_key": "8H3WykS8arWGqPkD2jy4Ler77nyvirSuKx2jfgpZiSeQ",
-  "private_key": "47aZvipsPFjZfsDsD7eGQtkedFMmRUsNXcBfJdEabseWPPjxQzh8A1Qa8s4RppeuGq31aoJaekCkF77XKQbo8qkG",
+  "address": "<inject-public-address>",
+  "did": "did:solana:<inject-public-address>",
+  "public_key": "<inject-public-address>",
+  "private_key": "<inject-from-secret-manager>",
   "role": "stablepay_hot_wallet",
   "description": "Gas fee subsidy wallet"
 }

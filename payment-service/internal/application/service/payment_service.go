@@ -374,6 +374,8 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 	if err != nil {
 		return nil, err
 	}
+	payment.RequestID = req.RequestID
+	payment.TraceID = req.TraceID
 
 	if err := s.paymentRepo.Create(ctx, payment); err != nil {
 		return nil, errors.Wrap(errors.DATABASE_CONNECTION_ERROR, err, "failed to create payment record")
@@ -583,15 +585,33 @@ func (s *PaymentApplicationService) pollTxStatus(txID, txHash string) {
 
 // publishEvent 发布支付事件
 func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *entity.Payment) {
+	eventType := constants.MQTagPaymentSucceeded
+	if payment.Status == constants.PaymentStatusFailed || payment.Status == constants.PaymentStatusCancelled {
+		eventType = constants.MQTagPaymentFailed
+	}
+	occurredAt := payment.UpdatedAt
+	if payment.ConfirmedAt != nil {
+		occurredAt = *payment.ConfirmedAt
+	}
 	event := &dto.MQPaymentEvent{
-		TxID:        payment.TxID,
-		AgentDID:    payment.AgentDID,
-		SkillDID:    payment.SkillDID,
-		AmountMinor: payment.AmountMinor,
-		Currency:    vo.CommonCurrencyToString(payment.Currency),
-		TxHash:      payment.TxHash,
-		Status:      constants.PaymentStatusToString(payment.Status),
-		Timestamp:   time.Now().Unix(),
+		EventID:        uuid.NewSHA1(uuid.NameSpaceURL, []byte("stablepay/payment/"+payment.TxID+"/"+eventType)).String(),
+		EventType:      eventType,
+		SchemaVersion:  1,
+		IdempotencyKey: payment.GetIdempotencyKey(),
+		TxID:           payment.TxID,
+		AgentDID:       payment.AgentDID,
+		SkillDID:       payment.SkillDID,
+		AmountMinor:    payment.AmountMinor,
+		Currency:       vo.CommonCurrencyToString(payment.Currency),
+		TxHash:         payment.TxHash,
+		Status:         constants.PaymentStatusToString(payment.Status),
+		OccurredAt:     occurredAt.UTC().Format(time.RFC3339),
+		Timestamp:      occurredAt.Unix(),
+		RequestID:      payment.RequestID,
+		TraceID:        payment.TraceID,
+	}
+	if payment.ConfirmedAt != nil {
+		event.ConfirmedAt = payment.ConfirmedAt.UTC().Format(time.RFC3339)
 	}
 
 	if payment.Status == constants.PaymentStatusFailed || payment.Status == constants.PaymentStatusCancelled {
@@ -599,9 +619,9 @@ func (s *PaymentApplicationService) publishEvent(ctx context.Context, payment *e
 		event.ErrorMsg = payment.ErrorMsg
 	}
 
-	// 奖励事件打上 event_type / reward_purpose,方便下游按 tag 过滤
+	// 奖励元数据保留在同一 payment.success/payment.failed 契约中；
+	// event_type 只表达 topic 内部的事件类型，不再承担业务场景标签。
 	if payment.RewardPurpose != "" {
-		event.EventType = constants.MQTagRewardGranted
 		event.RewardPurpose = payment.RewardPurpose
 		event.FromWallet = s.config.TreasuryWalletAddress
 		event.ToWallet = extractWalletFromDID(payment.AgentDID)

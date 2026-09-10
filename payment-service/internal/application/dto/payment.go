@@ -1,9 +1,17 @@
 package dto
 
-import "github.com/stablepay/payment-service/pkg/constants"
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/stablepay/payment-service/pkg/constants"
+)
 
 type InitiatePaymentRequest struct {
 	IdempotencyKey string `json:"-" header:"X-Idempotency-Key" binding:"required"`
+	RequestID      string `json:"-"`
+	TraceID        string `json:"-"`
 	AgentDID       string `json:"agent_did" binding:"required"`
 	SkillDID       string `json:"skill_did" binding:"required"`
 	AmountStr      string `json:"amount" binding:"required"`
@@ -148,22 +156,53 @@ type ShortLinkVerifyResponse struct {
 }
 
 type MQPaymentEvent struct {
-	TxID        string `json:"tx_id"`
-	AgentDID    string `json:"agent_did"`
-	SkillDID    string `json:"skill_did"`
-	AmountMinor int64  `json:"amount_minor"`
-	Currency    string `json:"currency"`
-	TxHash      string `json:"tx_hash,omitempty"`
-	Status      string `json:"status"`
-	Timestamp   int64  `json:"timestamp"`
-	ErrorCode   string `json:"error_code,omitempty"`
-	ErrorMsg    string `json:"error_msg,omitempty"`
+	EventID        string `json:"event_id"`
+	EventType      string `json:"event_type"`
+	SchemaVersion  int    `json:"schema_version"`
+	IdempotencyKey string `json:"idempotency_key"`
+	TxID           string `json:"tx_id"`
+	AgentDID       string `json:"agent_did"`
+	SkillDID       string `json:"skill_did"`
+	AmountMinor    int64  `json:"amount_minor"`
+	Currency       string `json:"currency"`
+	TxHash         string `json:"tx_hash,omitempty"`
+	Status         string `json:"status"`
+	OccurredAt     string `json:"occurred_at"`
+	ConfirmedAt    string `json:"confirmed_at,omitempty"`
+	Timestamp      int64  `json:"timestamp,omitempty"` // legacy alias; consumers use occurred_at first
+	RequestID      string `json:"request_id,omitempty"`
+	TraceID        string `json:"trace_id,omitempty"`
+	ErrorCode      string `json:"error_code,omitempty"`
+	ErrorMsg       string `json:"error_msg,omitempty"`
 
 	// 扩展字段(可选,reward 场景使用)
-	EventType     string `json:"event_type,omitempty"`     // 如 "reward_granted",与 MQTag 对齐
 	RewardPurpose string `json:"reward_purpose,omitempty"` // 如 "x_registration_reward"
 	FromWallet    string `json:"from_wallet,omitempty"`    // 奖励场景下记录 treasury 钱包
 	ToWallet      string `json:"to_wallet,omitempty"`      // 奖励场景下记录用户钱包
+}
+
+// Validate checks the canonical payment event envelope before it is published.
+// The JSON field names are mirrored by verification-service and the IDL examples.
+func (e *MQPaymentEvent) Validate() error {
+	if e == nil {
+		return fmt.Errorf("payment event is nil")
+	}
+	if e.EventID == "" || e.EventType == "" || e.SchemaVersion != 1 || e.IdempotencyKey == "" {
+		return fmt.Errorf("payment event envelope is incomplete")
+	}
+	if e.EventType != "payment.success" && e.EventType != "payment.failed" {
+		return fmt.Errorf("unsupported payment event type: %s", e.EventType)
+	}
+	if e.TxID == "" || e.AgentDID == "" || e.SkillDID == "" || e.AmountMinor <= 0 {
+		return fmt.Errorf("payment event business identity is incomplete")
+	}
+	if currency := strings.ToUpper(strings.TrimSpace(e.Currency)); currency != "USDC" && currency != "USDT" {
+		return fmt.Errorf("unsupported payment event currency: %s", e.Currency)
+	}
+	if _, err := time.Parse(time.RFC3339, e.OccurredAt); err != nil {
+		return fmt.Errorf("invalid payment event occurred_at: %w", err)
+	}
+	return nil
 }
 
 // XRegistrationRewardRequest verification-service -> payment-service 的内部奖励请求。

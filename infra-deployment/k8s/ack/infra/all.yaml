@@ -15,10 +15,10 @@ stringData:
   mysql-password: "stablepay123"
   hotwallet.json: |
     {
-      "address": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
-      "did": "did:solana:9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
-      "public_key": "9Qe1uxmznPUnGcmLG7HSSsHcoC3cFxY54PPNAKTFnq2u",
-      "private_key": "53YZtgTB9VLNYKfyipmjbboCgWM7im4TJ4vkjhGKrG7G96JngEQpHWvxCupcU8Kf45F1JKEKKTsXUchnygcfneK7",
+      "address": "<inject-public-address>",
+      "did": "did:solana:<inject-public-address>",
+      "public_key": "<inject-public-address>",
+      "private_key": "<inject-from-secret-manager>",
       "role": "hot_wallet",
       "description": "Mainnet 测试热钱包"
     }

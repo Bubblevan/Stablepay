@@ -60,6 +60,8 @@ type Payment struct {
 	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt   time.Time  `gorm:"column:updated_at;not null"`
 	ConfirmedAt *time.Time `gorm:"column:confirmed_at"`
+	RequestID   string     `gorm:"column:request_id;type:varchar(128)"`
+	TraceID     string     `gorm:"column:trace_id;type:varchar(128)"`
 	ExpiresAt   time.Time  `gorm:"column:expires_at;not null"`
 }
 

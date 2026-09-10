@@ -8,6 +8,9 @@
 *_ed25519*
 hotwallet.json
 **/hotwallet.json
+**/*keypair*.json
+**/*private-key*
+**/secrets/
 
 # Dependency installs and local build caches
 **/node_modules/

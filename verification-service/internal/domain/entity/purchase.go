@@ -3,6 +3,7 @@ package entity
 import "time"
 
 type PurchaseRecord struct {
+	EventID     string
 	AgentDID    string
 	SkillDID    string
 	TxID        string

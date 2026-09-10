@@ -65,9 +65,9 @@ const (
 const (
 	MQTopicPaymentEvents = "payment_events"
 
-	MQTagPaymentSucceeded = "payment_succeeded"
-	MQTagPaymentFailed    = "payment_failed"
-	MQTagRewardGranted    = "reward_granted"
+	MQTagPaymentSucceeded = "payment.success"
+	MQTagPaymentFailed    = "payment.failed"
+	MQTagRewardGranted    = "payment.reward.granted"
 )
 
 // 奖励相关常量

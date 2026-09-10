@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -57,6 +58,14 @@ func main() {
 	}
 	log.Printf("✅ 配置加载完成: %s", configPath)
 
+	// Validate signing material before opening databases or binding the Kitex
+	// port. A missing/invalid wallet must never leave a half-started adapter.
+	hotWallet, err := blockchain.NewHotWallet(cfg.Solana.HotWalletPath)
+	if err != nil {
+		log.Fatalf("Devnet hot wallet prerequisite failed (path=%s): %v", cfg.Solana.HotWalletPath, err)
+	}
+	log.Printf("✅ 热钱包校验成功，地址: %s", hotWallet.GetAddress())
+
 	// 2. 初始化数据库
 	db, err := repository.InitDB(cfg.MySQL.DSN, logger.Info)
 	if err != nil {
@@ -67,20 +76,9 @@ func main() {
 	log.Println("✅ 数据库初始化完成")
 
 	// 3. 初始化基础设施（实现领域网关）
-	solanaGateway, err := blockchain.NewSolanaGateway(cfg.Solana.Network, cfg.Solana.RPCEndpoint)
+	solanaGateway, err := blockchain.NewSolanaGatewayWithFeePayer(cfg.Solana.Network, cfg.Solana.RPCEndpoint, hotWallet.GetAddress())
 	if err != nil {
 		log.Fatalf("初始化 Solana 网关失败: %v", err)
-	}
-
-	hotWallet, err := blockchain.NewHotWallet(cfg.Solana.HotWalletPath)
-	if err != nil {
-		log.Fatalf("加载热钱包失败: %v", err)
-	}
-	log.Printf("✅ 热钱包加载成功: %s", hotWallet.GetAddress())
-
-	solanaGateway, err = blockchain.NewSolanaGatewayWithFeePayer(cfg.Solana.Network, cfg.Solana.RPCEndpoint, hotWallet.GetAddress())
-	if err != nil {
-		log.Fatalf("failed to create Solana gateway: %v", err)
 	}
 
 	txBuilder := blockchain.NewTransactionBuilder(cfg.Solana.Network)
@@ -142,14 +140,18 @@ func loadConfig(path string) (*Config, error) {
 	if v := strings.TrimSpace(os.Getenv("SOLANA_RPC_ENDPOINT")); v != "" {
 		cfg.Solana.RPCEndpoint = v
 	}
+	if v := strings.TrimSpace(os.Getenv("STABLEPAY_HOTWALLET_PATH")); v != "" {
+		cfg.Solana.HotWalletPath = v
+	} else if v := strings.TrimSpace(os.Getenv("SOLANA_HOTWALLET_PATH")); v != "" {
+		cfg.Solana.HotWalletPath = v
+	}
 
-	// 验证必需配置
+	// Apply defaults before validation so required Devnet prerequisites are
+	// checked deterministically rather than after partial initialization.
+	setDefaultConfig(&cfg)
 	if err := validateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("配置验证失败: %w", err)
 	}
-
-	// 设置默认值
-	setDefaultConfig(&cfg)
 
 	return &cfg, nil
 }
@@ -160,7 +162,18 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("solana.rpc_endpoint 不能为空")
 	}
 	if cfg.Solana.HotWalletPath == "" {
-		return fmt.Errorf("solana.hotwallet_path 不能为空")
+		return fmt.Errorf("solana.hotwallet_path 不能为空；请设置 STABLEPAY_HOTWALLET_PATH 或配置文件路径")
+	}
+	cfg.Solana.HotWalletPath = filepath.Clean(cfg.Solana.HotWalletPath)
+	info, err := os.Stat(cfg.Solana.HotWalletPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("Devnet hot wallet file does not exist: %s", cfg.Solana.HotWalletPath)
+		}
+		return fmt.Errorf("cannot inspect Devnet hot wallet %s: %w", cfg.Solana.HotWalletPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("Devnet hot wallet path is a directory, expected JSON file: %s", cfg.Solana.HotWalletPath)
 	}
 	if cfg.MySQL.DSN == "" {
 		return fmt.Errorf("mysql.dsn 不能为空")

@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const PaymentEventsTopic = "payment_events"
+
 type Config struct {
 	RPCAddress        string
 	MySQLDSN          string
@@ -14,20 +16,37 @@ type Config struct {
 	RocketTopic       string
 }
 
-func Load() Config {
+func Load() (Config, error) {
 	nameservers := make([]string, 0)
 	for _, value := range strings.Split(env("ROCKETMQ_NAMESERVER", "127.0.0.1:9876"), ",") {
 		if value = strings.TrimSpace(value); value != "" {
 			nameservers = append(nameservers, value)
 		}
 	}
-	return Config{
+	cfg := Config{
 		RPCAddress:        env("VERIFICATION_RPC_ADDRESS", ":8085"),
 		MySQLDSN:          env("VERIFICATION_MYSQL_DSN", mysqlDSN()),
 		RocketNameservers: nameservers,
 		RocketGroup:       env("VERIFICATION_ROCKETMQ_GROUP", "verification_group"),
-		RocketTopic:       env("VERIFICATION_ROCKETMQ_TOPIC", "payment_events"),
+		RocketTopic:       env("VERIFICATION_ROCKETMQ_TOPIC", PaymentEventsTopic),
 	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func (c Config) Validate() error {
+	if len(c.RocketNameservers) == 0 {
+		return fmt.Errorf("ROCKETMQ_NAMESERVER must not be empty")
+	}
+	if strings.TrimSpace(c.RocketTopic) != PaymentEventsTopic {
+		return fmt.Errorf("VERIFICATION_ROCKETMQ_TOPIC must be %q, got %q", PaymentEventsTopic, c.RocketTopic)
+	}
+	if strings.TrimSpace(c.RPCAddress) == "" || strings.TrimSpace(c.MySQLDSN) == "" {
+		return fmt.Errorf("verification RPC address and MySQL DSN are required")
+	}
+	return nil
 }
 
 func mysqlDSN() string {

@@ -12,6 +12,7 @@ import (
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/stablepay/payment-service/internal/application/dto"
+	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -24,6 +25,9 @@ type PaymentEventProducer struct {
 }
 
 func NewPaymentEventProducer(nameServers []string, producerGroup string, topic string, logger *zap.Logger) (*PaymentEventProducer, error) {
+	if strings.TrimSpace(topic) != constants.MQTopicPaymentEvents {
+		return nil, fmt.Errorf("payment event producer topic must be %q, got %q", constants.MQTopicPaymentEvents, topic)
+	}
 	resolvedNameServers := resolveNameServers(nameServers)
 
 	p, err := rocketmq.NewProducer(
@@ -47,6 +51,9 @@ func NewPaymentEventProducer(nameServers []string, producerGroup string, topic s
 }
 
 func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *dto.MQPaymentEvent) error {
+	if err := event.Validate(); err != nil {
+		return errors.Wrap(errors.INVALID_PARAMETERS, err, "invalid payment event")
+	}
 	data, err := json.Marshal(event)
 	if err != nil {
 		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to marshal event")
@@ -75,6 +82,7 @@ func (p *PaymentEventProducer) PublishPaymentEvent(ctx context.Context, event *d
 	}
 
 	p.logger.Info("payment event published",
+		zap.String("event_id", event.EventID),
 		zap.String("tx_id", event.TxID),
 		zap.String("status", event.Status),
 		zap.String("tag", tag),
@@ -120,8 +128,8 @@ func eventTagFromStatus(status string) string {
 	}
 }
 
-// eventTagForEvent 优先用 event.EventType(奖励场景显式打了 reward_granted tag),
-// 否则按 status 退到 payment_succeeded / payment_failed。
+// eventTagForEvent uses event_type as the RocketMQ tag. The physical topic is
+// always payment_events; the tag is only the event kind inside that topic.
 func eventTagForEvent(event *dto.MQPaymentEvent) string {
 	if event.EventType != "" {
 		return event.EventType

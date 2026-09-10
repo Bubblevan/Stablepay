@@ -10,6 +10,7 @@ import (
 	commonpb "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	paymentpb "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
 	payerrors "github.com/stablepay/payment-service/pkg/errors"
+	"github.com/stablepay/payment-service/pkg/utils"
 )
 
 // PaymentServiceHandler is the only transport adapter exposed by payment-service.
@@ -29,9 +30,11 @@ func (h *PaymentServiceHandler) InitiatePayment(ctx context.Context, req *paymen
 	}
 	appReq := &appdto.InitiatePaymentRequest{
 		IdempotencyKey: baseIdempotencyKey(req.GetBase()),
+		RequestID:      req.GetBase().GetRequestId(),
+		TraceID:        req.GetBase().GetTraceId(),
 		AgentDID:       string(req.GetAgentDid()),
 		SkillDID:       string(req.GetSkillDid()),
-		AmountStr:      strconv.FormatInt(req.GetAmountMinor(), 10),
+		AmountStr:      utils.MinorUnitToString(req.GetAmountMinor()),
 		Currency:       req.GetCurrency().String(),
 		Signature:      req.GetSignature(),
 		Timestamp:      parseInt64(req.GetTimestamp()),

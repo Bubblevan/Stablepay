@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param(
+    [string]$WalletPath = $env:STABLEPAY_HOTWALLET_PATH
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -7,10 +12,30 @@ $pidDir = Join-Path $runDir "pids"
 
 New-Item -ItemType Directory -Force -Path $logDir, $pidDir | Out-Null
 
-$hotWallet = Join-Path $root "blockchain-adapter\config\hotwallet.json"
-if (-not (Test-Path -LiteralPath $hotWallet)) {
-    Write-Warning "Missing $hotWallet; blockchain-adapter will exit until a real Devnet hot wallet is provided."
+$defaultWallet = Join-Path $root "blockchain-adapter\config\hotwallet.json"
+if ([string]::IsNullOrWhiteSpace($WalletPath)) {
+    $WalletPath = $defaultWallet
+} elseif (-not [IO.Path]::IsPathRooted($WalletPath)) {
+    $WalletPath = Join-Path $root $WalletPath
 }
+$WalletPath = [IO.Path]::GetFullPath($WalletPath)
+
+if (-not (Test-Path -LiteralPath $WalletPath -PathType Leaf)) {
+    throw "Real Solana Devnet mode requires a hot wallet JSON file. Missing: $WalletPath. Set -WalletPath or STABLEPAY_HOTWALLET_PATH; no services were started."
+}
+
+$adapterDir = Join-Path $root "blockchain-adapter"
+Push-Location $adapterDir
+try {
+    & go run ./cmd/validate-wallet -path $WalletPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Real Solana Devnet mode requires a valid hot wallet JSON file. Validation failed: $WalletPath; no services were started."
+    }
+} finally {
+    Pop-Location
+}
+
+$env:STABLEPAY_HOTWALLET_PATH = $WalletPath
 
 $services = @(
     @{

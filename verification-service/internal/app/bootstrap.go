@@ -21,7 +21,10 @@ import (
 // All adapters and infrastructure dependencies are created here and injected
 // into the application service before the Kitex server starts.
 func Run() error {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load verification configuration: %w", err)
+	}
 
 	db, err := mysqlrepo.Open(cfg.MySQLDSN)
 	if err != nil {
@@ -40,6 +43,7 @@ func Run() error {
 		return fmt.Errorf("start payment event consumer: %w", err)
 	}
 	defer paymentConsumer.Close()
+	fmt.Printf("verification-service RocketMQ consumer ready topic=%s group=%s\n", cfg.RocketTopic, cfg.RocketGroup)
 
 	addr, err := net.ResolveTCPAddr("tcp", cfg.RPCAddress)
 	if err != nil {

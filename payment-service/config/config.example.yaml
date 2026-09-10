@@ -28,6 +28,8 @@ rocketmq:
   name_servers:
     - localhost:9876
   producer_group: payment-service-producer
+  topics:
+    payment_events: payment_events
 
 rpc_clients:
   did_service:

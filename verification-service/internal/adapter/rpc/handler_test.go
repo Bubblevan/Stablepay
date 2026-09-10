@@ -24,6 +24,15 @@ func (f *fakePurchaseRepository) Find(_ context.Context, agentDID, skillDID stri
 	return record, nil
 }
 
+func (f *fakePurchaseRepository) FindByEventID(_ context.Context, eventID string) (*entity.PurchaseRecord, error) {
+	for _, record := range f.records {
+		if record.EventID == eventID {
+			return record, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
 func (f *fakePurchaseRepository) Create(_ context.Context, record *entity.PurchaseRecord) error {
 	f.records[record.AgentDID+"|"+record.SkillDID] = record
 	return nil
