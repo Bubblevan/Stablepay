@@ -66,7 +66,7 @@ METHOD\n/path\nqueryString\nSHA256(body_hex)
 
 ```bash
 # 热钱包信息（从 blockchain-adapter/conf/hotwallet.json 读取）
-HOT_PRIV="3LiPaQYYmorCC3zFKdjfu1ie1e4WpcVN1GSYUo4wpHKBkf9TVL5noXurR5ersNRDvWtZQHcQS2kcA6rW4Ncukxgu"
+HOT_PRIV="<read from the local ignored hotwallet.json; never commit a private key>"
 HOT_DID="did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
 SKILL_DID="did:solana:9wNEugNiMaRVw6suArSf88MmM7VQDhkKZxA4KDzwt1RD"
 
@@ -168,7 +168,7 @@ curl -s -X POST http://localhost:28080/api/v1/did \
 #### ③ 查询 DID（需要 DID 鉴权）
 
 ```bash
-HOT_PRIV="3LiPaQYYmorCC3zFKdjfu1ie1e4WpcVN1GSYUo4wpHKBkf9TVL5noXurR5ersNRDvWtZQHcQS2kcA6rW4Ncukxgu"
+HOT_PRIV="<read from the local ignored hotwallet.json; never commit a private key>"
 HOT_DID="did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
 TARGET_DID="did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
 
@@ -742,7 +742,7 @@ STABLEPAY_PLUGIN_MASTER_KEY="my-dev-secret-2026" node demo-pay.mjs
 1. `runtime.getStatus()` → 检查本地钱包
 2. `client.executeDemoSkill()` → GET /api/v1/pay/require（期望 402）
 3. `runtime.signMessage(paymentSignData)` → 业务签名
-4. `runtime.signMessage(canonical, append_timestamp_nonce: true)` → 网关 DID 鉴权签名
+4. `runtime.signMessage(canonical)` → 网关 DID 鉴权签名；timestamp/nonce 仅作为 header 防重放字段
 5. `client.paySigned()` → POST /api/v1/pay（带 DID 鉴权 headers）
 
 ---
@@ -995,7 +995,7 @@ price=1.00 ≤ auto_purchase_threshold=2.0 → 自动购买，无需确认
 
 **步骤 3 - 签名业务数据：**
 ```
-paymentSignData = "did:solana:8xKy...|did:solana:9wNE...|100|1|1712318400|1712318400123-abcd1234"
+paymentSignData = "agentDid|skillDid|amountMinor|currencyCode|sha256_hex(signed_tx_base64)" + timestamp + paymentNonce
                    ↑agentDid          ↑skillDid           ↑minor↑currency code  ↑unix ts  ↑nonce
 ```
 
@@ -1003,7 +1003,8 @@ paymentSignData = "did:solana:8xKy...|did:solana:9wNE...|100|1|1712318400|171231
 ```
 payBody = {"agent_did":"did:solana:8xKy...","skill_did":"did:solana:9wNE...","amount":"1.00",...}
 canonical = "POST\n/api/v1/pay\n\n<sha256(payBody)>"
-signPayload = canonical + isoTimestamp + nonce
+signPayload = canonical
+GatewayNonce and paymentNonce must be different because DID Service records both signature-verification nonces.
 ```
 
 **步骤 5 - POST /api/v1/pay 结果：**
@@ -1140,7 +1141,7 @@ This tool stopped before signing so the user can confirm explicitly.
 set -e
 
 GW="http://localhost:28080"
-HOT_PRIV="3LiPaQYYmorCC3zFKdjfu1ie1e4WpcVN1GSYUo4wpHKBkf9TVL5noXurR5ersNRDvWtZQHcQS2kcA6rW4Ncukxgu"
+HOT_PRIV="<read from the local ignored hotwallet.json; never commit a private key>"
 HOT_DID="did:solana:FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
 HOT_PUB="FMNs7xqezz4bYYioPyfqPzxLLmZyJhjSzbGApMdnrC2Z"
 SKILL_DID="did:solana:9wNEugNiMaRVw6suArSf88MmM7VQDhkKZxA4KDzwt1RD"

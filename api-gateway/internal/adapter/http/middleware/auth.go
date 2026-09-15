@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/stablepay/api-gateway/internal/adapter/httpresp"
 	"github.com/stablepay/api-gateway/internal/application"
 	"github.com/stablepay/api-gateway/internal/domain"
 	"github.com/stablepay/api-gateway/internal/infrastructure/auth"
 	"github.com/stablepay/api-gateway/internal/infrastructure/config"
-	"github.com/stablepay/api-gateway/internal/adapter/httpresp"
 )
 
 func AuthExtract() app.HandlerFunc {

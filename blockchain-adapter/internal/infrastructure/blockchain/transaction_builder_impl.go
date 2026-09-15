@@ -7,6 +7,7 @@ import (
 
 	"github.com/stablepay/blockchain-adapter/internal/domain/entity"
 	"github.com/stablepay/blockchain-adapter/internal/domain/gateway"
+	"github.com/stablepay/blockchain-adapter/internal/domain/vo"
 
 	"github.com/gagliardetto/solana-go"
 )
@@ -51,18 +52,18 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTx(from, to string, amountLampo
 	data := make([]byte, 12)
 	data[0] = 2 // Transfer instruction type
 	binary.LittleEndian.PutUint64(data[4:], amountLamports)
-	
+
 	accounts := solana.AccountMetaSlice{
-		solana.NewAccountMeta(fromPubKey, true, true),  // from (signer, writable)
-		solana.NewAccountMeta(toPubKey, false, true),   // to (writable)
+		solana.NewAccountMeta(fromPubKey, true, true), // from (signer, writable)
+		solana.NewAccountMeta(toPubKey, false, true),  // to (writable)
 	}
-	
+
 	transferIx := solana.NewInstruction(
 		solana.SystemProgramID,
 		accounts,
 		data,
 	)
-	
+
 	tx, err := solana.NewTransaction(
 		[]solana.Instruction{transferIx},
 		blockhash,
@@ -102,18 +103,18 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTxWithFeePayer(from, to, feePay
 	data := make([]byte, 12)
 	data[0] = 2 // Transfer instruction type
 	binary.LittleEndian.PutUint64(data[4:], amountLamports)
-	
+
 	accounts := solana.AccountMetaSlice{
-		solana.NewAccountMeta(fromPubKey, true, true),  // from (signer, writable)
-		solana.NewAccountMeta(toPubKey, false, true),   // to (writable)
+		solana.NewAccountMeta(fromPubKey, true, true), // from (signer, writable)
+		solana.NewAccountMeta(toPubKey, false, true),  // to (writable)
 	}
-	
+
 	transferIx := solana.NewInstruction(
 		solana.SystemProgramID,
 		accounts,
 		data,
 	)
-	
+
 	tx, err := solana.NewTransaction(
 		[]solana.Instruction{transferIx},
 		blockhash,
@@ -128,6 +129,10 @@ func (t *TransactionBuilderImpl) BuildSOLTransferTxWithFeePayer(from, to, feePay
 
 // BuildUnsignedTransaction 构建未签名的 SPL Token 转账交易
 func (t *TransactionBuilderImpl) BuildUnsignedTransaction(req *gateway.BuildTransactionRequest) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("build transaction request is nil")
+	}
+
 	fromPubKey, err := solana.PublicKeyFromBase58(req.FromAddress)
 	if err != nil {
 		return "", fmt.Errorf("invalid from address: %w", err)
@@ -172,18 +177,23 @@ func (t *TransactionBuilderImpl) BuildUnsignedTransaction(req *gateway.BuildTran
 
 	// SPL Token Program ID
 	tokenProgramID := solana.TokenProgramID
+	amountRaw, err := vo.BusinessMinorToTokenRaw(req.Currency, req.AmountMinor)
+	if err != nil {
+		return "", fmt.Errorf("invalid token amount: %w", err)
+	}
 
 	// 构建 SPL Token Transfer 指令数据
 	// 指令格式: [3, amount(8 bytes)]  - 3 �? Transfer 指令类型
 	data := make([]byte, 9)
 	data[0] = 3 // Transfer instruction type
-	binary.LittleEndian.PutUint64(data[1:], uint64(req.AmountMinor))
+	binary.LittleEndian.PutUint64(data[1:], amountRaw)
 
 	// 创建指令账户列表
 	accounts := solana.AccountMetaSlice{
-		solana.NewAccountMeta(fromATA, false, true),  // source (writable, signer)
-		solana.NewAccountMeta(toATA, false, true),    // destination (writable)
-		solana.NewAccountMeta(fromPubKey, true, false), // owner (signer)
+		// NewAccountMeta arguments are (public key, writable, signer).
+		solana.NewAccountMeta(fromATA, true, false),    // source (writable)
+		solana.NewAccountMeta(toATA, true, false),      // destination (writable)
+		solana.NewAccountMeta(fromPubKey, false, true), // owner (signer)
 	}
 
 	// 创建 SPL Token 转账指令

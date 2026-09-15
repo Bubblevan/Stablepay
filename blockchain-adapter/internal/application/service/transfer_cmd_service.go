@@ -13,6 +13,7 @@ import (
 	"github.com/stablepay/blockchain-adapter/internal/domain/entity"
 	"github.com/stablepay/blockchain-adapter/internal/domain/gateway"
 	domainService "github.com/stablepay/blockchain-adapter/internal/domain/service"
+	"github.com/stablepay/blockchain-adapter/internal/domain/vo"
 )
 
 // TransferCmdService 转账应用服务
@@ -63,6 +64,10 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 	if err := s.validateTransferParams(cmd); err != nil {
 		return nil, err
 	}
+	tokenAmount, err := vo.BusinessMinorToTokenRaw(cmd.Currency, cmd.AmountMinor)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token amount: %w", err)
+	}
 
 	// 2. 若无预签名交易，仅允许「热钱包自持代币」的托管路径：由热钱包同时作为 fee payer 与 SPL authority构建交易。
 	//    若 from 为买家/代理等非热钱包地址，必须由客户端提交 signed_tx_base64（买家已签 + 热钱包作 fee payer），否则会错误地从热钱包 ATA 扣款。
@@ -79,7 +84,7 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 			hot,
 			cmd.ToAddress,
 			cmd.Currency,
-			uint64(cmd.AmountMinor),
+			tokenAmount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build SPL transfer transaction: %w", err)
@@ -104,7 +109,7 @@ func (s *TransferCmdService) Execute(ctx context.Context, cmd *TransferCmd) (*Tr
 		if err := s.validateFeePayer(cmd.SignedTxBase64); err != nil {
 			return nil, fmt.Errorf("fee payer validation failed: %w", err)
 		}
-		if err := s.solanaGateway.ValidateTransferTransaction(cmd.SignedTxBase64, cmd.FromAddress, cmd.ToAddress, cmd.Currency, uint64(cmd.AmountMinor)); err != nil {
+		if err := s.solanaGateway.ValidateTransferTransaction(cmd.SignedTxBase64, cmd.FromAddress, cmd.ToAddress, cmd.Currency, tokenAmount); err != nil {
 			return nil, fmt.Errorf("transfer validation failed: %w", err)
 		}
 	}

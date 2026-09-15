@@ -25,7 +25,7 @@ struct TransferStableCoinRequest {
   /** 收款方钱包地址 */
   3: string to_wallet_address,
 
-  /** 最小单位金额（6 decimals） */
+  /** 业务最小单位金额（USDC/USDT 为 2 decimals；adapter 在链上换算为 6-decimal raw units） */
   4: i64 amount_minor,
   5: common.Currency currency,
 

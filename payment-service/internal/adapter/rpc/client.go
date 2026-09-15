@@ -18,6 +18,7 @@ import (
 	"github.com/stablepay/payment-service/internal/domain/service"
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
+	"github.com/stablepay/payment-service/pkg/utils"
 )
 
 // DIDServiceClient DID Service RPC 客户端
@@ -171,7 +172,11 @@ func (c *BlockchainAdapterClient) CheckBalance(ctx context.Context, walletAddres
 		return false, 0, errors.New(errors.BLOCKCHAIN_NETWORK_ERROR, resp.GetBase().GetMessage())
 	}
 	bal := resp.GetBalanceMinor()
-	return bal >= requiredAmount, bal, nil
+	requiredRaw, err := utils.BusinessMinorToTokenRaw(requiredAmount)
+	if err != nil {
+		return false, bal, err
+	}
+	return bal >= requiredRaw, bal, nil
 }
 
 var _ service.BalanceChecker = (*BlockchainAdapterClient)(nil)

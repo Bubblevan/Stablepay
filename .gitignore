@@ -11,6 +11,10 @@ hotwallet.json
 **/*keypair*.json
 **/*private-key*
 **/secrets/
+**/.local-run/secrets/
+**/e2e-prepared.json
+**/e2e-payment-body.json
+.local-run/
 
 # Dependency installs and local build caches
 **/node_modules/

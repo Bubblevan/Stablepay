@@ -4,13 +4,19 @@ param(
     [switch]$SkipStart,
     [switch]$KeepServices,
     [switch]$KeepInfra,
+    [switch]$ManualInputs,
+    [bool]$AutoPrepareIdentity = $(if ($env:STABLEPAY_E2E_AUTO_PREPARE -eq "0") { $false } else { $true }),
     [string]$WalletPath = $env:STABLEPAY_HOTWALLET_PATH,
+    [string]$AgentKeypairPath = $env:STABLEPAY_E2E_AGENT_KEYPAIR_PATH,
+    [string]$SkillKeypairPath = $env:STABLEPAY_E2E_SKILL_KEYPAIR_PATH,
+    [string]$PreparedInputsPath = $env:STABLEPAY_E2E_PREPARED_INPUTS_PATH,
     [string]$AgentDID = $env:STABLEPAY_E2E_AGENT_DID,
     [string]$SkillDID = $env:STABLEPAY_E2E_SKILL_DID,
     [string]$PaymentSignature = $env:STABLEPAY_E2E_PAYMENT_SIGNATURE,
     [string]$GatewaySignature = $env:STABLEPAY_E2E_GATEWAY_SIGNATURE,
     [string]$Timestamp = $env:STABLEPAY_E2E_TIMESTAMP,
     [string]$Nonce = $env:STABLEPAY_E2E_NONCE,
+    [string]$GatewayNonce = $env:STABLEPAY_E2E_GATEWAY_NONCE,
     [string]$SignedTxBase64 = $env:STABLEPAY_E2E_SIGNED_TX_BASE64,
     [string]$IdempotencyKey = $env:STABLEPAY_E2E_IDEMPOTENCY_KEY,
     [string]$Amount = $(if ($env:STABLEPAY_E2E_AMOUNT) { $env:STABLEPAY_E2E_AMOUNT } else { "0.01" }),
@@ -27,6 +33,20 @@ $startScript = Join-Path $PSScriptRoot "start-local.ps1"
 $stopScript = Join-Path $PSScriptRoot "stop-local.ps1"
 $replayDir = Join-Path $root "payment-service"
 $payloadFile = Join-Path $root ".local-run\e2e-payment-event.json"
+$defaultWallet = Join-Path $root "blockchain-adapter\config\hotwallet.json"
+$defaultAgentKeypair = Join-Path $root ".local-run\secrets\e2e-agent.json"
+$defaultPreparedInputs = Join-Path $root ".local-run\e2e-prepared.json"
+
+if ($ManualInputs) { $AutoPrepareIdentity = $false }
+if ([string]::IsNullOrWhiteSpace($WalletPath)) { $WalletPath = $defaultWallet }
+if (-not [IO.Path]::IsPathRooted($WalletPath)) { $WalletPath = Join-Path $root $WalletPath }
+$WalletPath = [IO.Path]::GetFullPath($WalletPath)
+if ([string]::IsNullOrWhiteSpace($AgentKeypairPath)) { $AgentKeypairPath = $defaultAgentKeypair }
+if (-not [IO.Path]::IsPathRooted($AgentKeypairPath)) { $AgentKeypairPath = Join-Path $root $AgentKeypairPath }
+$AgentKeypairPath = [IO.Path]::GetFullPath($AgentKeypairPath)
+if ([string]::IsNullOrWhiteSpace($PreparedInputsPath)) { $PreparedInputsPath = $defaultPreparedInputs }
+if (-not [IO.Path]::IsPathRooted($PreparedInputsPath)) { $PreparedInputsPath = Join-Path $root $PreparedInputsPath }
+$PreparedInputsPath = [IO.Path]::GetFullPath($PreparedInputsPath)
 
 function Fail([string]$Message) { throw "[deterministic-e2e] $Message" }
 
@@ -63,6 +83,23 @@ function Invoke-Json([string]$Method, [string]$Uri, [hashtable]$Headers, [object
     return Invoke-RestMethod @params
 }
 
+function Invoke-RawJson([string]$Method, [string]$Uri, [hashtable]$Headers, [string]$BodyFile) {
+    if (-not (Test-Path -LiteralPath $BodyFile -PathType Leaf)) { Fail "exact JSON body file missing: $BodyFile" }
+    $curlArgs = @("--silent", "--show-error", "--max-time", [string]$TimeoutSeconds, "-X", $Method, "-H", "Content-Type: application/json")
+    foreach ($header in $Headers.GetEnumerator()) {
+        $curlArgs += @("-H", "$($header.Key): $($header.Value)")
+    }
+    # --data-binary is required here: the Go harness signs these exact bytes
+    # and the Gateway hashes the raw request body.
+    $curlArgs += @("--data-binary", "@$BodyFile", $Uri)
+    $responseText = & curl.exe @curlArgs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ($responseText -join "`n")
+    }
+    if ([string]::IsNullOrWhiteSpace(($responseText -join ""))) { return $null }
+    return ($responseText -join "`n") | ConvertFrom-Json
+}
+
 Write-Host "[deterministic-e2e] real infrastructure + real Solana Devnet path"
 
 if (-not $SkipUnitGate) {
@@ -75,6 +112,8 @@ if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf)) { Fail "infra com
 
 $infraStarted = $false
 $servicesStarted = $false
+$previousVerificationGroup = $env:VERIFICATION_ROCKETMQ_GROUP
+$env:VERIFICATION_ROCKETMQ_GROUP = "verification_e2e_$([guid]::NewGuid().ToString('N'))"
 try {
     Push-Location $infraDir
     try {
@@ -90,8 +129,14 @@ try {
 
     $topicReady = $false
     for ($attempt = 1; $attempt -le 30; $attempt++) {
-        & $dockerExe exec stablepay-rocketmq-broker sh -c "sh /home/rocketmq/rocketmq-5.3.2/bin/mqadmin updateTopic -n rocketmq-nameserver:9876 -c DefaultCluster -t payment_events"
-        if ($LASTEXITCODE -eq 0) { $topicReady = $true; break }
+        $topicOutput = & $dockerExe exec stablepay-rocketmq-broker sh -c "sh /home/rocketmq/rocketmq-5.3.2/bin/mqadmin updateTopic -n rocketmq-nameserver:9876 -c DefaultCluster -t payment_events" 2>&1
+        $topicText = $topicOutput -join "`n"
+        # mqadmin may print an error while still returning exit code 0 during
+        # the short window before the broker registers with NameServer.
+        if ($LASTEXITCODE -eq 0 -and $topicText -match "create topic .* success") {
+            $topicReady = $true
+            break
+        }
         Start-Sleep -Seconds 2
     }
     if (-not $topicReady) { Fail "could not create/check RocketMQ physical topic payment_events" }
@@ -121,14 +166,51 @@ try {
     } while ((Get-Date) -lt $readyDeadline)
     if (-not $readyLine) { Fail "verification-service Kitex port is open but RocketMQ consumer readiness was not observed" }
 
+    if ($AutoPrepareIdentity) {
+        Write-Host "[deterministic-e2e] preparing separate Agent identity, real DID registrations, Adapter transaction, and signatures"
+        $helperArgs = @("run", "./cmd/e2e-client", "-agent-keypair-path", $AgentKeypairPath, "-hot-wallet-path", $WalletPath)
+        if (-not [string]::IsNullOrWhiteSpace($SkillKeypairPath)) {
+            $helperArgs += @("-skill-keypair-path", $SkillKeypairPath)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($SkillDID)) {
+            $helperArgs += @("-skill-did", $SkillDID)
+        }
+        $helperArgs += @("-amount", $Amount, "-currency", $Currency, "-output", $PreparedInputsPath)
+        Push-Location $replayDir
+        try {
+            $helperOutput = & go @helperArgs 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Fail "real-signing harness could not prepare the request. Devnet funding prerequisite or service error: $($helperOutput -join ' ')"
+            }
+        } finally { Pop-Location }
+        if (-not (Test-Path -LiteralPath $PreparedInputsPath -PathType Leaf)) {
+            Fail "real-signing harness completed without prepared input file: $PreparedInputsPath"
+        }
+        $prepared = Get-Content -Raw -LiteralPath $PreparedInputsPath | ConvertFrom-Json
+        $AgentDID = [string]$prepared.agent_did
+        $SkillDID = [string]$prepared.skill_did
+        $PaymentSignature = [string]$prepared.payment_signature
+        $GatewaySignature = [string]$prepared.gateway_signature
+        $Timestamp = [string]$prepared.timestamp
+        $Nonce = [string]$prepared.nonce
+        $GatewayNonce = [string]$prepared.gateway_nonce
+        $SignedTxBase64 = [string]$prepared.signed_tx_base64
+        $IdempotencyKey = [string]$prepared.idempotency_key
+        $Amount = [string]$prepared.amount
+        $Currency = [string]$prepared.currency
+        $bodyFile = [string]$prepared.body_file
+        if (-not [IO.Path]::IsPathRooted($bodyFile)) { $bodyFile = Join-Path $root $bodyFile }
+        $bodyFile = [IO.Path]::GetFullPath($bodyFile)
+    }
+
     $required = @{
         AgentDID = $AgentDID; SkillDID = $SkillDID; PaymentSignature = $PaymentSignature;
         GatewaySignature = $GatewaySignature; Timestamp = $Timestamp; Nonce = $Nonce;
-        SignedTxBase64 = $SignedTxBase64; IdempotencyKey = $IdempotencyKey
+        GatewayNonce = $GatewayNonce; SignedTxBase64 = $SignedTxBase64; IdempotencyKey = $IdempotencyKey
     }
     foreach ($entry in $required.GetEnumerator()) {
         if ([string]::IsNullOrWhiteSpace($entry.Value)) {
-            Fail "$($entry.Key) is required. Provide real DID signatures and a client-signed SPL transaction; the script will not substitute a mock chain or signature."
+            Fail "$($entry.Key) is required. Use auto mode or provide real DID signatures, distinct gateway/payment nonces, and a client-signed SPL transaction; the script will not substitute a mock chain or signature."
         }
     }
 
@@ -136,21 +218,51 @@ try {
         "X-StablePay-DID" = $AgentDID
         "X-StablePay-Signature" = $GatewaySignature
         "X-StablePay-Timestamp" = $Timestamp
-        "X-StablePay-Nonce" = $Nonce
+        "X-StablePay-Nonce" = $GatewayNonce
         "X-Idempotency-Key" = $IdempotencyKey
         "X-Request-Id" = "e2e-$([guid]::NewGuid().ToString())"
         "X-Trace-Id" = "trace-$([guid]::NewGuid().ToString())"
     }
-    $payBody = @{
-        agent_did = $AgentDID; skill_did = $SkillDID; amount = $Amount; currency = $Currency;
-        signature = $PaymentSignature; timestamp = $Timestamp; nonce = $Nonce;
-        signed_tx_base64 = $SignedTxBase64
+    if ($AutoPrepareIdentity) {
+        $payResponse = Invoke-RawJson "POST" "http://127.0.0.1:8080/api/v1/pay" $payHeaders $bodyFile
+    } else {
+        $payBody = @{
+            agent_did = $AgentDID; skill_did = $SkillDID; amount = $Amount; currency = $Currency;
+            signature = $PaymentSignature; timestamp = $Timestamp; nonce = $Nonce;
+            signed_tx_base64 = $SignedTxBase64
+        }
+        $payResponse = Invoke-Json "POST" "http://127.0.0.1:8080/api/v1/pay" $payHeaders $payBody
     }
-    $payResponse = Invoke-Json "POST" "http://127.0.0.1:8080/api/v1/pay" $payHeaders $payBody
     $payData = if ($payResponse.data) { $payResponse.data } else { $payResponse }
     $txID = [string]$payData.tx_id
-    if ([string]::IsNullOrWhiteSpace($txID)) { Fail "payment response did not contain tx_id" }
+    if ([string]::IsNullOrWhiteSpace($txID)) {
+        $responseDebug = $payResponse | ConvertTo-Json -Depth 8 -Compress
+        Fail "payment response did not contain tx_id: $responseDebug"
+    }
     Write-Host "[deterministic-e2e] payment initiated tx_id=$txID status=$($payData.status)"
+
+    # Re-submit the exact same business request with a fresh gateway nonce.
+    # The payment nonce remains bound to the business signature; the payment
+    # service must return the original tx_id from its idempotency record.
+    $idempotencyHeaders = @{
+        "X-StablePay-DID" = $AgentDID
+        "X-StablePay-Signature" = $GatewaySignature
+        "X-StablePay-Timestamp" = $Timestamp
+        "X-StablePay-Nonce" = "gateway-retry-$([guid]::NewGuid().ToString())"
+        "X-Idempotency-Key" = $IdempotencyKey
+        "X-Request-Id" = "e2e-idempotency-$([guid]::NewGuid().ToString())"
+        "X-Trace-Id" = "trace-idempotency-$([guid]::NewGuid().ToString())"
+    }
+    $idempotencyResponse = if ($AutoPrepareIdentity) {
+        Invoke-RawJson "POST" "http://127.0.0.1:8080/api/v1/pay" $idempotencyHeaders $bodyFile
+    } else {
+        Invoke-Json "POST" "http://127.0.0.1:8080/api/v1/pay" $idempotencyHeaders $payBody
+    }
+    $idempotencyData = if ($idempotencyResponse.data) { $idempotencyResponse.data } else { $idempotencyResponse }
+    if ([string]$idempotencyData.tx_id -ne $txID) {
+        Fail "idempotency replay returned a different tx_id: first=$txID replay=$($idempotencyData.tx_id)"
+    }
+    Write-Host "[deterministic-e2e] idempotency replay returned the original tx_id=$txID"
 
     $status = $null
     $statusDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -185,14 +297,23 @@ try {
     Write-Host "[deterministic-e2e] purchase projected identity=$AgentDID|$SkillDID proof_tx_id=$($proof.tx_id)"
 
     # Capture the exact deterministic event identity from the producer log.
-    $paymentLog = Join-Path $root ".local-run\logs\payment-service.out.log"
-    $eventLine = Get-Content -LiteralPath $paymentLog -Tail 200 | Select-String "event_id=.*tx_id=$txID|tx_id=$txID.*event_id=" | Select-Object -Last 1
+    # zap's development logger writes to stderr; use that stream for the
+    # producer event line instead of the GORM stdout stream.
+    $paymentLog = Join-Path $root ".local-run\logs\payment-service.err.log"
+    $eventLine = Get-Content -LiteralPath $paymentLog -Tail 200 |
+        Select-String "payment event published" |
+        Where-Object { $_.Line -match [regex]::Escape($txID) } |
+        Select-Object -Last 1
     if (-not $eventLine) { Fail "could not find the published event_id for $txID in payment-service log; replay was not attempted" }
-    $eventMatch = [regex]::Match($eventLine.Line, "event_id[=: ]+([0-9a-fA-F-]{36})")
+    $eventMatch = [regex]::Match($eventLine.Line, 'event_id.{0,8}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})')
     if (-not $eventMatch.Success) { Fail "published event_id was not parseable; replay was not attempted" }
     $eventID = $eventMatch.Groups[1].Value
 
-    $amountMinor = [int64]([decimal]$Amount * 1000000)
+    $amountMinor = if ($AutoPrepareIdentity -and $prepared.amount_minor) {
+        [int64]$prepared.amount_minor
+    } else {
+        [int64]([decimal]$Amount * 100)
+    }
     $occurredAt = (Get-Date).ToUniversalTime().ToString("o")
     $replayEvent = [ordered]@{
         event_id = $eventID; event_type = "payment.success"; schema_version = 1; idempotency_key = "$AgentDID`:$SkillDID`:$Nonce";
@@ -201,7 +322,8 @@ try {
         request_id = "e2e-replay"; trace_id = "e2e-replay"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $payloadFile) | Out-Null
-    $replayEvent | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -LiteralPath $payloadFile
+    # The Go replay tool expects raw JSON without PowerShell's UTF-8 BOM.
+    $replayEvent | ConvertTo-Json -Depth 5 | Set-Content -Encoding ASCII -LiteralPath $payloadFile
     Push-Location $replayDir
     try {
         & go run ./cmd/replay-payment-event -nameserver 127.0.0.1:9876 -file $payloadFile
@@ -214,6 +336,11 @@ try {
     Write-Host "[deterministic-e2e] replayed event_id=$eventID; purchase projection remained idempotent"
     Write-Host "[deterministic-e2e] PASS real MySQL + Redis + RocketMQ + six services + Solana Devnet"
 } finally {
+    if ($null -eq $previousVerificationGroup) {
+        Remove-Item Env:VERIFICATION_ROCKETMQ_GROUP -ErrorAction SilentlyContinue
+    } else {
+        $env:VERIFICATION_ROCKETMQ_GROUP = $previousVerificationGroup
+    }
     if (-not $KeepServices -and $servicesStarted) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $stopScript
     }

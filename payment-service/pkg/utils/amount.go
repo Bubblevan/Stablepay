@@ -179,6 +179,21 @@ func StringToMinorUnit(amount string) (int64, error) {
 	return DefaultAmountUtil.ToMinorUnit(amount)
 }
 
+// BusinessMinorToTokenRaw converts StablePay's two-decimal business amount
+// into the six-decimal raw units returned by blockchain-adapter balances.
+// For USDC/USDT, 0.01 business units equals 1 business minor unit and 10,000
+// SPL raw units.
+func BusinessMinorToTokenRaw(amountMinor int64) (int64, error) {
+	const multiplier int64 = 10000
+	if amountMinor <= 0 {
+		return 0, fmt.Errorf("amount_minor must be greater than 0")
+	}
+	if amountMinor > (int64(^uint64(0)>>1) / multiplier) {
+		return 0, fmt.Errorf("amount_minor overflows token raw units: %d", amountMinor)
+	}
+	return amountMinor * multiplier, nil
+}
+
 // MinorUnitToString 最小单位转字符串（简写）
 func MinorUnitToString(amountMinor int64) string {
 	return DefaultAmountUtil.FromMinorUnitTrimZeros(amountMinor)

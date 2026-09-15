@@ -3,7 +3,8 @@
  *
  * 说明：
  * - 对外 canonical API：POST /api/v1/pay
- * - 内部金额统一使用最小单位整数 amount_minor（6 decimals）
+ * - 业务金额统一使用最小单位整数 amount_minor（USDC/USDT 为 2 decimals）
+ * - blockchain-adapter 在链上边界将业务 amount_minor 换算为 token raw units（6 decimals）
  */
 
 namespace go stablepay.payment_service

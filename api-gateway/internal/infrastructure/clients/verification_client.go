@@ -21,7 +21,7 @@ type KitexVerificationClient struct {
 // NewKitexVerificationClient 创建客户端。destService 为 Kitex 目标服务名；hostPort 如 stablepay-verification-service:8085。
 func NewKitexVerificationClient(destService, hostPort string, timeoutMs, retryCount int) (application.VerificationServiceClient, error) {
 	opts := []client.Option{
-		client.WithHostPorts("verification-service:8085"),
+		client.WithHostPorts(hostPort),
 	}
 	if timeoutMs > 0 {
 		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))

@@ -22,7 +22,7 @@ type KitexPaymentClient struct {
 }
 
 func NewKitexPaymentClient(destService, hostPort string, timeoutMs, retryCount int) (application.PaymentServiceClient, error) {
-	opts := []client.Option{client.WithHostPorts(hostPort), client.WithResolver(nil)}
+	opts := []client.Option{client.WithHostPorts(hostPort)}
 	if timeoutMs > 0 {
 		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))
 	}
@@ -59,6 +59,13 @@ func (c *KitexPaymentClient) Pay(ctx context.Context, req map[string]interface{}
 	resp, err := c.cli.InitiatePayment(ctx, kreq)
 	if err != nil {
 		return nil, 500, 0, err
+	}
+	if code := baseCode(resp.GetBase()); code != 0 {
+		message := "payment-service returned an error"
+		if resp.GetBase() != nil && resp.GetBase().GetMessage() != "" {
+			message = resp.GetBase().GetMessage()
+		}
+		return nil, 500, code, fmt.Errorf("%s", message)
 	}
 	return map[string]interface{}{
 		"base":         baseToMap(resp.GetBase()),

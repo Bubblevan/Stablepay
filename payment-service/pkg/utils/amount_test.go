@@ -69,9 +69,9 @@ func TestAmountUtil_FromMinorUnit(t *testing.T) {
 	util := DefaultAmountUtil
 
 	tests := []struct {
-		name       string
-		minorUnit  int64
-		want       string
+		name      string
+		minorUnit int64
+		want      string
 	}{
 		{
 			name:      "5000000 -> 5.000000",
@@ -198,6 +198,22 @@ func TestStringToMinorUnit(t *testing.T) {
 	}
 	if got != 5000000 {
 		t.Errorf("StringToMinorUnit() = %v, want %v", got, 5000000)
+	}
+}
+
+func TestBusinessMinorToTokenRaw(t *testing.T) {
+	got, err := BusinessMinorToTokenRaw(1)
+	if err != nil {
+		t.Fatalf("BusinessMinorToTokenRaw() error = %v", err)
+	}
+	if got != 10000 {
+		t.Fatalf("BusinessMinorToTokenRaw() = %d, want 10000", got)
+	}
+}
+
+func TestBusinessMinorToTokenRawRejectsInvalidAmount(t *testing.T) {
+	if _, err := BusinessMinorToTokenRaw(0); err == nil {
+		t.Fatal("BusinessMinorToTokenRaw() should reject zero")
 	}
 }
 

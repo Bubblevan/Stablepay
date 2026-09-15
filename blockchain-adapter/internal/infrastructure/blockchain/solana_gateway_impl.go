@@ -5,6 +5,7 @@ package blockchain
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -90,7 +91,10 @@ func (s *SolanaGatewayImpl) GetTokenBalance(ctx context.Context, walletAddress, 
 	result, err := s.client.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentFinalized)
 	if err != nil {
 		// ATA 不存在，返回 0
-		return 0, nil
+		if errors.Is(err, rpc.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to get token account balance for %s: %w", tokenAccount, err)
 	}
 
 	if result.Value == nil {

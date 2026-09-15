@@ -3,6 +3,8 @@ package clients
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +25,6 @@ type KitexDIDClient struct {
 func NewKitexDIDClient(destService, hostPort string, timeoutMs, retryCount int) (application.DIDServiceClient, error) {
 	opts := []client.Option{
 		client.WithHostPorts(hostPort),
-		client.WithResolver(nil),
 	}
 	if timeoutMs > 0 {
 		opts = append(opts, client.WithRPCTimeout(time.Duration(timeoutMs)*time.Millisecond))
@@ -231,6 +232,12 @@ func stringFromIface(v interface{}) string {
 	}
 	if s, ok := v.(string); ok {
 		return s
+	}
+	if n, ok := v.(float64); ok {
+		if math.Trunc(n) == n {
+			return strconv.FormatInt(int64(n), 10)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64)
 	}
 	return fmt.Sprintf("%v", v)
 }

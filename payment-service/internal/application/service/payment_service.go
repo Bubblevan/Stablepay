@@ -424,7 +424,10 @@ func (s *PaymentApplicationService) InitiatePayment(ctx context.Context, req *dt
 
 	// 13. 返回响应
 	resp := s.toResponse(payment)
-	s.recordIdempotency(ctx, idempotencyKey, txID, 0, req, resp)
+	// Status 1 is the terminal successful idempotency state. Keeping the
+	// original tx_id lets a retry return the same settlement instead of
+	// reaching nonce validation and attempting a second chain transfer.
+	s.recordIdempotency(ctx, idempotencyKey, txID, 1, req, resp)
 
 	return resp, nil
 }
@@ -650,7 +653,11 @@ func (s *PaymentApplicationService) checkIdempotency(ctx context.Context, key st
 	}
 
 	// 返回缓存的响应
-	if record.Status == 1 && record.TxID != nil { // 已完成
+	// A retry can arrive while the original request is still executing the
+	// chain transfer. Once the payment row and the in-flight idempotency row
+	// exist, return that same payment instead of reaching nonce validation and
+	// attempting a second transfer.
+	if (record.Status == 0 || record.Status == 1) && record.TxID != nil {
 		payment, err := s.paymentRepo.GetByTxID(ctx, *record.TxID)
 		if err == nil && payment != nil {
 			return s.toResponse(payment), nil
