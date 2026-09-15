@@ -96,7 +96,11 @@ func (s *Service) CreateEpisode(ctx context.Context, request contract.AcquireCap
 	if !errors.Is(findErr, repository.ErrNotFound) {
 		return CreateEpisodeResult{}, findErr
 	}
-	created, err := episode.New(s.idGenerator("ce"), normalized, s.clock())
+	now := s.clock().UTC()
+	if err := normalized.ValidateAt(now); err != nil {
+		return CreateEpisodeResult{}, err
+	}
+	created, err := episode.New(s.idGenerator("ce"), normalized, now)
 	if err != nil {
 		return CreateEpisodeResult{}, err
 	}
@@ -177,6 +181,14 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	now := s.clock().UTC()
 	guardResult, err := s.guard.Evaluate(current, request.Proposal, knownEvidence, request.Observation, now)
 	if err != nil {
+		// The idempotency precheck and the projection read are intentionally
+		// separate for throughput. If the winning transaction commits between
+		// them, resolve the key once more before returning a stale/expired error.
+		if replay, replayErr := s.replayIfCommitted(ctx, current.EpisodeID, request); replayErr == nil {
+			return replay, nil
+		} else if errors.Is(replayErr, repository.ErrIdempotencyConflict) {
+			return CommitResult{}, replayErr
+		}
 		return CommitResult{}, err
 	}
 
@@ -196,7 +208,7 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if reason == "" && episode.IsTerminal(guardResult.NextState) {
 		reason = string(request.Observation.Type)
 	}
-	if err := next.ApplyTransition(guardResult.NextState, now, reason); err != nil {
+	if err := next.ApplyCommittedState(guardResult.NextState, now, reason); err != nil {
 		return CommitResult{}, err
 	}
 	event, err := episode.NewEvent(
@@ -222,6 +234,8 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		if errors.Is(err, repository.ErrVersionConflict) {
 			if replay, replayErr := s.replayIfCommitted(ctx, current.EpisodeID, request); replayErr == nil {
 				return replay, nil
+			} else if errors.Is(replayErr, repository.ErrIdempotencyConflict) {
+				return CommitResult{}, replayErr
 			}
 		}
 		return CommitResult{}, err

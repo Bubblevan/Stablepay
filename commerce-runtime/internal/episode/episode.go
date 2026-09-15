@@ -55,8 +55,42 @@ type BudgetSnapshot struct {
 	ReservedAmount   int64  `json:"reserved_amount"`
 	SettledAmount    int64  `json:"settled_amount"`
 	RefundedAmount   int64  `json:"refunded_amount"`
+	ConsumedAmount   int64  `json:"consumed_amount"`
 	AvailableBudget  int64  `json:"available_budget"`
 	SunkCost         int64  `json:"sunk_cost"`
+	RefundReusable   bool   `json:"refund_reusable"`
+}
+
+// Recalculate applies the TRD budget semantics. With reusable refunds:
+// consumed=max(0, settled-refunded), available=limit-consumed-reserved.
+// When RefundReusable is false, refunds remain accounting evidence but do not
+// return capacity to available budget; consumed is settled amount.
+func (b *BudgetSnapshot) Recalculate() error {
+	if b == nil || strings.TrimSpace(b.Currency) == "" || b.BudgetLimitMinor < 0 || b.ReservedAmount < 0 || b.SettledAmount < 0 || b.RefundedAmount < 0 {
+		return ErrInvalidEpisode
+	}
+	consumed := maxInt64(0, b.SettledAmount-b.RefundedAmount)
+	if !b.RefundReusable {
+		consumed = b.SettledAmount
+	}
+	if consumed < 0 || consumed > b.BudgetLimitMinor || b.ReservedAmount > b.BudgetLimitMinor-consumed {
+		return ErrInvalidEpisode
+	}
+	b.ConsumedAmount = consumed
+	b.AvailableBudget = b.BudgetLimitMinor - consumed - b.ReservedAmount
+	b.SunkCost = maxInt64(0, b.SettledAmount-b.RefundedAmount)
+	return nil
+}
+
+func (b BudgetSnapshot) Validate() error {
+	copy := b
+	if err := copy.Recalculate(); err != nil {
+		return err
+	}
+	if copy.ConsumedAmount != b.ConsumedAmount || copy.AvailableBudget != b.AvailableBudget || copy.SunkCost != b.SunkCost {
+		return ErrInvalidEpisode
+	}
+	return nil
 }
 
 type CommerceEpisode struct {
@@ -93,7 +127,7 @@ func New(episodeID string, request contract.AcquireCapabilityRequest, now time.T
 	if strings.TrimSpace(episodeID) == "" {
 		return nil, fmt.Errorf("%w: episode_id is required", ErrInvalidEpisode)
 	}
-	normalized, err := request.Normalize()
+	normalized, err := request.NormalizeAt(now)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +151,7 @@ func New(episodeID string, request contract.AcquireCapabilityRequest, now time.T
 			Currency:         normalized.Constraints.Currency,
 			BudgetLimitMinor: normalized.Constraints.BudgetLimitMinor,
 			AvailableBudget:  normalized.Constraints.BudgetLimitMinor,
+			RefundReusable:   true,
 		},
 		MaxTotalAttempts:    normalized.Constraints.MaxTotalAttempts,
 		MaxPaymentAttempts:  normalized.Constraints.MaxPaymentAttempts,
@@ -142,11 +177,7 @@ func (e *CommerceEpisode) Validate() error {
 	if e.DeadlineAt.IsZero() || e.CreatedAt.IsZero() || e.UpdatedAt.IsZero() {
 		return ErrInvalidEpisode
 	}
-	if e.Budget.BudgetLimitMinor < 0 || e.Budget.ReservedAmount < 0 || e.Budget.SettledAmount < 0 || e.Budget.RefundedAmount < 0 {
-		return ErrInvalidEpisode
-	}
-	if e.Budget.AvailableBudget != e.Budget.BudgetLimitMinor-e.Budget.SettledAmount-e.Budget.ReservedAmount ||
-		e.Budget.SunkCost != maxInt64(0, e.Budget.SettledAmount-e.Budget.RefundedAmount) {
+	if err := e.Budget.Validate(); err != nil {
 		return ErrInvalidEpisode
 	}
 	if e.MaxTotalAttempts <= 0 || e.MaxPaymentAttempts <= 0 || e.MaxDeliveryAttempts <= 0 ||
@@ -182,6 +213,26 @@ func (e *CommerceEpisode) ApplyTransition(to State, now time.Time, reason string
 	e.Version++
 	e.UpdatedAt = now.UTC()
 	return nil
+}
+
+// ApplyCommittedState advances the projection for a committed event. A
+// same-state event is legal and still increments the aggregate version.
+func (e *CommerceEpisode) ApplyCommittedState(to State, now time.Time, reason string) error {
+	if e == nil {
+		return ErrInvalidEpisode
+	}
+	if to == e.State {
+		if IsTerminal(e.State) {
+			return ErrTerminalEpisode
+		}
+		if !now.IsZero() && !now.Before(e.DeadlineAt) {
+			return ErrEpisodeExpired
+		}
+		e.Version++
+		e.UpdatedAt = now.UTC()
+		return nil
+	}
+	return e.ApplyTransition(to, now, reason)
 }
 
 func AllowedTransitions(from State) []State {
@@ -246,6 +297,8 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		return StatePaying, from == StateNegotiating
 	case trace.ActionCreatePayment:
 		return StateClaiming, from == StatePaying
+	case trace.ActionPaymentSubmitted, trace.ActionPaymentPending, trace.ActionPaymentStatusQueried:
+		return StatePaying, from == StatePaying
 	case trace.ActionVerifyEntitlement:
 		return StateInvokingDelivery, from == StateClaiming
 	case trace.ActionValidateDelivery:

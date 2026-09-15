@@ -18,13 +18,14 @@ const DefaultProtocolVersion = "x402-v1"
 var sha256Pattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 var (
-	ErrInvalidRequest       = errors.New("invalid acquire capability request")
-	ErrInvalidMoney         = errors.New("budget limit must be a non-negative minor-unit amount")
-	ErrInvalidDeadline      = errors.New("deadline must be in the future")
-	ErrInvalidAttempts      = errors.New("attempt limits must be positive and bounded")
-	ErrInvalidValidator     = errors.New("validator must be a versioned builtin reference")
-	ErrInvalidProtocol      = errors.New("at least one supported protocol version is required")
-	ErrInvalidInputChecksum = errors.New("input sha256 must be a 64-character hexadecimal digest")
+	ErrInvalidRequest        = errors.New("invalid acquire capability request")
+	ErrInvalidMoney          = errors.New("budget limit must be a non-negative minor-unit amount")
+	ErrInvalidDeadline       = errors.New("deadline must be in the future")
+	ErrInvalidAttempts       = errors.New("attempt limits must be positive and bounded")
+	ErrInvalidValidator      = errors.New("validator must be a versioned builtin reference")
+	ErrInvalidProtocol       = errors.New("at least one supported protocol version is required")
+	ErrInvalidInputChecksum  = errors.New("input sha256 must be a 64-character hexadecimal digest")
+	ErrInvalidValidationTime = errors.New("validation time must be provided for deadline validation")
 )
 
 // KeyValue is used instead of map[string]any in the contract so its canonical
@@ -91,6 +92,25 @@ type AcquireCapabilityRequest struct {
 }
 
 func (r AcquireCapabilityRequest) Validate() error {
+	return r.validateStructure()
+}
+
+// ValidateAt performs structural validation and evaluates deadline semantics
+// against the caller-provided clock. It never reads time.Now internally.
+func (r AcquireCapabilityRequest) ValidateAt(now time.Time) error {
+	if err := r.validateStructure(); err != nil {
+		return err
+	}
+	if now.IsZero() {
+		return ErrInvalidValidationTime
+	}
+	if !r.Constraints.DeadlineAt.After(now.UTC()) {
+		return ErrInvalidDeadline
+	}
+	return nil
+}
+
+func (r AcquireCapabilityRequest) validateStructure() error {
 	if strings.TrimSpace(r.RequestID) == "" || strings.TrimSpace(r.RequesterDID) == "" {
 		return fmt.Errorf("%w: request_id and requester_did are required", ErrInvalidRequest)
 	}
@@ -109,7 +129,7 @@ func (r AcquireCapabilityRequest) Validate() error {
 	if r.Constraints.BudgetLimitMinor < 0 || r.Constraints.RequireParentConfirmationAboveMinor < 0 {
 		return ErrInvalidMoney
 	}
-	if r.Constraints.DeadlineAt.IsZero() || !r.Constraints.DeadlineAt.After(time.Now().UTC()) {
+	if r.Constraints.DeadlineAt.IsZero() {
 		return ErrInvalidDeadline
 	}
 	if r.Constraints.MaxTotalAttempts <= 0 || r.Constraints.MaxTotalAttempts > 1000 ||
@@ -153,6 +173,23 @@ func (r AcquireCapabilityRequest) effectiveProtocolVersions() []string {
 // Normalize returns a new request with whitespace/case normalization and
 // deterministic ordering for set-like fields. The receiver is never mutated.
 func (r AcquireCapabilityRequest) Normalize() (AcquireCapabilityRequest, error) {
+	normalized := r.normalizeFields()
+	if err := normalized.Validate(); err != nil {
+		return AcquireCapabilityRequest{}, err
+	}
+	return normalized, nil
+}
+
+// NormalizeAt is the runtime entry point when deadline semantics matter.
+func (r AcquireCapabilityRequest) NormalizeAt(now time.Time) (AcquireCapabilityRequest, error) {
+	normalized := r.normalizeFields()
+	if err := normalized.ValidateAt(now); err != nil {
+		return AcquireCapabilityRequest{}, err
+	}
+	return normalized, nil
+}
+
+func (r AcquireCapabilityRequest) normalizeFields() AcquireCapabilityRequest {
 	r.RequestID = strings.TrimSpace(r.RequestID)
 	r.ParentSessionID = strings.TrimSpace(r.ParentSessionID)
 	r.ParentEpisodeID = strings.TrimSpace(r.ParentEpisodeID)
@@ -175,10 +212,7 @@ func (r AcquireCapabilityRequest) Normalize() (AcquireCapabilityRequest, error) 
 	r.Validator.Name = strings.TrimSpace(r.Validator.Name)
 	r.Validator.Version = strings.TrimSpace(r.Validator.Version)
 	r.Validator.Config = normalizeKeyValues(r.Validator.Config)
-	if err := r.Validate(); err != nil {
-		return AcquireCapabilityRequest{}, err
-	}
-	return r, nil
+	return r
 }
 
 func normalizeStrings(values []string) []string {
@@ -223,8 +257,25 @@ func (r AcquireCapabilityRequest) CanonicalSnapshot() ([]byte, error) {
 	return json.Marshal(normalized)
 }
 
+func (r AcquireCapabilityRequest) CanonicalSnapshotAt(now time.Time) ([]byte, error) {
+	normalized, err := r.NormalizeAt(now)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(normalized)
+}
+
 func (r AcquireCapabilityRequest) SnapshotHash() (string, error) {
 	snapshot, err := r.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (r AcquireCapabilityRequest) SnapshotHashAt(now time.Time) (string, error) {
+	snapshot, err := r.CanonicalSnapshotAt(now)
 	if err != nil {
 		return "", err
 	}

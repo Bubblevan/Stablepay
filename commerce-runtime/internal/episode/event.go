@@ -67,7 +67,11 @@ func (e *EpisodeEvent) Validate() error {
 	if !e.RuntimeVerdict.Allowed {
 		return fmt.Errorf("%w: committed event must have an allowed runtime verdict", ErrInvalidEvent)
 	}
-	if !CanTransition(e.StateBefore, e.StateAfter) {
+	if e.StateBefore == e.StateAfter {
+		if IsTerminal(e.StateBefore) {
+			return fmt.Errorf("%w: terminal state cannot accept same-state events", ErrInvalidEvent)
+		}
+	} else if !CanTransition(e.StateBefore, e.StateAfter) {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidEvent, e.StateBefore, e.StateAfter)
 	}
 	if strings.TrimSpace(e.Decision.ProposalID) == "" || e.Decision.ProposedAction != e.Action.Type {

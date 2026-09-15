@@ -11,32 +11,38 @@ import (
 type ActionType string
 
 const (
-	ActionDiscover          ActionType = "DISCOVER"
-	ActionInvoke            ActionType = "INVOKE"
-	ActionParse402          ActionType = "PARSE_402"
-	ActionReserveBudget     ActionType = "RESERVE_BUDGET"
-	ActionCreatePayment     ActionType = "CREATE_PAYMENT"
-	ActionVerifyEntitlement ActionType = "VERIFY_ENTITLEMENT"
-	ActionValidateDelivery  ActionType = "VALIDATE_DELIVERY"
-	ActionRetrySameMerchant ActionType = "RETRY_SAME_MERCHANT"
-	ActionStop              ActionType = "STOP"
-	ActionSelectMerchant    ActionType = "SELECT_MERCHANT"
-	ActionNegotiateAndPay   ActionType = "NEGOTIATE_AND_PAY"
+	ActionDiscover             ActionType = "DISCOVER"
+	ActionInvoke               ActionType = "INVOKE"
+	ActionParse402             ActionType = "PARSE_402"
+	ActionReserveBudget        ActionType = "RESERVE_BUDGET"
+	ActionCreatePayment        ActionType = "CREATE_PAYMENT"
+	ActionVerifyEntitlement    ActionType = "VERIFY_ENTITLEMENT"
+	ActionValidateDelivery     ActionType = "VALIDATE_DELIVERY"
+	ActionRetrySameMerchant    ActionType = "RETRY_SAME_MERCHANT"
+	ActionStop                 ActionType = "STOP"
+	ActionSelectMerchant       ActionType = "SELECT_MERCHANT"
+	ActionNegotiateAndPay      ActionType = "NEGOTIATE_AND_PAY"
+	ActionPaymentSubmitted     ActionType = "PAYMENT_SUBMITTED"
+	ActionPaymentPending       ActionType = "PAYMENT_PENDING"
+	ActionPaymentStatusQueried ActionType = "PAYMENT_STATUS_QUERIED"
 )
 
 type ObservationType string
 
 const (
-	ObservationCandidatesFound  ObservationType = "CANDIDATES_FOUND"
-	ObservationHTTP402          ObservationType = "HTTP_402"
-	ObservationQuoteValid       ObservationType = "QUOTE_VALID"
-	ObservationPolicyDenied     ObservationType = "POLICY_DENIED"
-	ObservationPaymentSettled   ObservationType = "PAYMENT_SETTLED"
-	ObservationEntitlementValid ObservationType = "ENTITLEMENT_VALID"
-	ObservationDeliveryValid    ObservationType = "DELIVERY_VALID"
-	ObservationDeliveryInvalid  ObservationType = "DELIVERY_INVALID"
-	ObservationToolError        ObservationType = "TOOL_ERROR"
-	ObservationDeadlineExceeded ObservationType = "DEADLINE_EXCEEDED"
+	ObservationCandidatesFound      ObservationType = "CANDIDATES_FOUND"
+	ObservationHTTP402              ObservationType = "HTTP_402"
+	ObservationQuoteValid           ObservationType = "QUOTE_VALID"
+	ObservationPolicyDenied         ObservationType = "POLICY_DENIED"
+	ObservationPaymentSettled       ObservationType = "PAYMENT_SETTLED"
+	ObservationEntitlementValid     ObservationType = "ENTITLEMENT_VALID"
+	ObservationDeliveryValid        ObservationType = "DELIVERY_VALID"
+	ObservationDeliveryInvalid      ObservationType = "DELIVERY_INVALID"
+	ObservationToolError            ObservationType = "TOOL_ERROR"
+	ObservationDeadlineExceeded     ObservationType = "DEADLINE_EXCEEDED"
+	ObservationPaymentSubmitted     ObservationType = "PAYMENT_SUBMITTED"
+	ObservationPaymentPending       ObservationType = "PAYMENT_PENDING"
+	ObservationPaymentStatusQueried ObservationType = "PAYMENT_STATUS_QUERIED"
 )
 
 type Action struct {
@@ -108,7 +114,8 @@ func KnownAction(action ActionType) bool {
 	switch action {
 	case ActionDiscover, ActionInvoke, ActionParse402, ActionReserveBudget, ActionCreatePayment,
 		ActionVerifyEntitlement, ActionValidateDelivery, ActionRetrySameMerchant, ActionStop,
-		ActionSelectMerchant, ActionNegotiateAndPay:
+		ActionSelectMerchant, ActionNegotiateAndPay, ActionPaymentSubmitted, ActionPaymentPending,
+		ActionPaymentStatusQueried:
 		return true
 	default:
 		return false

@@ -7,6 +7,7 @@ import (
 )
 
 func validRequest() AcquireCapabilityRequest {
+	deadline := time.Date(2099, 9, 15, 13, 0, 0, 0, time.UTC)
 	return AcquireCapabilityRequest{
 		RequestID: "acr_01", ParentSessionID: "session_01", RequesterDID: "did:stablepay:agent",
 		AcquisitionGoal: AcquisitionGoal{
@@ -15,7 +16,7 @@ func validRequest() AcquireCapabilityRequest {
 		},
 		Input: Input{URI: " object://audio/01.mp3 ", ContentType: "Audio/MPEG", SHA256: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		Constraints: Constraints{
-			BudgetLimitMinor: 1000, Currency: "usdc", DeadlineAt: time.Now().UTC().Add(time.Hour),
+			BudgetLimitMinor: 1000, Currency: "usdc", DeadlineAt: deadline,
 			MaxTotalAttempts: 4, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2,
 		},
 		ExpectedOutput: ExpectedOutput{Schema: "transcript", ContentType: "text/plain", SemanticConstraints: []KeyValue{{Key: "language", Value: "zh"}}},
@@ -33,9 +34,23 @@ func TestValidateRejectsInvalidMoney(t *testing.T) {
 
 func TestValidateRejectsExpiredDeadline(t *testing.T) {
 	request := validRequest()
-	request.Constraints.DeadlineAt = time.Now().UTC().Add(-time.Second)
-	if !errors.Is(request.Validate(), ErrInvalidDeadline) {
-		t.Fatalf("expected invalid deadline, got %v", request.Validate())
+	now := time.Date(2099, 9, 15, 13, 0, 1, 0, time.UTC)
+	if !errors.Is(request.ValidateAt(now), ErrInvalidDeadline) {
+		t.Fatalf("expected invalid deadline, got %v", request.ValidateAt(now))
+	}
+}
+
+func TestValidateIsStructuralOnly(t *testing.T) {
+	request := validRequest()
+	request.Constraints.DeadlineAt = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := request.Validate(); err != nil {
+		t.Fatalf("structurally valid request rejected because of wall-clock time: %v", err)
+	}
+}
+
+func TestValidateAtRequiresExplicitTime(t *testing.T) {
+	if err := validRequest().ValidateAt(time.Time{}); !errors.Is(err, ErrInvalidValidationTime) {
+		t.Fatalf("expected explicit validation time error, got %v", err)
 	}
 }
 

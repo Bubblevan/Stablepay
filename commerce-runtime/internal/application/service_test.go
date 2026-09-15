@@ -171,6 +171,53 @@ func TestRequestAndTransitionIdempotency(t *testing.T) {
 	}
 }
 
+func TestCreateEpisodeUsesInjectedClockForDeadlineSemantics(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	store := repository.NewInMemoryStore()
+	service := NewService(store, WithClock(func() time.Time { return now }))
+	request := requestFixture(now)
+	request.Constraints.DeadlineAt = now.Add(-time.Second)
+	if _, err := service.CreateEpisode(context.Background(), request); !errors.Is(err, contract.ErrInvalidDeadline) {
+		t.Fatalf("expected injected-clock deadline rejection, got %v", err)
+	}
+}
+
+func TestSameStatePaymentStepIsCommittedWithoutNewEpisodeState(t *testing.T) {
+	service, store, now, created := createFixture(t)
+	steps := []struct {
+		action      trace.ActionType
+		observation trace.ObservationType
+	}{
+		{trace.ActionDiscover, trace.ObservationCandidatesFound},
+		{trace.ActionInvoke, trace.ObservationCandidatesFound},
+		{trace.ActionParse402, trace.ObservationHTTP402},
+		{trace.ActionReserveBudget, trace.ObservationQuoteValid},
+	}
+	for index, step := range steps {
+		proposal := makeProposal(created.EpisodeID, uint64(index), step.action, now)
+		result, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, "payment-flow-"+string(rune('a'+index)), trace.Observation{Type: step.observation}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		created = result.Episode
+	}
+	proposal := makeProposal(created.EpisodeID, created.Version-1, trace.ActionPaymentSubmitted, now)
+	result, err := service.CommitProposal(context.Background(), commitRequest(proposal, trace.ActionPaymentSubmitted, "payment-submitted", trace.Observation{Type: trace.ObservationPaymentSubmitted}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Episode.State != episode.StatePaying || result.Episode.Version != 6 || result.Episode.ActionCount != 5 {
+		t.Fatalf("same-state payment event changed projection unexpectedly: %#v", result.Episode)
+	}
+	events, err := store.ListByEpisode(context.Background(), created.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 5 || events[4].StateBefore != episode.StatePaying || events[4].StateAfter != episode.StatePaying || events[4].Sequence != 5 {
+		t.Fatalf("unexpected same-state event: %#v", events)
+	}
+}
+
 func TestRuntimeGuardRejectsInvalidProposalCases(t *testing.T) {
 	service, _, now, created := createFixture(t)
 	base := func(action trace.ActionType, sequence uint64, key string) CommitRequest {

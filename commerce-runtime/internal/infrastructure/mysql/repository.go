@@ -46,8 +46,10 @@ type EpisodeModel struct {
 	ReservedAmount          int64     `gorm:"column:reserved_amount;not null"`
 	SettledAmount           int64     `gorm:"column:settled_amount;not null"`
 	RefundedAmount          int64     `gorm:"column:refunded_amount;not null"`
+	ConsumedAmount          int64     `gorm:"column:consumed_amount;not null"`
 	AvailableBudget         int64     `gorm:"column:available_budget;not null"`
 	SunkCost                int64     `gorm:"column:sunk_cost;not null"`
+	RefundReusable          bool      `gorm:"column:refund_reusable;not null;default:true"`
 	DeadlineAt              time.Time `gorm:"column:deadline_at;not null"`
 	Version                 uint64    `gorm:"column:version;not null"`
 	CreatedAt               time.Time `gorm:"column:created_at;not null"`
@@ -301,8 +303,9 @@ func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 		MaxDeliveryAttempts: value.MaxDeliveryAttempts, BudgetCurrency: value.Budget.Currency,
 		BudgetLimitMinor: value.Budget.BudgetLimitMinor, ReservedAmount: value.Budget.ReservedAmount,
 		SettledAmount: value.Budget.SettledAmount, RefundedAmount: value.Budget.RefundedAmount,
-		AvailableBudget: value.Budget.AvailableBudget, SunkCost: value.Budget.SunkCost,
-		DeadlineAt: value.DeadlineAt, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		ConsumedAmount: value.Budget.ConsumedAmount, AvailableBudget: value.Budget.AvailableBudget, SunkCost: value.Budget.SunkCost,
+		RefundReusable: value.Budget.RefundReusable,
+		DeadlineAt:     value.DeadlineAt, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}, nil
 }
 
@@ -345,6 +348,7 @@ func modelToEpisode(row EpisodeModel) (*episode.CommerceEpisode, error) {
 		MaxDeliveryAttempts: row.MaxDeliveryAttempts, Budget: episode.BudgetSnapshot{
 			Currency: row.BudgetCurrency, BudgetLimitMinor: row.BudgetLimitMinor, ReservedAmount: row.ReservedAmount,
 			SettledAmount: row.SettledAmount, RefundedAmount: row.RefundedAmount, AvailableBudget: row.AvailableBudget, SunkCost: row.SunkCost,
+			ConsumedAmount: row.ConsumedAmount, RefundReusable: row.RefundReusable,
 		}, DeadlineAt: row.DeadlineAt, Version: row.Version, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if err := value.Validate(); err != nil {
@@ -370,7 +374,8 @@ func episodeUpdates(value *episode.CommerceEpisode) (map[string]any, error) {
 		"max_delivery_attempts": model.MaxDeliveryAttempts, "budget_currency": model.BudgetCurrency,
 		"budget_limit_minor": model.BudgetLimitMinor, "reserved_amount": model.ReservedAmount,
 		"settled_amount": model.SettledAmount, "refunded_amount": model.RefundedAmount,
-		"available_budget": model.AvailableBudget, "sunk_cost": model.SunkCost, "deadline_at": model.DeadlineAt,
+		"consumed_amount": model.ConsumedAmount, "available_budget": model.AvailableBudget, "sunk_cost": model.SunkCost,
+		"refund_reusable": model.RefundReusable, "deadline_at": model.DeadlineAt,
 		"version": model.Version, "updated_at": model.UpdatedAt,
 	}, nil
 }

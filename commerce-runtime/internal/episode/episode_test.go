@@ -107,3 +107,91 @@ func TestReplayReconstructsState(t *testing.T) {
 		t.Fatalf("reconstructed projection differs:\ncurrent=%#v\nreconstructed=%#v", current, reconstructed)
 	}
 }
+
+func TestBudgetRefundSemanticsAreExplicit(t *testing.T) {
+	budget := BudgetSnapshot{
+		Currency:         "USDC",
+		BudgetLimitMinor: 100,
+		ReservedAmount:   10,
+		SettledAmount:    70,
+		RefundedAmount:   20,
+		RefundReusable:   true,
+	}
+	if err := budget.Recalculate(); err != nil {
+		t.Fatal(err)
+	}
+	if budget.ConsumedAmount != 50 || budget.AvailableBudget != 40 || budget.SunkCost != 50 {
+		t.Fatalf("unexpected reusable-refund budget: %#v", budget)
+	}
+
+	budget.RefundReusable = false
+	if err := budget.Recalculate(); err != nil {
+		t.Fatal(err)
+	}
+	if budget.ConsumedAmount != 70 || budget.AvailableBudget != 20 || budget.SunkCost != 50 {
+		t.Fatalf("unexpected non-reusable-refund budget: %#v", budget)
+	}
+
+	budget.RefundReusable = true
+	budget.RefundedAmount = 90
+	if err := budget.Recalculate(); err != nil {
+		t.Fatal(err)
+	}
+	if budget.ConsumedAmount != 0 || budget.AvailableBudget != 90 || budget.SunkCost != 0 {
+		t.Fatalf("max(0, settled-refunded) semantics not applied: %#v", budget)
+	}
+}
+
+func TestSameStatePaymentEventsAdvanceVersionAndReplay(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	initial, err := New("ce_same_state", episodeRequest(now.Add(time.Hour)), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := initial.Clone()
+	for _, state := range []State{StateDiscovering, StateInvoking, StateNegotiating, StatePaying} {
+		if err := current.ApplyTransition(state, now, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	event, err := NewEvent("evt_same_state", current.EpisodeID, current.Version,
+		now, StatePaying,
+		trace.Action{Type: trace.ActionPaymentSubmitted, IdempotencyKey: "payment-submitted-1"},
+		trace.Observation{Type: trace.ObservationPaymentSubmitted},
+		trace.Decision{ProposedAction: trace.ActionPaymentSubmitted, ProposalID: "proposal-payment-submitted"},
+		trace.RuntimeVerdict{Allowed: true}, StatePaying, "runtime", "trace-same-state", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := current.ApplyCommittedState(StatePaying, now, ""); err != nil {
+		t.Fatal(err)
+	}
+	if current.State != StatePaying || current.Version != 6 {
+		t.Fatalf("same-state event changed state incorrectly: %#v", current)
+	}
+	reconstructed, err := Reconstruct(initial, append([]*EpisodeEvent{
+		mustEvent(t, "evt_1", initial.EpisodeID, 1, now, StateAccepted, trace.ActionDiscover, trace.ObservationCandidatesFound, StateDiscovering),
+		mustEvent(t, "evt_2", initial.EpisodeID, 2, now, StateDiscovering, trace.ActionInvoke, trace.ObservationCandidatesFound, StateInvoking),
+		mustEvent(t, "evt_3", initial.EpisodeID, 3, now, StateInvoking, trace.ActionParse402, trace.ObservationHTTP402, StateNegotiating),
+		mustEvent(t, "evt_4", initial.EpisodeID, 4, now, StateNegotiating, trace.ActionReserveBudget, trace.ObservationQuoteValid, StatePaying),
+	}, event))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconstructed.State != StatePaying || reconstructed.Version != current.Version {
+		t.Fatalf("same-state event was not replayed: %#v", reconstructed)
+	}
+}
+
+func mustEvent(t *testing.T, eventID, episodeID string, sequence uint64, occurredAt time.Time, before State, action trace.ActionType, observation trace.ObservationType, after State) *EpisodeEvent {
+	t.Helper()
+	event, err := NewEvent(eventID, episodeID, sequence, occurredAt, before,
+		trace.Action{Type: action, IdempotencyKey: eventID},
+		trace.Observation{Type: observation},
+		trace.Decision{ProposedAction: action, ProposalID: "proposal-" + eventID},
+		trace.RuntimeVerdict{Allowed: true}, after, "runtime", "trace-"+eventID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event
+}

@@ -2,6 +2,8 @@ package episode
 
 import (
 	"fmt"
+
+	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
 // Reconstruct deterministically applies ordered events to an initial
@@ -26,16 +28,16 @@ func Reconstruct(initial *CommerceEpisode, events []*EpisodeEvent) (*CommerceEpi
 		if reason == "" && IsTerminal(event.StateAfter) {
 			reason = string(event.Observation.Type)
 		}
-		if err := result.ApplyTransition(event.StateAfter, event.OccurredAt, reason); err != nil {
+		if err := result.ApplyCommittedState(event.StateAfter, event.OccurredAt, reason); err != nil {
 			return nil, err
 		}
 		result.ActionCount++
 		switch event.Action.Type {
-		case "CREATE_PAYMENT":
+		case trace.ActionCreatePayment:
 			result.PaymentAttemptCount++
-		case "RETRY_SAME_MERCHANT":
+		case trace.ActionRetrySameMerchant:
 			result.RetryCount++
-		case "INVOKE":
+		case trace.ActionInvoke:
 			if event.StateBefore == StateInvokingDelivery {
 				result.DeliveryAttemptCount++
 			}
