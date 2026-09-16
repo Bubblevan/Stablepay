@@ -167,6 +167,23 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	if request.Quote.RequesterDID != current.RequesterDID {
 		return PaymentIntentResult{}, decision.ErrPaymentBindingMismatch
 	}
+	if current.SelectedMerchantDID != "" && (current.SelectedMerchantDID != request.Quote.MerchantDID || current.SelectedCapabilityID != request.Quote.CapabilityID) {
+		return PaymentIntentResult{}, decision.ErrPaymentBindingMismatch
+	}
+	if current.SelectedCandidateSetID != "" {
+		discoveryStore, discoveryErr := s.discoveryStore()
+		if discoveryErr != nil {
+			return PaymentIntentResult{}, discoveryErr
+		}
+		candidateSet, getErr := discoveryStore.GetCandidateSet(ctx, current.SelectedCandidateSetID)
+		if getErr != nil {
+			return PaymentIntentResult{}, getErr
+		}
+		candidate, found := candidateSet.FindCandidate(current.SelectedMerchantDID, current.SelectedCapabilityID)
+		if !found || candidate.CatalogVersion != current.SelectedCatalogVersion || candidate.CatalogSnapshotHash != current.SelectedCatalogSnapshotHash || candidate.CatalogSnapshotRef != current.SelectedCatalogSnapshotRef || !strings.EqualFold(candidate.PayeeDID, request.Quote.PayeeDID) {
+			return PaymentIntentResult{}, decision.ErrPaymentBindingMismatch
+		}
+	}
 	projection, err := s.currentProjection(ctx, store, current)
 	if err != nil {
 		return PaymentIntentResult{}, err
@@ -226,6 +243,32 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 		return PaymentIntentResult{}, err
 	}
 	return PaymentIntentResult{Intent: intent, Episode: next, Event: event}, nil
+}
+
+// ResolveSelectedPayeeDID reads the payee from the immutable selected
+// CandidateSet fact. It is intentionally separate from catalog price hints
+// and from DecisionProposal input.
+func (s *Service) ResolveSelectedPayeeDID(ctx context.Context, episodeID string) (string, error) {
+	current, err := s.store.Get(ctx, episodeID)
+	if err != nil {
+		return "", err
+	}
+	if current.SelectedCandidateSetID == "" {
+		return "", decision.ErrPaymentBindingMismatch
+	}
+	store, err := s.discoveryStore()
+	if err != nil {
+		return "", err
+	}
+	set, err := store.GetCandidateSet(ctx, current.SelectedCandidateSetID)
+	if err != nil {
+		return "", err
+	}
+	candidate, ok := set.FindCandidate(current.SelectedMerchantDID, current.SelectedCapabilityID)
+	if !ok || candidate.CatalogVersion != current.SelectedCatalogVersion || candidate.CatalogSnapshotHash != current.SelectedCatalogSnapshotHash {
+		return "", decision.ErrPaymentBindingMismatch
+	}
+	return candidate.PayeeDID, nil
 }
 
 func (s *Service) intentResult(ctx context.Context, intent *payment.PaymentIntent, replayed bool) (PaymentIntentResult, error) {

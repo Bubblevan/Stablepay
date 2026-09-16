@@ -35,6 +35,7 @@ type ObservationType string
 
 const (
 	ObservationCandidatesFound      ObservationType = "CANDIDATES_FOUND"
+	ObservationNoEligibleCandidate  ObservationType = "NO_ELIGIBLE_CANDIDATE"
 	ObservationHTTP402              ObservationType = "HTTP_402"
 	ObservationQuoteValid           ObservationType = "QUOTE_VALID"
 	ObservationPolicyDenied         ObservationType = "POLICY_DENIED"
@@ -73,13 +74,17 @@ type Decision struct {
 	ProposedAction ActionType `json:"proposed_action"`
 	ProposalID     string     `json:"proposal_id"`
 	Reason         string     `json:"reason,omitempty"`
+	CandidateSetID string     `json:"candidate_set_id,omitempty"`
 	Target         *Target    `json:"target,omitempty"`
 	EvidenceRefs   []string   `json:"evidence_refs,omitempty"`
 }
 
 type Target struct {
-	MerchantDID  string `json:"merchant_did,omitempty"`
-	CapabilityID string `json:"capability_id,omitempty"`
+	MerchantDID         string `json:"merchant_did,omitempty"`
+	CapabilityID        string `json:"capability_id,omitempty"`
+	CatalogVersion      string `json:"catalog_version,omitempty"`
+	CatalogSnapshotHash string `json:"catalog_snapshot_hash,omitempty"`
+	CatalogSnapshotRef  string `json:"catalog_snapshot_ref,omitempty"`
 }
 
 type RuntimeCheck struct {

@@ -94,34 +94,38 @@ func (b BudgetSnapshot) Validate() error {
 }
 
 type CommerceEpisode struct {
-	EpisodeID               string         `json:"episode_id"`
-	RequestID               string         `json:"request_id"`
-	RequesterDID            string         `json:"requester_did"`
-	SessionID               string         `json:"session_id,omitempty"`
-	State                   State          `json:"state"`
-	TerminalReason          string         `json:"terminal_reason,omitempty"`
-	ContractSnapshotHash    string         `json:"contract_snapshot_hash"`
-	ContractSnapshot        []byte         `json:"contract_snapshot"`
-	SelectedMerchantDID     string         `json:"selected_merchant_did,omitempty"`
-	SelectedCapabilityID    string         `json:"selected_capability_id,omitempty"`
-	SelectedWorkflowVersion string         `json:"selected_workflow_version,omitempty"`
-	CurrentQuoteHash        string         `json:"current_quote_hash,omitempty"`
-	EntitlementRefs         []string       `json:"entitlement_refs,omitempty"`
-	DeliveryRefs            []string       `json:"delivery_refs,omitempty"`
-	ValidationEvidenceRefs  []string       `json:"validation_evidence_refs,omitempty"`
-	AttemptedMerchants      []string       `json:"attempted_merchants,omitempty"`
-	ActionCount             int            `json:"action_count"`
-	PaymentAttemptCount     int            `json:"payment_attempt_count"`
-	DeliveryAttemptCount    int            `json:"delivery_attempt_count"`
-	RetryCount              int            `json:"retry_count"`
-	MaxTotalAttempts        int            `json:"max_total_attempts"`
-	MaxPaymentAttempts      int            `json:"max_payment_attempts"`
-	MaxDeliveryAttempts     int            `json:"max_delivery_attempts"`
-	Budget                  BudgetSnapshot `json:"budget"`
-	DeadlineAt              time.Time      `json:"deadline_at"`
-	Version                 uint64         `json:"version"`
-	CreatedAt               time.Time      `json:"created_at"`
-	UpdatedAt               time.Time      `json:"updated_at"`
+	EpisodeID                   string         `json:"episode_id"`
+	RequestID                   string         `json:"request_id"`
+	RequesterDID                string         `json:"requester_did"`
+	SessionID                   string         `json:"session_id,omitempty"`
+	State                       State          `json:"state"`
+	TerminalReason              string         `json:"terminal_reason,omitempty"`
+	ContractSnapshotHash        string         `json:"contract_snapshot_hash"`
+	ContractSnapshot            []byte         `json:"contract_snapshot"`
+	SelectedMerchantDID         string         `json:"selected_merchant_did,omitempty"`
+	SelectedCapabilityID        string         `json:"selected_capability_id,omitempty"`
+	SelectedCandidateSetID      string         `json:"selected_candidate_set_id,omitempty"`
+	SelectedCatalogVersion      string         `json:"selected_catalog_version,omitempty"`
+	SelectedCatalogSnapshotHash string         `json:"selected_catalog_snapshot_hash,omitempty"`
+	SelectedCatalogSnapshotRef  string         `json:"selected_catalog_snapshot_ref,omitempty"`
+	SelectedWorkflowVersion     string         `json:"selected_workflow_version,omitempty"`
+	CurrentQuoteHash            string         `json:"current_quote_hash,omitempty"`
+	EntitlementRefs             []string       `json:"entitlement_refs,omitempty"`
+	DeliveryRefs                []string       `json:"delivery_refs,omitempty"`
+	ValidationEvidenceRefs      []string       `json:"validation_evidence_refs,omitempty"`
+	AttemptedMerchants          []string       `json:"attempted_merchants,omitempty"`
+	ActionCount                 int            `json:"action_count"`
+	PaymentAttemptCount         int            `json:"payment_attempt_count"`
+	DeliveryAttemptCount        int            `json:"delivery_attempt_count"`
+	RetryCount                  int            `json:"retry_count"`
+	MaxTotalAttempts            int            `json:"max_total_attempts"`
+	MaxPaymentAttempts          int            `json:"max_payment_attempts"`
+	MaxDeliveryAttempts         int            `json:"max_delivery_attempts"`
+	Budget                      BudgetSnapshot `json:"budget"`
+	DeadlineAt                  time.Time      `json:"deadline_at"`
+	Version                     uint64         `json:"version"`
+	CreatedAt                   time.Time      `json:"created_at"`
+	UpdatedAt                   time.Time      `json:"updated_at"`
 }
 
 func New(episodeID string, request contract.AcquireCapabilityRequest, now time.Time) (*CommerceEpisode, error) {
@@ -185,6 +189,10 @@ func (e *CommerceEpisode) Validate() error {
 	if e.MaxTotalAttempts <= 0 || e.MaxPaymentAttempts <= 0 || e.MaxDeliveryAttempts <= 0 ||
 		e.MaxPaymentAttempts > e.MaxTotalAttempts || e.MaxDeliveryAttempts > e.MaxTotalAttempts {
 		return ErrInvalidEpisode
+	}
+	if (e.SelectedCatalogVersion != "" || e.SelectedCatalogSnapshotHash != "" || e.SelectedCatalogSnapshotRef != "" || e.SelectedCandidateSetID != "") &&
+		(strings.TrimSpace(e.SelectedMerchantDID) == "" || strings.TrimSpace(e.SelectedCapabilityID) == "" || strings.TrimSpace(e.SelectedCatalogVersion) == "" || strings.TrimSpace(e.SelectedCatalogSnapshotHash) == "" || strings.TrimSpace(e.SelectedCatalogSnapshotRef) == "" || strings.TrimSpace(e.SelectedCandidateSetID) == "") {
+		return fmt.Errorf("%w: incomplete catalog selection binding", ErrInvalidEpisode)
 	}
 	if IsTerminal(e.State) && strings.TrimSpace(e.TerminalReason) == "" {
 		return fmt.Errorf("%w: terminal_reason is required for terminal state", ErrInvalidEpisode)

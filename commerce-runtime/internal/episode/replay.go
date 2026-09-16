@@ -32,6 +32,14 @@ func Reconstruct(initial *CommerceEpisode, events []*EpisodeEvent) (*CommerceEpi
 			return nil, err
 		}
 		result.ActionCount++
+		if event.Action.Type == trace.ActionSelectMerchant && event.Decision.Target != nil {
+			result.SelectedMerchantDID = event.Decision.Target.MerchantDID
+			result.SelectedCapabilityID = event.Decision.Target.CapabilityID
+			result.SelectedCandidateSetID = event.Decision.CandidateSetID
+			result.SelectedCatalogVersion = event.Decision.Target.CatalogVersion
+			result.SelectedCatalogSnapshotHash = event.Decision.Target.CatalogSnapshotHash
+			result.SelectedCatalogSnapshotRef = event.Decision.Target.CatalogSnapshotRef
+		}
 		switch event.Action.Type {
 		case trace.ActionCreatePayment:
 			result.PaymentAttemptCount++

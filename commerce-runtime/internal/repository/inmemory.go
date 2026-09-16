@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
@@ -23,6 +25,9 @@ type InMemoryStore struct {
 	intents             map[string]*payment.PaymentIntent
 	intentByIdempotency map[string]string
 	intentByEconomicKey map[string]string
+	capabilities        map[string]*catalog.MerchantCapability
+	currentCapabilities map[string]string
+	candidateSets       map[string]*catalog.CandidateSet
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -34,7 +39,152 @@ func NewInMemoryStore() *InMemoryStore {
 		intents:             make(map[string]*payment.PaymentIntent),
 		intentByIdempotency: make(map[string]string),
 		intentByEconomicKey: make(map[string]string),
+		capabilities:        make(map[string]*catalog.MerchantCapability),
+		currentCapabilities: make(map[string]string),
+		candidateSets:       make(map[string]*catalog.CandidateSet),
 	}
+}
+
+func capabilityKey(merchantDID, capabilityID string) string {
+	return merchantDID + "\x00" + capabilityID
+}
+
+func capabilityVersionKey(merchantDID, capabilityID, version string) string {
+	return capabilityKey(merchantDID, capabilityID) + "\x00" + version
+}
+
+func (s *InMemoryStore) SaveCapabilityVersion(ctx context.Context, value *catalog.MerchantCapability) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return catalog.ErrInvalidCapability
+	}
+	normalized := value.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return err
+	}
+	hash, err := normalized.SnapshotHash()
+	if err != nil {
+		return err
+	}
+	key := capabilityVersionKey(normalized.MerchantDID, normalized.CapabilityID, normalized.CatalogVersion)
+	group := capabilityKey(normalized.MerchantDID, normalized.CapabilityID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.capabilities[key]; ok {
+		existingHash, hashErr := existing.SnapshotHash()
+		if hashErr == nil && existingHash == hash {
+			return nil
+		}
+		return ErrCatalogVersionConflict
+	}
+	s.capabilities[key] = normalized.Clone()
+	if normalized.Status == catalog.StatusActive {
+		currentVersion, ok := s.currentCapabilities[group]
+		if !ok || catalog.CompareVersions(normalized.CatalogVersion, currentVersion) > 0 {
+			s.currentCapabilities[group] = normalized.CatalogVersion
+		}
+	}
+	return nil
+}
+
+func (s *InMemoryStore) GetCapabilityVersion(ctx context.Context, merchantDID, capabilityID, version string) (*catalog.MerchantCapability, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.capabilities[capabilityVersionKey(strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID)), strings.TrimSpace(version))]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) GetCurrentActiveCapability(ctx context.Context, merchantDID, capabilityID string) (*catalog.MerchantCapability, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	group := capabilityKey(strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID)))
+	version, ok := s.currentCapabilities[group]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	value, ok := s.capabilities[capabilityVersionKey(strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID)), version)]
+	if !ok || value.Status != catalog.StatusActive {
+		return nil, ErrNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) ListActiveCapabilities(ctx context.Context) ([]*catalog.MerchantCapability, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*catalog.MerchantCapability, 0, len(s.currentCapabilities))
+	for group, version := range s.currentCapabilities {
+		value, ok := s.capabilities[group+"\x00"+version]
+		if !ok || value.Status != catalog.StatusActive {
+			continue
+		}
+		result = append(result, value.Clone())
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].MerchantDID != result[j].MerchantDID {
+			return result[i].MerchantDID < result[j].MerchantDID
+		}
+		return result[i].CapabilityID < result[j].CapabilityID
+	})
+	return result, nil
+}
+
+func (s *InMemoryStore) SaveCandidateSet(ctx context.Context, value *catalog.CandidateSet) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return catalog.ErrInvalidCandidateSet
+	}
+	normalized := value.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return err
+	}
+	hash, err := normalized.SnapshotHash()
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.episodes[normalized.EpisodeID]; !ok {
+		return ErrNotFound
+	}
+	if existing, ok := s.candidateSets[normalized.CandidateSetID]; ok {
+		existingHash, hashErr := existing.SnapshotHash()
+		if hashErr == nil && existingHash == hash {
+			return nil
+		}
+		return ErrCandidateSetConflict
+	}
+	s.candidateSets[normalized.CandidateSetID] = normalized.Clone()
+	return nil
+}
+
+func (s *InMemoryStore) GetCandidateSet(ctx context.Context, candidateSetID string) (*catalog.CandidateSet, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.candidateSets[strings.TrimSpace(candidateSetID)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value.Clone(), nil
 }
 
 func (s *InMemoryStore) Create(ctx context.Context, value *episode.CommerceEpisode) error {

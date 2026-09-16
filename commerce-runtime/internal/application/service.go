@@ -7,11 +7,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
@@ -20,14 +22,16 @@ import (
 )
 
 const DefaultRuntimeVersion = "commerce-runtime-mvp.1"
+const DefaultCandidateSetTTL = 5 * time.Minute
 
 type Service struct {
-	store          repository.TransitionStore
-	clock          func() time.Time
-	idGenerator    func(prefix string) string
-	runtimeVersion string
-	guard          decision.RuntimeGuard
-	paymentDeps    PaymentDependencies
+	store           repository.TransitionStore
+	clock           func() time.Time
+	idGenerator     func(prefix string) string
+	runtimeVersion  string
+	candidateSetTTL time.Duration
+	guard           decision.RuntimeGuard
+	paymentDeps     PaymentDependencies
 }
 
 type Option func(*Service)
@@ -56,18 +60,38 @@ func WithRuntimeVersion(version string) Option {
 	}
 }
 
+func WithCandidateSetTTL(ttl time.Duration) Option {
+	return func(s *Service) {
+		if ttl > 0 {
+			s.candidateSetTTL = ttl
+		}
+	}
+}
+
 func NewService(store repository.TransitionStore, options ...Option) *Service {
 	service := &Service{
-		store:          store,
-		clock:          func() time.Time { return time.Now().UTC() },
-		idGenerator:    randomID,
-		runtimeVersion: DefaultRuntimeVersion,
-		guard:          decision.NewRuntimeGuard(),
+		store:           store,
+		clock:           func() time.Time { return time.Now().UTC() },
+		idGenerator:     randomID,
+		runtimeVersion:  DefaultRuntimeVersion,
+		candidateSetTTL: DefaultCandidateSetTTL,
+		guard:           decision.NewRuntimeGuard(),
 	}
 	for _, option := range options {
 		option(service)
 	}
 	return service
+}
+
+func (s *Service) discoveryStore() (repository.DiscoveryRepository, error) {
+	if s == nil || s.store == nil {
+		return nil, repository.ErrRepositoryUnavailable
+	}
+	store, ok := s.store.(repository.DiscoveryRepository)
+	if !ok {
+		return nil, repository.ErrRepositoryUnavailable
+	}
+	return store, nil
 }
 
 type CreateEpisodeResult struct {
@@ -120,6 +144,146 @@ func (s *Service) CreateEpisode(ctx context.Context, request contract.AcquireCap
 		return CreateEpisodeResult{}, err
 	}
 	return CreateEpisodeResult{Episode: created}, nil
+}
+
+type DiscoverCapabilitiesRequest struct {
+	EpisodeID      string
+	CandidateSetID string
+	ExpiresAt      time.Time
+}
+
+type DiscoverCapabilitiesResult struct {
+	CandidateSet  *catalog.CandidateSet
+	Episode       *episode.CommerceEpisode
+	Event         *episode.EpisodeEvent
+	TerminalEvent *episode.EpisodeEvent
+	NoEligible    bool
+}
+
+// RegisterCapabilityVersion is the catalog write boundary. It stores a new
+// immutable version and never turns a catalog hint into a payment quote.
+func (s *Service) RegisterCapabilityVersion(ctx context.Context, value *catalog.MerchantCapability) error {
+	store, err := s.discoveryStore()
+	if err != nil {
+		return err
+	}
+	return store.SaveCapabilityVersion(ctx, value)
+}
+
+// DiscoverCapabilities derives a structured query from the immutable Episode
+// contract, persists the CandidateSet fact, and emits the discovery
+// observation. An empty set follows the deterministic terminal path without
+// consulting a DecisionProvider.
+func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapabilitiesRequest) (DiscoverCapabilitiesResult, error) {
+	store, err := s.discoveryStore()
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	if strings.TrimSpace(request.EpisodeID) == "" {
+		return DiscoverCapabilitiesResult{}, repository.ErrNotFound
+	}
+	current, err := s.store.Get(ctx, request.EpisodeID)
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	if current.State != episode.StateAccepted {
+		return DiscoverCapabilitiesResult{}, decision.ErrActionNotAllowed
+	}
+	var acquire contract.AcquireCapabilityRequest
+	if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
+		return DiscoverCapabilitiesResult{}, fmt.Errorf("decode episode contract snapshot: %w", err)
+	}
+	query, err := catalog.FromAcquireCapabilityRequest(acquire)
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	now := s.clock().UTC()
+	expiresAt := request.ExpiresAt.UTC()
+	if expiresAt.IsZero() {
+		expiresAt = now.Add(s.candidateSetTTL)
+	}
+	if expiresAt.After(current.DeadlineAt) {
+		expiresAt = current.DeadlineAt
+	}
+	candidateSetID := strings.TrimSpace(request.CandidateSetID)
+	if candidateSetID == "" {
+		candidateSetID = s.idGenerator("cs")
+	}
+	capabilities, err := store.ListActiveCapabilities(ctx)
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	candidateSet, err := catalog.BuildCandidateSet(candidateSetID, current.EpisodeID, current.RequestID, query, capabilities, now, expiresAt)
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	if err := store.SaveCandidateSet(ctx, candidateSet); err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	actionKey := "discover:" + candidateSet.CandidateSetID
+	observationType := trace.ObservationCandidatesFound
+	if len(candidateSet.Candidates) == 0 {
+		observationType = trace.ObservationNoEligibleCandidate
+	}
+	discoverProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: current.EpisodeID,
+		BasedOnEventSequence: current.Version - 1, ProposedAction: trace.ActionDiscover, CandidateSetID: candidateSet.CandidateSetID,
+		// The discovery observation creates the first persisted evidence refs;
+		// they cannot be referenced by the same event before it is committed.
+		Confidence: 1,
+		CreatedAt:  now.Add(-time.Nanosecond), ExpiresAt: now.Add(time.Minute)}
+	commit, err := s.CommitProposal(ctx, CommitRequest{Proposal: discoverProposal,
+		Action:      trace.Action{Type: trace.ActionDiscover, IdempotencyKey: actionKey},
+		Observation: trace.Observation{Type: observationType, FactsRef: candidateSet.FactsRef, PayloadHash: candidateSet.PayloadHash},
+		Actor:       "runtime", TraceID: current.EpisodeID})
+	if err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	result := DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: commit.Episode, Event: commit.Event, NoEligible: len(candidateSet.Candidates) == 0}
+	if len(candidateSet.Candidates) == 0 {
+		stopNow := s.clock().UTC()
+		stopProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: commit.Episode.EpisodeID,
+			BasedOnEventSequence: commit.Episode.Version - 1, ProposedAction: trace.ActionStop, CandidateSetID: candidateSet.CandidateSetID,
+			EvidenceRefs: []string{candidateSet.FactsRef, candidateSet.PayloadHash}, Confidence: 1,
+			CreatedAt: stopNow.Add(-time.Nanosecond), ExpiresAt: stopNow.Add(time.Minute)}
+		terminal, stopErr := s.CommitProposal(ctx, CommitRequest{Proposal: stopProposal,
+			Action:      trace.Action{Type: trace.ActionStop, IdempotencyKey: actionKey + ":stop"},
+			Observation: trace.Observation{Type: trace.ObservationNoEligibleCandidate, Code: "NO_ELIGIBLE_MERCHANT", FactsRef: candidateSet.FactsRef, PayloadHash: candidateSet.PayloadHash},
+			Actor:       "runtime", TraceID: current.EpisodeID})
+		if stopErr != nil {
+			return DiscoverCapabilitiesResult{}, stopErr
+		}
+		result.Episode = terminal.Episode
+		result.TerminalEvent = terminal.Event
+	}
+	return result, nil
+}
+
+// Discover is a concise alias for callers that use the domain operation name.
+func (s *Service) Discover(ctx context.Context, request DiscoverCapabilitiesRequest) (DiscoverCapabilitiesResult, error) {
+	return s.DiscoverCapabilities(ctx, request)
+}
+
+type SelectMerchantRequest struct {
+	Proposal    decision.DecisionProposal
+	Action      trace.Action
+	Observation trace.Observation
+	Actor       string
+	TraceID     string
+}
+
+// CommitMerchantSelection is a convenience boundary for runtime code. The
+// generic CommitProposal path enforces the same catalog guard.
+func (s *Service) CommitMerchantSelection(ctx context.Context, request SelectMerchantRequest) (CommitResult, error) {
+	if request.Action.Type == "" {
+		request.Action.Type = trace.ActionSelectMerchant
+	}
+	if request.Proposal.ProposedAction == "" {
+		request.Proposal.ProposedAction = trace.ActionSelectMerchant
+	}
+	if request.Observation.Type == "" {
+		request.Observation.Type = trace.ObservationCandidatesFound
+	}
+	return s.CommitProposal(ctx, CommitRequest{Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
 }
 
 type CommitRequest struct {
@@ -195,8 +359,32 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		}
 		return CommitResult{}, err
 	}
+	var selectedCandidate *catalog.Candidate
+	if request.Action.Type == trace.ActionSelectMerchant {
+		discoveryStore, discoveryErr := s.discoveryStore()
+		if discoveryErr != nil {
+			return CommitResult{}, discoveryErr
+		}
+		candidateSet, getErr := discoveryStore.GetCandidateSet(ctx, request.Proposal.CandidateSetID)
+		if getErr != nil {
+			return CommitResult{}, getErr
+		}
+		guardResult, err = s.guard.EvaluateMerchantSelection(current, request.Proposal, knownEvidence, request.Observation, now, candidateSet)
+		if err != nil {
+			return CommitResult{}, err
+		}
+		selectedCandidate = guardResult.SelectedCandidate
+	}
 
 	next := current.Clone()
+	if selectedCandidate != nil {
+		next.SelectedMerchantDID = selectedCandidate.MerchantDID
+		next.SelectedCapabilityID = selectedCandidate.CapabilityID
+		next.SelectedCandidateSetID = request.Proposal.CandidateSetID
+		next.SelectedCatalogVersion = selectedCandidate.CatalogVersion
+		next.SelectedCatalogSnapshotHash = selectedCandidate.CatalogSnapshotHash
+		next.SelectedCatalogSnapshotRef = selectedCandidate.CatalogSnapshotRef
+	}
 	next.ActionCount++
 	switch request.Action.Type {
 	case trace.ActionCreatePayment:
@@ -215,11 +403,16 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if err := next.ApplyCommittedState(guardResult.NextState, now, reason); err != nil {
 		return CommitResult{}, err
 	}
+	eventTarget := proposalTarget(request.Proposal.Target)
+	if selectedCandidate != nil {
+		eventTarget = &trace.Target{MerchantDID: selectedCandidate.MerchantDID, CapabilityID: selectedCandidate.CapabilityID,
+			CatalogVersion: selectedCandidate.CatalogVersion, CatalogSnapshotHash: selectedCandidate.CatalogSnapshotHash, CatalogSnapshotRef: selectedCandidate.CatalogSnapshotRef}
+	}
 	event, err := episode.NewEvent(
 		s.idGenerator("evt"), current.EpisodeID, current.Version,
 		now, current.State, request.Action, request.Observation,
 		trace.Decision{ProposedAction: request.Proposal.ProposedAction, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale,
-			Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)},
+			CandidateSetID: request.Proposal.CandidateSetID, Target: eventTarget, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)},
 		guardResult.Verdict, next.State, request.Actor, request.TraceID, s.runtimeVersion,
 	)
 	if err != nil {
@@ -312,7 +505,8 @@ func sameTransition(event *episode.EpisodeEvent, request CommitRequest) bool {
 		event.Decision.ProposalID == request.Proposal.ProposalID &&
 		event.Decision.ProposedAction == request.Proposal.ProposedAction &&
 		event.Decision.Reason == request.Proposal.Rationale &&
-		targetEqual(event.Decision.Target, proposalTarget(request.Proposal.Target)) &&
+		event.Decision.CandidateSetID == request.Proposal.CandidateSetID &&
+		targetMatchesProposal(event.Decision.Target, request.Proposal.Target, request.Proposal.ProposedAction) &&
 		stringsEqual(event.Decision.EvidenceRefs, request.Proposal.EvidenceRefs)
 }
 
@@ -320,7 +514,27 @@ func proposalTarget(target *decision.ProposalTarget) *trace.Target {
 	if target == nil {
 		return nil
 	}
-	return &trace.Target{MerchantDID: target.MerchantDID, CapabilityID: target.CapabilityID}
+	return &trace.Target{MerchantDID: target.MerchantDID, CapabilityID: target.CapabilityID, CatalogVersion: target.CatalogVersion, CatalogSnapshotHash: target.CatalogSnapshotHash, CatalogSnapshotRef: target.CatalogSnapshotRef}
+}
+
+func targetMatchesProposal(eventTarget *trace.Target, proposalTargetValue *decision.ProposalTarget, action trace.ActionType) bool {
+	requestTarget := proposalTarget(proposalTargetValue)
+	if action != trace.ActionSelectMerchant {
+		return targetEqual(eventTarget, requestTarget)
+	}
+	if eventTarget == nil || requestTarget == nil || eventTarget.MerchantDID != requestTarget.MerchantDID || eventTarget.CapabilityID != requestTarget.CapabilityID {
+		return eventTarget == nil && requestTarget == nil
+	}
+	if requestTarget.CatalogVersion != "" && eventTarget.CatalogVersion != requestTarget.CatalogVersion {
+		return false
+	}
+	if requestTarget.CatalogSnapshotHash != "" && eventTarget.CatalogSnapshotHash != requestTarget.CatalogSnapshotHash {
+		return false
+	}
+	if requestTarget.CatalogSnapshotRef != "" && eventTarget.CatalogSnapshotRef != requestTarget.CatalogSnapshotRef {
+		return false
+	}
+	return true
 }
 
 func targetEqual(left, right *trace.Target) bool {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
@@ -17,6 +18,7 @@ type DecisionProposal struct {
 	EpisodeID            string           `json:"episode_id"`
 	BasedOnEventSequence uint64           `json:"based_on_event_sequence"`
 	ProposedAction       trace.ActionType `json:"proposed_action"`
+	CandidateSetID       string           `json:"candidate_set_id,omitempty"`
 	Target               *ProposalTarget  `json:"target,omitempty"`
 	Rationale            string           `json:"rationale,omitempty"`
 	EvidenceRefs         []string         `json:"evidence_refs,omitempty"`
@@ -27,8 +29,11 @@ type DecisionProposal struct {
 }
 
 type ProposalTarget struct {
-	MerchantDID  string `json:"merchant_did,omitempty"`
-	CapabilityID string `json:"capability_id,omitempty"`
+	MerchantDID         string `json:"merchant_did,omitempty"`
+	CapabilityID        string `json:"capability_id,omitempty"`
+	CatalogVersion      string `json:"catalog_version,omitempty"`
+	CatalogSnapshotHash string `json:"catalog_snapshot_hash,omitempty"`
+	CatalogSnapshotRef  string `json:"catalog_snapshot_ref,omitempty"`
 }
 
 var (
@@ -41,6 +46,10 @@ var (
 	ErrActionNotAllowed          = errors.New("proposed action is not allowed in the current state")
 	ErrProposalAfterTerminal     = errors.New("proposal cannot be committed after terminal state")
 	ErrAttemptLimit              = errors.New("episode attempt limit has been reached")
+	ErrCandidateSetRequired      = errors.New("merchant selection requires a candidate set")
+	ErrCandidateSetMismatch      = errors.New("candidate set does not belong to the current episode or request")
+	ErrMerchantNotInCandidateSet = errors.New("selected merchant capability is not in the candidate set")
+	ErrCatalogSnapshotMismatch   = errors.New("selected catalog snapshot does not match the candidate fact")
 )
 
 func (p DecisionProposal) Validate() error {
@@ -68,8 +77,9 @@ func (p DecisionProposal) Validate() error {
 }
 
 type GuardResult struct {
-	Verdict   trace.RuntimeVerdict
-	NextState episode.State
+	Verdict           trace.RuntimeVerdict
+	NextState         episode.State
+	SelectedCandidate *catalog.Candidate
 }
 
 type RuntimeGuard struct{}
@@ -136,6 +146,59 @@ func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal Decision
 	checks = append(checks, trace.Check("attempt_limits", true, "attempt limits remain"))
 	checks = append(checks, trace.Check("episode_deadline", true, "episode is before deadline"))
 	return GuardResult{Verdict: trace.RuntimeVerdict{Allowed: true, Checks: checks}, NextState: next}, nil
+}
+
+// EvaluateMerchantSelection adds the catalog boundary to the generic guard.
+// The proposal can name only a merchant/capability target. PayeeDID and the
+// exact catalog snapshot are read from the persisted CandidateSet fact.
+func (guard RuntimeGuard) EvaluateMerchantSelection(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs map[string]struct{}, observation trace.Observation, now time.Time, candidateSet *catalog.CandidateSet) (GuardResult, error) {
+	result, err := guard.Evaluate(current, proposal, knownEvidenceRefs, observation, now)
+	if err != nil {
+		return GuardResult{}, err
+	}
+	checks := append([]trace.RuntimeCheck(nil), result.Verdict.Checks...)
+	fail := func(name string, failure error) (GuardResult, error) {
+		verdict := trace.RuntimeVerdict{Allowed: false, Checks: append(checks, trace.Check(name, false, failure.Error())), Reason: failure.Error()}
+		return GuardResult{Verdict: verdict}, failure
+	}
+	if proposal.ProposedAction != trace.ActionSelectMerchant {
+		return fail("selection_action", ErrActionNotAllowed)
+	}
+	if strings.TrimSpace(proposal.CandidateSetID) == "" || candidateSet == nil {
+		return fail("candidate_set_required", ErrCandidateSetRequired)
+	}
+	if err := candidateSet.ValidateAt(now); err != nil {
+		return fail("candidate_set_validity", err)
+	}
+	if candidateSet.EpisodeID != current.EpisodeID || candidateSet.RequestID != current.RequestID {
+		return fail("candidate_set_scope", ErrCandidateSetMismatch)
+	}
+	if candidateSet.CandidateSetID != strings.TrimSpace(proposal.CandidateSetID) {
+		return fail("candidate_set_identity", ErrCandidateSetMismatch)
+	}
+	if proposal.Target == nil || strings.TrimSpace(proposal.Target.MerchantDID) == "" || strings.TrimSpace(proposal.Target.CapabilityID) == "" {
+		return fail("selection_target", ErrInvalidProposal)
+	}
+	candidate, ok := candidateSet.FindCandidate(proposal.Target.MerchantDID, proposal.Target.CapabilityID)
+	if !ok {
+		return fail("candidate_membership", ErrMerchantNotInCandidateSet)
+	}
+	if proposal.Target.CatalogVersion != "" && proposal.Target.CatalogVersion != candidate.CatalogVersion {
+		return fail("catalog_version", ErrCatalogSnapshotMismatch)
+	}
+	if proposal.Target.CatalogSnapshotHash != "" && proposal.Target.CatalogSnapshotHash != candidate.CatalogSnapshotHash {
+		return fail("catalog_snapshot_hash", ErrCatalogSnapshotMismatch)
+	}
+	if proposal.Target.CatalogSnapshotRef != "" && proposal.Target.CatalogSnapshotRef != candidate.CatalogSnapshotRef {
+		return fail("catalog_snapshot_ref", ErrCatalogSnapshotMismatch)
+	}
+	checks = append(checks,
+		trace.Check("candidate_set_scope", true, "candidate set belongs to the current episode and request"),
+		trace.Check("candidate_membership", true, "selected merchant capability is an eligible candidate"),
+		trace.Check("catalog_snapshot", true, "selection is bound to the immutable catalog snapshot"))
+	result.Verdict.Checks = checks
+	result.SelectedCandidate = &candidate
+	return result, nil
 }
 
 // StaticDecisionProvider is a test/initial-rule provider. It only returns a

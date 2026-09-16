@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
@@ -21,42 +24,46 @@ import (
 )
 
 type EpisodeModel struct {
-	EpisodeID               string    `gorm:"column:episode_id;type:varchar(128);primaryKey"`
-	RequestID               string    `gorm:"column:request_id;type:varchar(128);not null;uniqueIndex:uk_commerce_episode_request_id"`
-	RequesterDID            string    `gorm:"column:requester_did;type:varchar(128);not null"`
-	SessionID               string    `gorm:"column:session_id;type:varchar(128)"`
-	State                   string    `gorm:"column:state;type:varchar(32);not null"`
-	TerminalReason          string    `gorm:"column:terminal_reason;type:varchar(128)"`
-	ContractSnapshotHash    string    `gorm:"column:contract_snapshot_hash;type:char(71);not null"`
-	ContractSnapshot        []byte    `gorm:"column:contract_snapshot;type:longtext;not null"`
-	SelectedMerchantDID     string    `gorm:"column:selected_merchant_did;type:varchar(128)"`
-	SelectedCapabilityID    string    `gorm:"column:selected_capability_id;type:varchar(128)"`
-	SelectedWorkflowVersion string    `gorm:"column:selected_workflow_version;type:varchar(64)"`
-	CurrentQuoteHash        string    `gorm:"column:current_quote_hash;type:char(71)"`
-	EntitlementRefs         []byte    `gorm:"column:entitlement_refs;type:json"`
-	DeliveryRefs            []byte    `gorm:"column:delivery_refs;type:json"`
-	ValidationEvidenceRefs  []byte    `gorm:"column:validation_evidence_refs;type:json"`
-	AttemptedMerchants      []byte    `gorm:"column:attempted_merchants;type:json"`
-	ActionCount             int       `gorm:"column:action_count;not null"`
-	PaymentAttemptCount     int       `gorm:"column:payment_attempt_count;not null"`
-	DeliveryAttemptCount    int       `gorm:"column:delivery_attempt_count;not null"`
-	RetryCount              int       `gorm:"column:retry_count;not null"`
-	MaxTotalAttempts        int       `gorm:"column:max_total_attempts;not null"`
-	MaxPaymentAttempts      int       `gorm:"column:max_payment_attempts;not null"`
-	MaxDeliveryAttempts     int       `gorm:"column:max_delivery_attempts;not null"`
-	BudgetCurrency          string    `gorm:"column:budget_currency;type:varchar(16);not null"`
-	BudgetLimitMinor        int64     `gorm:"column:budget_limit_minor;not null"`
-	ReservedAmount          int64     `gorm:"column:reserved_amount;not null"`
-	SettledAmount           int64     `gorm:"column:settled_amount;not null"`
-	RefundedAmount          int64     `gorm:"column:refunded_amount;not null"`
-	ConsumedAmount          int64     `gorm:"column:consumed_amount;not null"`
-	AvailableBudget         int64     `gorm:"column:available_budget;not null"`
-	SunkCost                int64     `gorm:"column:sunk_cost;not null"`
-	RefundReusable          bool      `gorm:"column:refund_reusable;not null;default:true"`
-	DeadlineAt              time.Time `gorm:"column:deadline_at;not null"`
-	Version                 uint64    `gorm:"column:version;not null"`
-	CreatedAt               time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt               time.Time `gorm:"column:updated_at;not null"`
+	EpisodeID                   string    `gorm:"column:episode_id;type:varchar(128);primaryKey"`
+	RequestID                   string    `gorm:"column:request_id;type:varchar(128);not null;uniqueIndex:uk_commerce_episode_request_id"`
+	RequesterDID                string    `gorm:"column:requester_did;type:varchar(128);not null"`
+	SessionID                   string    `gorm:"column:session_id;type:varchar(128)"`
+	State                       string    `gorm:"column:state;type:varchar(32);not null"`
+	TerminalReason              string    `gorm:"column:terminal_reason;type:varchar(128)"`
+	ContractSnapshotHash        string    `gorm:"column:contract_snapshot_hash;type:char(71);not null"`
+	ContractSnapshot            []byte    `gorm:"column:contract_snapshot;type:longtext;not null"`
+	SelectedMerchantDID         string    `gorm:"column:selected_merchant_did;type:varchar(128)"`
+	SelectedCapabilityID        string    `gorm:"column:selected_capability_id;type:varchar(128)"`
+	SelectedCandidateSetID      string    `gorm:"column:selected_candidate_set_id;type:varchar(128)"`
+	SelectedCatalogVersion      string    `gorm:"column:selected_catalog_version;type:varchar(64)"`
+	SelectedCatalogSnapshotHash string    `gorm:"column:selected_catalog_snapshot_hash;type:char(71)"`
+	SelectedCatalogSnapshotRef  string    `gorm:"column:selected_catalog_snapshot_ref;type:varchar(255)"`
+	SelectedWorkflowVersion     string    `gorm:"column:selected_workflow_version;type:varchar(64)"`
+	CurrentQuoteHash            string    `gorm:"column:current_quote_hash;type:char(71)"`
+	EntitlementRefs             []byte    `gorm:"column:entitlement_refs;type:json"`
+	DeliveryRefs                []byte    `gorm:"column:delivery_refs;type:json"`
+	ValidationEvidenceRefs      []byte    `gorm:"column:validation_evidence_refs;type:json"`
+	AttemptedMerchants          []byte    `gorm:"column:attempted_merchants;type:json"`
+	ActionCount                 int       `gorm:"column:action_count;not null"`
+	PaymentAttemptCount         int       `gorm:"column:payment_attempt_count;not null"`
+	DeliveryAttemptCount        int       `gorm:"column:delivery_attempt_count;not null"`
+	RetryCount                  int       `gorm:"column:retry_count;not null"`
+	MaxTotalAttempts            int       `gorm:"column:max_total_attempts;not null"`
+	MaxPaymentAttempts          int       `gorm:"column:max_payment_attempts;not null"`
+	MaxDeliveryAttempts         int       `gorm:"column:max_delivery_attempts;not null"`
+	BudgetCurrency              string    `gorm:"column:budget_currency;type:varchar(16);not null"`
+	BudgetLimitMinor            int64     `gorm:"column:budget_limit_minor;not null"`
+	ReservedAmount              int64     `gorm:"column:reserved_amount;not null"`
+	SettledAmount               int64     `gorm:"column:settled_amount;not null"`
+	RefundedAmount              int64     `gorm:"column:refunded_amount;not null"`
+	ConsumedAmount              int64     `gorm:"column:consumed_amount;not null"`
+	AvailableBudget             int64     `gorm:"column:available_budget;not null"`
+	SunkCost                    int64     `gorm:"column:sunk_cost;not null"`
+	RefundReusable              bool      `gorm:"column:refund_reusable;not null;default:true"`
+	DeadlineAt                  time.Time `gorm:"column:deadline_at;not null"`
+	Version                     uint64    `gorm:"column:version;not null"`
+	CreatedAt                   time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt                   time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (EpisodeModel) TableName() string { return "commerce_episodes" }
@@ -127,6 +134,65 @@ type PaymentIntentModel struct {
 
 func (PaymentIntentModel) TableName() string { return "payment_intents" }
 
+// MerchantCapabilityModel stores one immutable catalog version. The JSON
+// columns hold only structured arrays/endpoint records, not prompt text.
+type MerchantCapabilityModel struct {
+	MerchantDID               string    `gorm:"column:merchant_did;type:varchar(128);primaryKey"`
+	CapabilityID              string    `gorm:"column:capability_id;type:varchar(128);primaryKey"`
+	CatalogVersion            string    `gorm:"column:catalog_version;type:varchar(64);primaryKey"`
+	PayeeDID                  string    `gorm:"column:payee_did;type:varchar(128);not null"`
+	Name                      string    `gorm:"column:name;type:varchar(255);not null"`
+	Description               string    `gorm:"column:description;type:text;not null"`
+	TaskTypes                 []byte    `gorm:"column:task_types;type:json;not null"`
+	SemanticTags              []byte    `gorm:"column:semantic_tags;type:json;not null"`
+	InvokeEndpoint            []byte    `gorm:"column:invoke_endpoint;type:json;not null"`
+	QuoteEndpoint             []byte    `gorm:"column:quote_endpoint;type:json"`
+	InputSchemaRef            string    `gorm:"column:input_schema_ref;type:varchar(255);not null"`
+	OutputSchemaRef           string    `gorm:"column:output_schema_ref;type:varchar(255);not null"`
+	InputContentTypes         []byte    `gorm:"column:input_content_types;type:json;not null"`
+	OutputContentTypes        []byte    `gorm:"column:output_content_types;type:json;not null"`
+	SupportedProtocolVersions []byte    `gorm:"column:supported_protocol_versions;type:json;not null"`
+	SupportedCurrencies       []byte    `gorm:"column:supported_currencies;type:json;not null"`
+	PricingModel              string    `gorm:"column:pricing_model;type:varchar(64);not null"`
+	PriceHintMinor            *int64    `gorm:"column:price_hint_minor"`
+	PriceHintCurrency         string    `gorm:"column:price_hint_currency;type:varchar(16)"`
+	Status                    string    `gorm:"column:status;type:varchar(24);not null"`
+	Availability              string    `gorm:"column:availability;type:varchar(24);not null"`
+	Source                    string    `gorm:"column:source;type:varchar(128);not null"`
+	SourceRef                 string    `gorm:"column:source_ref;type:varchar(255)"`
+	SourceHash                string    `gorm:"column:source_hash;type:char(71)"`
+	ValidFrom                 time.Time `gorm:"column:valid_from;not null"`
+	ValidUntil                time.Time `gorm:"column:valid_until;not null"`
+	CreatedAt                 time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt                 time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (MerchantCapabilityModel) TableName() string { return "merchant_capabilities" }
+
+type MerchantCapabilityCurrentModel struct {
+	MerchantDID    string    `gorm:"column:merchant_did;type:varchar(128);primaryKey"`
+	CapabilityID   string    `gorm:"column:capability_id;type:varchar(128);primaryKey"`
+	CatalogVersion string    `gorm:"column:catalog_version;type:varchar(64);not null"`
+	UpdatedAt      time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (MerchantCapabilityCurrentModel) TableName() string { return "merchant_capability_current" }
+
+type CandidateSetModel struct {
+	CandidateSetID      string    `gorm:"column:candidate_set_id;type:varchar(128);primaryKey"`
+	EpisodeID           string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_candidate_set_episode"`
+	RequestID           string    `gorm:"column:request_id;type:varchar(128);not null"`
+	QueryHash           string    `gorm:"column:query_hash;type:char(71);not null"`
+	CatalogSnapshotRefs []byte    `gorm:"column:catalog_snapshot_refs;type:json;not null"`
+	Candidates          []byte    `gorm:"column:candidates;type:json;not null"`
+	GeneratedAt         time.Time `gorm:"column:generated_at;not null"`
+	ExpiresAt           time.Time `gorm:"column:expires_at;not null;index:idx_candidate_set_expiry"`
+	FactsRef            string    `gorm:"column:facts_ref;type:varchar(255);not null"`
+	PayloadHash         string    `gorm:"column:payload_hash;type:char(71);not null"`
+}
+
+func (CandidateSetModel) TableName() string { return "candidate_sets" }
+
 type Store struct{ db *gorm.DB }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -142,7 +208,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{})
+	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{})
 }
 
 func (s *Store) Create(ctx context.Context, value *episode.CommerceEpisode) error {
@@ -179,6 +245,155 @@ func (s *Store) FindByRequestID(ctx context.Context, requestID string) (*episode
 		return nil, err
 	}
 	return modelToEpisode(row)
+}
+
+func (s *Store) SaveCapabilityVersion(ctx context.Context, value *catalog.MerchantCapability) error {
+	model, err := merchantCapabilityToModel(value)
+	if err != nil {
+		return err
+	}
+	normalized := value.Normalize()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing MerchantCapabilityModel
+		lookup := tx.Where("merchant_did = ? AND capability_id = ? AND catalog_version = ?", model.MerchantDID, model.CapabilityID, model.CatalogVersion).First(&existing).Error
+		if lookup == nil {
+			previous, decodeErr := modelToMerchantCapability(existing)
+			if decodeErr == nil {
+				previousHash, hashErr := previous.SnapshotHash()
+				currentHash, currentErr := normalized.SnapshotHash()
+				if hashErr == nil && currentErr == nil && previousHash == currentHash {
+					return nil
+				}
+			}
+			return repository.ErrCatalogVersionConflict
+		}
+		if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+			return lookup
+		}
+		if err := tx.Create(model).Error; err != nil {
+			if isDuplicateKey(err) {
+				return repository.ErrCatalogVersionConflict
+			}
+			return err
+		}
+		if normalized.Status != catalog.StatusActive {
+			return nil
+		}
+		var pointer MerchantCapabilityCurrentModel
+		pointerErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("merchant_did = ? AND capability_id = ?", model.MerchantDID, model.CapabilityID).First(&pointer).Error
+		if errors.Is(pointerErr, gorm.ErrRecordNotFound) {
+			return tx.Create(&MerchantCapabilityCurrentModel{MerchantDID: model.MerchantDID, CapabilityID: model.CapabilityID, CatalogVersion: model.CatalogVersion, UpdatedAt: model.UpdatedAt}).Error
+		}
+		if pointerErr != nil {
+			return pointerErr
+		}
+		if catalog.CompareVersions(model.CatalogVersion, pointer.CatalogVersion) <= 0 {
+			return nil
+		}
+		return tx.Model(&MerchantCapabilityCurrentModel{}).Where("merchant_did = ? AND capability_id = ?", model.MerchantDID, model.CapabilityID).Updates(map[string]any{"catalog_version": model.CatalogVersion, "updated_at": model.UpdatedAt}).Error
+	})
+}
+
+func (s *Store) GetCapabilityVersion(ctx context.Context, merchantDID, capabilityID, catalogVersion string) (*catalog.MerchantCapability, error) {
+	var row MerchantCapabilityModel
+	err := s.db.WithContext(ctx).Where("merchant_did = ? AND capability_id = ? AND catalog_version = ?", strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID)), strings.TrimSpace(catalogVersion)).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return modelToMerchantCapability(row)
+}
+
+func (s *Store) GetCurrentActiveCapability(ctx context.Context, merchantDID, capabilityID string) (*catalog.MerchantCapability, error) {
+	var pointer MerchantCapabilityCurrentModel
+	err := s.db.WithContext(ctx).Where("merchant_did = ? AND capability_id = ?", strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID))).First(&pointer).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.GetCapabilityVersion(ctx, pointer.MerchantDID, pointer.CapabilityID, pointer.CatalogVersion)
+}
+
+func (s *Store) ListActiveCapabilities(ctx context.Context) ([]*catalog.MerchantCapability, error) {
+	var rows []MerchantCapabilityModel
+	if err := s.db.WithContext(ctx).Where("status = ?", string(catalog.StatusActive)).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	selected := make(map[string]*catalog.MerchantCapability)
+	for _, row := range rows {
+		value, err := modelToMerchantCapability(row)
+		if err != nil {
+			return nil, err
+		}
+		key := value.MerchantDID + "\x00" + value.CapabilityID
+		current, ok := selected[key]
+		if !ok || catalog.CompareVersions(value.CatalogVersion, current.CatalogVersion) > 0 {
+			selected[key] = value
+		}
+	}
+	result := make([]*catalog.MerchantCapability, 0, len(selected))
+	for _, value := range selected {
+		result = append(result, value)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].MerchantDID != result[j].MerchantDID {
+			return result[i].MerchantDID < result[j].MerchantDID
+		}
+		return result[i].CapabilityID < result[j].CapabilityID
+	})
+	return result, nil
+}
+
+func (s *Store) SaveCandidateSet(ctx context.Context, value *catalog.CandidateSet) error {
+	model, err := candidateSetToModel(value)
+	if err != nil {
+		return err
+	}
+	var episodeRow EpisodeModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", model.EpisodeID).First(&episodeRow).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return repository.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	var existing CandidateSetModel
+	lookupErr := s.db.WithContext(ctx).Where("candidate_set_id = ?", model.CandidateSetID).First(&existing).Error
+	if lookupErr == nil {
+		previous, previousErr := modelToCandidateSet(existing)
+		currentHash, currentErr := value.SnapshotHash()
+		if previousErr == nil && currentErr == nil {
+			previousHash, hashErr := previous.SnapshotHash()
+			if hashErr == nil && previousHash == currentHash {
+				return nil
+			}
+		}
+		return repository.ErrCandidateSetConflict
+	}
+	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return lookupErr
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrCandidateSetConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetCandidateSet(ctx context.Context, candidateSetID string) (*catalog.CandidateSet, error) {
+	var row CandidateSetModel
+	err := s.db.WithContext(ctx).Where("candidate_set_id = ?", strings.TrimSpace(candidateSetID)).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return modelToCandidateSet(row)
 }
 
 func (s *Store) UpdateOptimistic(ctx context.Context, episodeID string, expectedVersion uint64, next *episode.CommerceEpisode) error {
@@ -656,6 +871,136 @@ func (s *Store) CommitFinanceTransition(ctx context.Context, transition reposito
 	})
 }
 
+func merchantCapabilityToModel(value *catalog.MerchantCapability) (*MerchantCapabilityModel, error) {
+	if value == nil {
+		return nil, catalog.ErrInvalidCapability
+	}
+	normalized := value.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return nil, err
+	}
+	encode := func(input any) ([]byte, error) { return json.Marshal(input) }
+	taskTypes, err := encode(normalized.TaskTypes)
+	if err != nil {
+		return nil, err
+	}
+	semanticTags, err := encode(normalized.SemanticTags)
+	if err != nil {
+		return nil, err
+	}
+	invokeEndpoint, err := encode(normalized.InvokeEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	quoteEndpoint, err := encode(normalized.QuoteEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	inputTypes, err := encode(normalized.InputContentTypes)
+	if err != nil {
+		return nil, err
+	}
+	outputTypes, err := encode(normalized.OutputContentTypes)
+	if err != nil {
+		return nil, err
+	}
+	protocols, err := encode(normalized.SupportedProtocolVersions)
+	if err != nil {
+		return nil, err
+	}
+	currencies, err := encode(normalized.SupportedCurrencies)
+	if err != nil {
+		return nil, err
+	}
+	return &MerchantCapabilityModel{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, CatalogVersion: normalized.CatalogVersion,
+		PayeeDID: normalized.PayeeDID, Name: normalized.Name, Description: normalized.Description, TaskTypes: taskTypes, SemanticTags: semanticTags,
+		InvokeEndpoint: invokeEndpoint, QuoteEndpoint: quoteEndpoint, InputSchemaRef: normalized.InputSchemaRef, OutputSchemaRef: normalized.OutputSchemaRef,
+		InputContentTypes: inputTypes, OutputContentTypes: outputTypes, SupportedProtocolVersions: protocols, SupportedCurrencies: currencies,
+		PricingModel: normalized.PricingModel, PriceHintMinor: normalized.PriceHintMinor, PriceHintCurrency: normalized.PriceHintCurrency,
+		Status: string(normalized.Status), Availability: string(normalized.Availability), Source: normalized.Source, SourceRef: normalized.SourceRef, SourceHash: normalized.SourceHash,
+		ValidFrom: normalized.ValidFrom, ValidUntil: normalized.ValidUntil, CreatedAt: normalized.CreatedAt, UpdatedAt: normalized.UpdatedAt}, nil
+}
+
+func modelToMerchantCapability(row MerchantCapabilityModel) (*catalog.MerchantCapability, error) {
+	decode := func(input []byte, target any) error {
+		if len(input) == 0 {
+			return nil
+		}
+		return json.Unmarshal(input, target)
+	}
+	value := &catalog.MerchantCapability{MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, PayeeDID: row.PayeeDID,
+		Name: row.Name, Description: row.Description, InputSchemaRef: row.InputSchemaRef, OutputSchemaRef: row.OutputSchemaRef, PricingModel: row.PricingModel,
+		PriceHintMinor: row.PriceHintMinor, PriceHintCurrency: row.PriceHintCurrency, Status: catalog.CapabilityStatus(row.Status), Availability: catalog.Availability(row.Availability),
+		Source: row.Source, SourceRef: row.SourceRef, SourceHash: row.SourceHash, ValidFrom: row.ValidFrom, ValidUntil: row.ValidUntil, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	if err := decode(row.TaskTypes, &value.TaskTypes); err != nil {
+		return nil, err
+	}
+	if err := decode(row.SemanticTags, &value.SemanticTags); err != nil {
+		return nil, err
+	}
+	if err := decode(row.InvokeEndpoint, &value.InvokeEndpoint); err != nil {
+		return nil, err
+	}
+	if err := decode(row.QuoteEndpoint, &value.QuoteEndpoint); err != nil {
+		return nil, err
+	}
+	if err := decode(row.InputContentTypes, &value.InputContentTypes); err != nil {
+		return nil, err
+	}
+	if err := decode(row.OutputContentTypes, &value.OutputContentTypes); err != nil {
+		return nil, err
+	}
+	if err := decode(row.SupportedProtocolVersions, &value.SupportedProtocolVersions); err != nil {
+		return nil, err
+	}
+	if err := decode(row.SupportedCurrencies, &value.SupportedCurrencies); err != nil {
+		return nil, err
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func candidateSetToModel(value *catalog.CandidateSet) (*CandidateSetModel, error) {
+	if value == nil {
+		return nil, catalog.ErrInvalidCandidateSet
+	}
+	normalized := value.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return nil, err
+	}
+	refs, err := json.Marshal(normalized.CatalogSnapshotRefs)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := json.Marshal(normalized.Candidates)
+	if err != nil {
+		return nil, err
+	}
+	return &CandidateSetModel{CandidateSetID: normalized.CandidateSetID, EpisodeID: normalized.EpisodeID, RequestID: normalized.RequestID, QueryHash: normalized.QueryHash,
+		CatalogSnapshotRefs: refs, Candidates: candidates, GeneratedAt: normalized.GeneratedAt, ExpiresAt: normalized.ExpiresAt, FactsRef: normalized.FactsRef, PayloadHash: normalized.PayloadHash}, nil
+}
+
+func modelToCandidateSet(row CandidateSetModel) (*catalog.CandidateSet, error) {
+	value := &catalog.CandidateSet{CandidateSetID: row.CandidateSetID, EpisodeID: row.EpisodeID, RequestID: row.RequestID, QueryHash: row.QueryHash,
+		GeneratedAt: row.GeneratedAt, ExpiresAt: row.ExpiresAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
+	if len(row.CatalogSnapshotRefs) > 0 {
+		if err := json.Unmarshal(row.CatalogSnapshotRefs, &value.CatalogSnapshotRefs); err != nil {
+			return nil, err
+		}
+	}
+	if len(row.Candidates) > 0 {
+		if err := json.Unmarshal(row.Candidates, &value.Candidates); err != nil {
+			return nil, err
+		}
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
 func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 	if value == nil {
 		return nil, errors.New("episode is required")
@@ -689,7 +1034,8 @@ func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 		EpisodeID: value.EpisodeID, RequestID: value.RequestID, RequesterDID: value.RequesterDID, SessionID: value.SessionID,
 		State: string(value.State), TerminalReason: value.TerminalReason,
 		ContractSnapshotHash: value.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), value.ContractSnapshot...),
-		SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID,
+		SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCandidateSetID: value.SelectedCandidateSetID,
+		SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogSnapshotHash: value.SelectedCatalogSnapshotHash, SelectedCatalogSnapshotRef: value.SelectedCatalogSnapshotRef,
 		SelectedWorkflowVersion: value.SelectedWorkflowVersion, CurrentQuoteHash: value.CurrentQuoteHash,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: value.ActionCount, PaymentAttemptCount: value.PaymentAttemptCount, DeliveryAttemptCount: value.DeliveryAttemptCount,
@@ -734,7 +1080,8 @@ func modelToEpisode(row EpisodeModel) (*episode.CommerceEpisode, error) {
 		EpisodeID: row.EpisodeID, RequestID: row.RequestID, RequesterDID: row.RequesterDID, SessionID: row.SessionID,
 		State: episode.State(row.State), TerminalReason: row.TerminalReason,
 		ContractSnapshotHash: row.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), row.ContractSnapshot...),
-		SelectedMerchantDID: row.SelectedMerchantDID, SelectedCapabilityID: row.SelectedCapabilityID,
+		SelectedMerchantDID: row.SelectedMerchantDID, SelectedCapabilityID: row.SelectedCapabilityID, SelectedCandidateSetID: row.SelectedCandidateSetID,
+		SelectedCatalogVersion: row.SelectedCatalogVersion, SelectedCatalogSnapshotHash: row.SelectedCatalogSnapshotHash, SelectedCatalogSnapshotRef: row.SelectedCatalogSnapshotRef,
 		SelectedWorkflowVersion: row.SelectedWorkflowVersion, CurrentQuoteHash: row.CurrentQuoteHash,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: row.ActionCount, PaymentAttemptCount: row.PaymentAttemptCount, DeliveryAttemptCount: row.DeliveryAttemptCount,
@@ -758,7 +1105,8 @@ func episodeUpdates(value *episode.CommerceEpisode) (map[string]any, error) {
 	}
 	return map[string]any{
 		"session_id": model.SessionID, "state": model.State, "terminal_reason": model.TerminalReason,
-		"selected_merchant_did": model.SelectedMerchantDID, "selected_capability_id": model.SelectedCapabilityID,
+		"selected_merchant_did": model.SelectedMerchantDID, "selected_capability_id": model.SelectedCapabilityID, "selected_candidate_set_id": model.SelectedCandidateSetID,
+		"selected_catalog_version": model.SelectedCatalogVersion, "selected_catalog_snapshot_hash": model.SelectedCatalogSnapshotHash, "selected_catalog_snapshot_ref": model.SelectedCatalogSnapshotRef,
 		"selected_workflow_version": model.SelectedWorkflowVersion, "current_quote_hash": model.CurrentQuoteHash,
 		"entitlement_refs": model.EntitlementRefs, "delivery_refs": model.DeliveryRefs,
 		"validation_evidence_refs": model.ValidationEvidenceRefs, "attempted_merchants": model.AttemptedMerchants,

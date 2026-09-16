@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS commerce_episodes (
     contract_snapshot          LONGTEXT NOT NULL,
     selected_merchant_did      VARCHAR(128) NULL,
     selected_capability_id     VARCHAR(128) NULL,
+    selected_candidate_set_id  VARCHAR(128) NULL,
+    selected_catalog_version   VARCHAR(64) NULL,
+    selected_catalog_snapshot_hash CHAR(71) NULL,
+    selected_catalog_snapshot_ref VARCHAR(255) NULL,
     selected_workflow_version  VARCHAR(64) NULL,
     current_quote_hash         CHAR(71) NULL,
     entitlement_refs           JSON NULL,
@@ -111,5 +115,67 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     UNIQUE KEY uk_intent_economic (episode_id, economic_key),
     KEY idx_intent_episode (episode_id),
     CONSTRAINT fk_payment_intents_episode FOREIGN KEY (episode_id)
+        REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- S3 trusted catalog versions. Each row is immutable; the current table is
+-- only a pointer used to expose the active version for structured discovery.
+CREATE TABLE IF NOT EXISTS merchant_capabilities (
+    merchant_did                VARCHAR(128) NOT NULL,
+    capability_id               VARCHAR(128) NOT NULL,
+    catalog_version             VARCHAR(64) NOT NULL,
+    payee_did                   VARCHAR(128) NOT NULL,
+    name                        VARCHAR(255) NOT NULL,
+    description                 TEXT NOT NULL,
+    task_types                  JSON NOT NULL,
+    semantic_tags               JSON NOT NULL,
+    invoke_endpoint             JSON NOT NULL,
+    quote_endpoint              JSON NULL,
+    input_schema_ref            VARCHAR(255) NOT NULL,
+    output_schema_ref           VARCHAR(255) NOT NULL,
+    input_content_types         JSON NOT NULL,
+    output_content_types        JSON NOT NULL,
+    supported_protocol_versions JSON NOT NULL,
+    supported_currencies        JSON NOT NULL,
+    pricing_model               VARCHAR(64) NOT NULL,
+    price_hint_minor            BIGINT NULL,
+    price_hint_currency         VARCHAR(16) NULL,
+    status                      VARCHAR(24) NOT NULL,
+    availability                VARCHAR(24) NOT NULL,
+    source                      VARCHAR(128) NOT NULL,
+    source_ref                  VARCHAR(255) NULL,
+    source_hash                 CHAR(71) NULL,
+    valid_from                  DATETIME(6) NOT NULL,
+    valid_until                 DATETIME(6) NOT NULL,
+    created_at                  DATETIME(6) NOT NULL,
+    updated_at                  DATETIME(6) NOT NULL,
+    PRIMARY KEY (merchant_did, capability_id, catalog_version),
+    KEY idx_capability_current_lookup (merchant_did, capability_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS merchant_capability_current (
+    merchant_did                VARCHAR(128) NOT NULL,
+    capability_id               VARCHAR(128) NOT NULL,
+    catalog_version             VARCHAR(64) NOT NULL,
+    updated_at                  DATETIME(6) NOT NULL,
+    PRIMARY KEY (merchant_did, capability_id),
+    CONSTRAINT fk_capability_current_version FOREIGN KEY (merchant_did, capability_id, catalog_version)
+        REFERENCES merchant_capabilities (merchant_did, capability_id, catalog_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS candidate_sets (
+    candidate_set_id            VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id                  VARCHAR(128) NOT NULL,
+    request_id                  VARCHAR(128) NOT NULL,
+    query_hash                  CHAR(71) NOT NULL,
+    catalog_snapshot_refs       JSON NOT NULL,
+    candidates                  JSON NOT NULL,
+    generated_at                DATETIME(6) NOT NULL,
+    expires_at                  DATETIME(6) NOT NULL,
+    facts_ref                   VARCHAR(255) NOT NULL,
+    payload_hash                CHAR(71) NOT NULL,
+    KEY idx_candidate_set_episode (episode_id),
+    KEY idx_candidate_set_expiry (expires_at),
+    CONSTRAINT fk_candidate_sets_episode FOREIGN KEY (episode_id)
         REFERENCES commerce_episodes (episode_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
@@ -23,6 +24,8 @@ var (
 	ErrPaymentIntentConflict      = errors.New("payment intent conflicts with an existing identity")
 	ErrPaymentIntentNotFound      = errors.New("payment intent not found")
 	ErrPaymentIntentStateConflict = errors.New("payment intent state changed concurrently")
+	ErrCatalogVersionConflict     = errors.New("catalog version conflicts with an existing snapshot")
+	ErrCandidateSetConflict       = errors.New("candidate set conflicts with an existing fact")
 )
 
 type EpisodeRepository interface {
@@ -59,6 +62,26 @@ type PaymentIntentRepository interface {
 	FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
 	FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
 	UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error
+}
+
+// CatalogRepository stores immutable capability versions and exposes only the
+// current active view for discovery. Implementations must not update the
+// historical version payload when a newer version is registered.
+type CatalogRepository interface {
+	SaveCapabilityVersion(ctx context.Context, value *catalog.MerchantCapability) error
+	GetCapabilityVersion(ctx context.Context, merchantDID, capabilityID, catalogVersion string) (*catalog.MerchantCapability, error)
+	GetCurrentActiveCapability(ctx context.Context, merchantDID, capabilityID string) (*catalog.MerchantCapability, error)
+	ListActiveCapabilities(ctx context.Context) ([]*catalog.MerchantCapability, error)
+}
+
+type CandidateSetRepository interface {
+	SaveCandidateSet(ctx context.Context, value *catalog.CandidateSet) error
+	GetCandidateSet(ctx context.Context, candidateSetID string) (*catalog.CandidateSet, error)
+}
+
+type DiscoveryRepository interface {
+	CatalogRepository
+	CandidateSetRepository
 }
 
 // FinanceTransition is the local atomic boundary for a projection/event plus
