@@ -183,6 +183,9 @@ func (guard RuntimeGuard) EvaluateMerchantSelection(current *episode.CommerceEpi
 	if !ok {
 		return fail("candidate_membership", ErrMerchantNotInCandidateSet)
 	}
+	if now.Before(candidate.CatalogValidFrom) || !now.Before(candidate.CatalogValidUntil) {
+		return fail("catalog_validity", catalog.ErrCatalogSnapshotExpired)
+	}
 	if proposal.Target.CatalogVersion != "" && proposal.Target.CatalogVersion != candidate.CatalogVersion {
 		return fail("catalog_version", ErrCatalogSnapshotMismatch)
 	}

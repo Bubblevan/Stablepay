@@ -48,7 +48,11 @@ var (
 	ErrInvalidDiscoveryQuery  = errors.New("invalid discovery query")
 	ErrInvalidCandidateSet    = errors.New("invalid candidate set")
 	ErrCandidateSetExpired    = errors.New("candidate set has expired")
-	ErrCandidateNotEligible   = errors.New("candidate is not structurally eligible")
+	ErrCatalogSnapshotExpired = errors.New("catalog snapshot has expired")
+	// ErrCandidateExpired is kept as a domain-level alias for callers that
+	// describe the frozen catalog fact as a candidate.
+	ErrCandidateExpired     = ErrCatalogSnapshotExpired
+	ErrCandidateNotEligible = errors.New("candidate is not structurally eligible")
 )
 
 var capabilityIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._:-]{0,127}$`)
@@ -188,9 +192,6 @@ func (c MerchantCapability) Validate() error {
 	c = c.Normalize()
 	if c.MerchantDID == "" || c.PayeeDID == "" || c.Name == "" || c.Description == "" || c.Source == "" {
 		return fmt.Errorf("%w: merchant/payee/name/description/source are required", ErrInvalidCapability)
-	}
-	if c.MerchantDID == c.PayeeDID {
-		return fmt.Errorf("%w: merchant and payee identities must remain distinct", ErrInvalidCapability)
 	}
 	if c.CapabilityID == "" || strings.HasPrefix(c.CapabilityID, "did:") || !capabilityIDPattern.MatchString(c.CapabilityID) {
 		return ErrInvalidCapabilityID
@@ -390,6 +391,8 @@ type Candidate struct {
 	CatalogVersion      string           `json:"catalog_version"`
 	CatalogSnapshotHash string           `json:"catalog_snapshot_hash"`
 	CatalogSnapshotRef  string           `json:"catalog_snapshot_ref"`
+	CatalogValidFrom    time.Time        `json:"catalog_valid_from"`
+	CatalogValidUntil   time.Time        `json:"catalog_valid_until"`
 	Eligibility         EligibilityFacts `json:"eligibility"`
 	RankFeatures        RankFeatures     `json:"rank_features"`
 }
@@ -428,6 +431,8 @@ func (s CandidateSet) Normalize() CandidateSet {
 		s.Candidates[i].CatalogVersion = strings.TrimSpace(s.Candidates[i].CatalogVersion)
 		s.Candidates[i].CatalogSnapshotHash = strings.ToLower(strings.TrimSpace(s.Candidates[i].CatalogSnapshotHash))
 		s.Candidates[i].CatalogSnapshotRef = strings.TrimSpace(s.Candidates[i].CatalogSnapshotRef)
+		s.Candidates[i].CatalogValidFrom = s.Candidates[i].CatalogValidFrom.UTC().Truncate(time.Nanosecond)
+		s.Candidates[i].CatalogValidUntil = s.Candidates[i].CatalogValidUntil.UTC().Truncate(time.Nanosecond)
 		s.Candidates[i].Eligibility.Reasons = append([]string(nil), s.Candidates[i].Eligibility.Reasons...)
 		if s.Candidates[i].RankFeatures.PriceHintMinor != nil {
 			value := *s.Candidates[i].RankFeatures.PriceHintMinor
@@ -479,7 +484,7 @@ func (s CandidateSet) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(s.Candidates))
 	for _, candidate := range s.Candidates {
-		if candidate.MerchantDID == "" || candidate.CapabilityID == "" || candidate.PayeeDID == "" || candidate.CatalogVersion == "" || !digestPattern.MatchString(candidate.CatalogSnapshotHash) || candidate.CatalogSnapshotRef == "" || !candidate.Eligibility.Eligible() {
+		if candidate.MerchantDID == "" || candidate.CapabilityID == "" || candidate.PayeeDID == "" || candidate.CatalogVersion == "" || !digestPattern.MatchString(candidate.CatalogSnapshotHash) || candidate.CatalogSnapshotRef == "" || candidate.CatalogValidFrom.IsZero() || candidate.CatalogValidUntil.IsZero() || !candidate.CatalogValidUntil.After(candidate.CatalogValidFrom) || !candidate.Eligibility.Eligible() {
 			return ErrInvalidCandidateSet
 		}
 		key := candidate.MerchantDID + "\x00" + candidate.CapabilityID

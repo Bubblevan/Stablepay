@@ -43,7 +43,8 @@ func BuildCandidateSet(candidateSetID, episodeID, requestID string, query Discov
 			return nil, err
 		}
 		result.Candidates = append(result.Candidates, Candidate{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, PayeeDID: normalized.PayeeDID,
-			CatalogVersion: normalized.CatalogVersion, CatalogSnapshotHash: hash, CatalogSnapshotRef: normalized.SnapshotRef(), Eligibility: facts, RankFeatures: rank})
+			CatalogVersion: normalized.CatalogVersion, CatalogSnapshotHash: hash, CatalogSnapshotRef: normalized.SnapshotRef(), CatalogValidFrom: normalized.ValidFrom, CatalogValidUntil: normalized.ValidUntil,
+			Eligibility: facts, RankFeatures: rank})
 	}
 	*result = result.Normalize()
 	payloadHash, err := result.PayloadHashFor()

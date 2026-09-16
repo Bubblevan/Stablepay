@@ -158,6 +158,7 @@ type DiscoverCapabilitiesResult struct {
 	Event         *episode.EpisodeEvent
 	TerminalEvent *episode.EpisodeEvent
 	NoEligible    bool
+	Replayed      bool
 }
 
 // RegisterCapabilityVersion is the catalog write boundary. It stores a new
@@ -186,8 +187,41 @@ func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapa
 	if err != nil {
 		return DiscoverCapabilitiesResult{}, err
 	}
+	candidateSetID := strings.TrimSpace(request.CandidateSetID)
+	if candidateSetID == "" {
+		// One Episode has one logical S3 discovery operation in this stage.
+		// Keeping this identity stable lets a caller recover a committed fact
+		// after losing the response without re-reading the catalog.
+		candidateSetID = "cs:" + current.EpisodeID
+	}
+	actionKey := "discover:" + candidateSetID
 	if current.State != episode.StateAccepted {
-		return DiscoverCapabilitiesResult{}, decision.ErrActionNotAllowed
+		events, listErr := s.store.ListByEpisode(ctx, current.EpisodeID)
+		if listErr != nil {
+			return DiscoverCapabilitiesResult{}, listErr
+		}
+		var discoveryEvent, terminalEvent *episode.EpisodeEvent
+		for _, event := range events {
+			if event.Action.Type == trace.ActionDiscover && event.Action.IdempotencyKey == actionKey {
+				discoveryEvent = event
+			}
+			if event.Action.Type == trace.ActionStop && event.Action.IdempotencyKey == actionKey+":stop" {
+				terminalEvent = event
+			}
+		}
+		if discoveryEvent == nil {
+			return DiscoverCapabilitiesResult{}, decision.ErrActionNotAllowed
+		}
+		candidateSet, getErr := store.GetCandidateSet(ctx, candidateSetID)
+		if getErr != nil {
+			return DiscoverCapabilitiesResult{}, getErr
+		}
+		latest, getErr := s.store.Get(ctx, current.EpisodeID)
+		if getErr != nil {
+			return DiscoverCapabilitiesResult{}, getErr
+		}
+		return DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: latest, Event: discoveryEvent,
+			TerminalEvent: terminalEvent, NoEligible: len(candidateSet.Candidates) == 0, Replayed: true}, nil
 	}
 	var acquire contract.AcquireCapabilityRequest
 	if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
@@ -205,10 +239,6 @@ func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapa
 	if expiresAt.After(current.DeadlineAt) {
 		expiresAt = current.DeadlineAt
 	}
-	candidateSetID := strings.TrimSpace(request.CandidateSetID)
-	if candidateSetID == "" {
-		candidateSetID = s.idGenerator("cs")
-	}
 	capabilities, err := store.ListActiveCapabilities(ctx)
 	if err != nil {
 		return DiscoverCapabilitiesResult{}, err
@@ -220,7 +250,6 @@ func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapa
 	if err := store.SaveCandidateSet(ctx, candidateSet); err != nil {
 		return DiscoverCapabilitiesResult{}, err
 	}
-	actionKey := "discover:" + candidateSet.CandidateSetID
 	observationType := trace.ObservationCandidatesFound
 	if len(candidateSet.Candidates) == 0 {
 		observationType = trace.ObservationNoEligibleCandidate
@@ -238,7 +267,7 @@ func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapa
 	if err != nil {
 		return DiscoverCapabilitiesResult{}, err
 	}
-	result := DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: commit.Episode, Event: commit.Event, NoEligible: len(candidateSet.Candidates) == 0}
+	result := DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: commit.Episode, Event: commit.Event, NoEligible: len(candidateSet.Candidates) == 0, Replayed: commit.Replayed}
 	if len(candidateSet.Candidates) == 0 {
 		stopNow := s.clock().UTC()
 		stopProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: commit.Episode.EpisodeID,

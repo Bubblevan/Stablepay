@@ -31,7 +31,7 @@ func TestS3DiscoverySelectionGuardAndPayeeBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	created := createdResult.Episode
-	a := applicationCapability("did:merchant:a", "transcription-premium", "did:solana:payee-old", "transcription", 8, "v1", now)
+	a := applicationCapability("did:merchant:a", "transcription-premium", "did:merchant:a", "transcription", 8, "v1", now)
 	b := applicationCapability("did:merchant:b", "transcription", "did:solana:payee-b", "transcription", 12, "v1", now)
 	c := applicationCapability("did:merchant:c", "image-generation", "did:solana:payee-c", "image-generation", 5, "v1", now)
 	for _, capability := range []*catalog.MerchantCapability{a, b, c} {
@@ -48,6 +48,13 @@ func TestS3DiscoverySelectionGuardAndPayeeBinding(t *testing.T) {
 	}
 	candidate := discovered.CandidateSet.Candidates[0]
 	current := discovered.Episode
+	v2 := a.Clone()
+	v2.CatalogVersion = "v2"
+	v2.PayeeDID = "did:solana:payee-new"
+	v2.UpdatedAt = now.Add(time.Minute)
+	if err := service.RegisterCapabilityVersion(context.Background(), v2); err != nil {
+		t.Fatal(err)
+	}
 	proposal := decision.DecisionProposal{ProposalID: "select-a", EpisodeID: current.EpisodeID, BasedOnEventSequence: current.Version - 1,
 		ProposedAction: trace.ActionSelectMerchant, CandidateSetID: discovered.CandidateSet.CandidateSetID,
 		Target: &decision.ProposalTarget{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID}, Confidence: 1,
@@ -75,13 +82,6 @@ func TestS3DiscoverySelectionGuardAndPayeeBinding(t *testing.T) {
 	payee, err := service.ResolveSelectedPayeeDID(context.Background(), created.EpisodeID)
 	if err != nil || payee != a.PayeeDID {
 		t.Fatalf("selected payee was not resolved from catalog fact: %s, %v", payee, err)
-	}
-	v2 := a.Clone()
-	v2.CatalogVersion = "v2"
-	v2.PayeeDID = "did:solana:payee-new"
-	v2.UpdatedAt = now.Add(time.Minute)
-	if err := service.RegisterCapabilityVersion(context.Background(), v2); err != nil {
-		t.Fatal(err)
 	}
 	old, err := store.GetCapabilityVersion(context.Background(), a.MerchantDID, a.CapabilityID, "v1")
 	if err != nil || old.PayeeDID != a.PayeeDID {
@@ -149,6 +149,61 @@ func TestS3NoEligibleCandidateHasDeterministicTerminalPath(t *testing.T) {
 	if len(events) != 2 || events[0].Observation.Type != trace.ObservationNoEligibleCandidate || events[1].Observation.Code != "NO_ELIGIBLE_MERCHANT" {
 		t.Fatalf("no-candidate evidence path is not deterministic: %#v", events)
 	}
+	replayed, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID, CandidateSetID: "cs-s3-none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.Replayed || replayed.Event.EventID != events[0].EventID || replayed.TerminalEvent.EventID != events[1].EventID || replayed.Episode.ActionCount != result.Episode.ActionCount {
+		t.Fatalf("no-candidate discovery replay was not stable: %#v", replayed)
+	}
+}
+
+func TestS3DiscoveryReplayRecoversFrozenCandidateSet(t *testing.T) {
+	service, store, now := serviceFixture()
+	request := requestFixture(now)
+	request.RequestID = "acr_s3_discovery_replay"
+	created, err := service.CreateEpisode(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := applicationCapability("did:merchant:replay", "transcription", "did:solana:replay", "transcription", 8, "v1", now)
+	if err := service.RegisterCapabilityVersion(context.Background(), v1); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Replayed || len(first.CandidateSet.Candidates) != 1 || first.CandidateSet.CandidateSetID != "cs:"+created.Episode.EpisodeID {
+		t.Fatalf("unexpected first discovery result: %#v", first)
+	}
+	v2 := v1.Clone()
+	v2.CatalogVersion = "v2"
+	v2.Status = catalog.StatusInactive
+	v2.UpdatedAt = now.Add(time.Minute)
+	if err := service.RegisterCapabilityVersion(context.Background(), v2); err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Replayed || second.CandidateSet.CandidateSetID != first.CandidateSet.CandidateSetID || second.CandidateSet.PayloadHash != first.CandidateSet.PayloadHash || second.Event.EventID != first.Event.EventID || second.CandidateSet.Candidates[0].CatalogVersion != "v1" {
+		t.Fatalf("discovery replay reread or changed the catalog fact: first=%#v second=%#v", first, second)
+	}
+	if second.Episode.ActionCount != first.Episode.ActionCount {
+		t.Fatalf("discovery replay changed ActionCount: %d -> %d", first.Episode.ActionCount, second.Episode.ActionCount)
+	}
+	events, err := store.ListByEpisode(context.Background(), created.Episode.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("discovery replay appended another event: %#v", events)
+	}
+	if _, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID, CandidateSetID: "cs:different-discovery"}); !errors.Is(err, decision.ErrActionNotAllowed) {
+		t.Fatalf("different discovery identity was accepted: %v", err)
+	}
 }
 
 func TestS3ExpiredCandidateSetRejectedByRuntimeGuard(t *testing.T) {
@@ -169,5 +224,27 @@ func TestS3ExpiredCandidateSetRejectedByRuntimeGuard(t *testing.T) {
 	_, err = decision.NewRuntimeGuard().EvaluateMerchantSelection(current, proposal, nil, trace.Observation{Type: trace.ObservationCandidatesFound}, now, set)
 	if !errors.Is(err, catalog.ErrCandidateSetExpired) {
 		t.Fatalf("expired candidate set was accepted: %v", err)
+	}
+}
+
+func TestS3ExpiredFrozenCatalogCandidateRejectedAtSelection(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	_, _, _, created := createFixture(t)
+	current := created.Clone()
+	if err := current.ApplyTransition(episode.StateDiscovering, now, ""); err != nil {
+		t.Fatal(err)
+	}
+	capability := applicationCapability("did:merchant:frozen-expired", "transcription", "did:solana:frozen-expired", "transcription", 8, "v1", now)
+	capability.ValidUntil = now.Add(time.Minute)
+	query := catalog.DiscoveryQuery{TaskType: "transcription", InputContentType: "audio/mpeg", ExpectedOutputContentType: "text/plain", SupportedProtocolVersions: []string{"x402-v1"}, Currency: "USDC", BudgetLimitMinor: 10, Deadline: now.Add(time.Hour)}
+	set, err := catalog.BuildCandidateSet("cs-frozen-expired", current.EpisodeID, current.RequestID, query, []*catalog.MerchantCapability{capability}, now, now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := decision.DecisionProposal{ProposalID: "frozen-expired-selection", EpisodeID: current.EpisodeID, BasedOnEventSequence: current.Version - 1, ProposedAction: trace.ActionSelectMerchant, CandidateSetID: set.CandidateSetID,
+		Target: &decision.ProposalTarget{MerchantDID: capability.MerchantDID, CapabilityID: capability.CapabilityID}, CreatedAt: now.Add(time.Minute), ExpiresAt: now.Add(3 * time.Minute)}
+	_, err = decision.NewRuntimeGuard().EvaluateMerchantSelection(current, proposal, nil, trace.Observation{Type: trace.ObservationCandidatesFound}, now.Add(2*time.Minute), set)
+	if !errors.Is(err, catalog.ErrCatalogSnapshotExpired) {
+		t.Fatalf("expired frozen catalog candidate was accepted: %v", err)
 	}
 }

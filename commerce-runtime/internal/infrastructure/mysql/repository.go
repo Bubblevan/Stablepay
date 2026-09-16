@@ -276,9 +276,6 @@ func (s *Store) SaveCapabilityVersion(ctx context.Context, value *catalog.Mercha
 			}
 			return err
 		}
-		if normalized.Status != catalog.StatusActive {
-			return nil
-		}
 		var pointer MerchantCapabilityCurrentModel
 		pointerErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("merchant_did = ? AND capability_id = ?", model.MerchantDID, model.CapabilityID).First(&pointer).Error
 		if errors.Is(pointerErr, gorm.ErrRecordNotFound) {
@@ -319,25 +316,27 @@ func (s *Store) GetCurrentActiveCapability(ctx context.Context, merchantDID, cap
 }
 
 func (s *Store) ListActiveCapabilities(ctx context.Context) ([]*catalog.MerchantCapability, error) {
-	var rows []MerchantCapabilityModel
-	if err := s.db.WithContext(ctx).Where("status = ?", string(catalog.StatusActive)).Find(&rows).Error; err != nil {
+	var pointers []MerchantCapabilityCurrentModel
+	if err := s.db.WithContext(ctx).Find(&pointers).Error; err != nil {
 		return nil, err
 	}
-	selected := make(map[string]*catalog.MerchantCapability)
-	for _, row := range rows {
+	result := make([]*catalog.MerchantCapability, 0, len(pointers))
+	for _, pointer := range pointers {
+		var row MerchantCapabilityModel
+		err := s.db.WithContext(ctx).Where("merchant_did = ? AND capability_id = ? AND catalog_version = ?", pointer.MerchantDID, pointer.CapabilityID, pointer.CatalogVersion).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, repository.ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
 		value, err := modelToMerchantCapability(row)
 		if err != nil {
 			return nil, err
 		}
-		key := value.MerchantDID + "\x00" + value.CapabilityID
-		current, ok := selected[key]
-		if !ok || catalog.CompareVersions(value.CatalogVersion, current.CatalogVersion) > 0 {
-			selected[key] = value
+		if value.Status == catalog.StatusActive && value.Availability == catalog.AvailabilityAvailable {
+			result = append(result, value)
 		}
-	}
-	result := make([]*catalog.MerchantCapability, 0, len(selected))
-	for _, value := range selected {
-		result = append(result, value)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].MerchantDID != result[j].MerchantDID {

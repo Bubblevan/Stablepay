@@ -27,6 +27,82 @@ func mysqlS3Capability(merchant, capability, payee, version string, now time.Tim
 		ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(10 * time.Minute), CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)}
 }
 
+func TestMySQLS3CurrentPointerHonorsDeactivation(t *testing.T) {
+	dsn := os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("COMMERCE_RUNTIME_MYSQL_DSN is not set")
+	}
+	db, err := Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := AutoMigrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	merchant := "did:merchant:mysql-current-" + suffix
+	capabilityIDs := []string{"inactive-capability", "deprecated-capability", "reactivated-capability"}
+	for _, capabilityID := range capabilityIDs {
+		defer func(capabilityID string) {
+			db.Exec("DELETE FROM merchant_capability_current WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
+			db.Exec("DELETE FROM merchant_capabilities WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
+		}(capabilityID)
+	}
+	versions := []*catalog.MerchantCapability{
+		mysqlS3Capability(merchant, capabilityIDs[0], "did:solana:mysql-inactive-"+suffix, "v1", now),
+		mysqlS3Capability(merchant, capabilityIDs[0], "did:solana:mysql-inactive-"+suffix, "v2", now),
+		mysqlS3Capability(merchant, capabilityIDs[1], "did:solana:mysql-deprecated-"+suffix, "v1", now),
+		mysqlS3Capability(merchant, capabilityIDs[1], "did:solana:mysql-deprecated-"+suffix, "v2", now),
+		mysqlS3Capability(merchant, capabilityIDs[2], "did:solana:mysql-reactivated-"+suffix, "v1", now),
+		mysqlS3Capability(merchant, capabilityIDs[2], "did:solana:mysql-reactivated-"+suffix, "v2", now),
+		mysqlS3Capability(merchant, capabilityIDs[2], "did:solana:mysql-reactivated-"+suffix, "v3", now),
+	}
+	versions[1].Status = catalog.StatusInactive
+	versions[3].Status = catalog.StatusDeprecated
+	versions[5].Status = catalog.StatusInactive
+	versions[6].UpdatedAt = now.Add(2 * time.Second)
+	for index, value := range versions {
+		if index > 0 {
+			value.UpdatedAt = now.Add(time.Duration(index) * time.Second)
+		}
+		if err := NewStore(db).SaveCapabilityVersion(ctx, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewStore(db)
+	for _, expected := range []struct {
+		capabilityID string
+		version      string
+		status       catalog.CapabilityStatus
+	}{
+		{capabilityIDs[0], "v2", catalog.StatusInactive},
+		{capabilityIDs[1], "v2", catalog.StatusDeprecated},
+		{capabilityIDs[2], "v3", catalog.StatusActive},
+	} {
+		current, err := store.GetCurrentActiveCapability(ctx, merchant, expected.capabilityID)
+		if err != nil || current.CatalogVersion != expected.version || current.Status != expected.status {
+			t.Fatalf("unexpected current pointer for %s: %#v, %v", expected.capabilityID, current, err)
+		}
+	}
+	active, err := store.ListActiveCapabilities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range active {
+		if value.MerchantDID != merchant {
+			continue
+		}
+		if value.CapabilityID == capabilityIDs[0] || value.CapabilityID == capabilityIDs[1] {
+			t.Fatalf("discovery fell back to a historical active version: %#v", value)
+		}
+		if value.CapabilityID == capabilityIDs[2] && value.CatalogVersion != "v3" {
+			t.Fatalf("discovery returned a non-current version after reactivation: %#v", value)
+		}
+	}
+}
+
 // TestMySQLS3CatalogAndCandidateSetPersistence exercises the real MySQL path
 // for immutable versions, current lookup, snapshot hashes, expiry and facts.
 func TestMySQLS3CatalogAndCandidateSetPersistence(t *testing.T) {
@@ -233,6 +309,77 @@ func TestMySQLS3CandidateSetToSelectMerchant(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		db.Exec("DELETE FROM candidate_sets WHERE candidate_set_id = ?", discovered.CandidateSet.CandidateSetID)
+		db.Exec("DELETE FROM merchant_capability_current WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
+		db.Exec("DELETE FROM merchant_capabilities WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
+		db.Exec("DELETE FROM episode_events WHERE episode_id = ?", created.Episode.EpisodeID)
+		db.Exec("DELETE FROM commerce_episodes WHERE episode_id = ?", created.Episode.EpisodeID)
+	})
+}
+
+func TestMySQLS3DiscoveryReplayUsesSameCandidateSetFact(t *testing.T) {
+	dsn := os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("COMMERCE_RUNTIME_MYSQL_DSN is not set")
+	}
+	db, err := Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := AutoMigrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	merchant := "did:merchant:mysql-discovery-replay-" + suffix
+	capabilityID := "integration-capability"
+	store := NewStore(db)
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	request := integrationRequest(now, "acr-mysql-discovery-replay-"+suffix)
+	created, err := service.CreateEpisode(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := mysqlS3Capability(merchant, capabilityID, "did:solana:mysql-replay-old-"+suffix, "v1", now)
+	v1.TaskTypes = []string{"integration"}
+	v1.InputContentTypes = []string{"application/octet-stream"}
+	v1.OutputContentTypes = []string{"application/json"}
+	if err := store.SaveCapabilityVersion(ctx, v1); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.DiscoverCapabilities(ctx, application.DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Replayed || len(first.CandidateSet.Candidates) != 1 {
+		t.Fatalf("unexpected first MySQL discovery: %#v", first)
+	}
+	v2 := v1.Clone()
+	v2.CatalogVersion = "v2"
+	v2.Status = catalog.StatusInactive
+	v2.UpdatedAt = now.Add(time.Second)
+	if err := store.SaveCapabilityVersion(ctx, v2); err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.DiscoverCapabilities(ctx, application.DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Replayed || second.CandidateSet.CandidateSetID != first.CandidateSet.CandidateSetID || second.CandidateSet.PayloadHash != first.CandidateSet.PayloadHash || second.Event.EventID != first.Event.EventID || second.CandidateSet.Candidates[0].CatalogVersion != "v1" {
+		t.Fatalf("MySQL discovery replay changed the committed fact: first=%#v second=%#v", first, second)
+	}
+	if second.Episode.ActionCount != first.Episode.ActionCount {
+		t.Fatalf("MySQL discovery replay changed ActionCount: %d -> %d", first.Episode.ActionCount, second.Episode.ActionCount)
+	}
+	events, err := service.ListEvents(ctx, created.Episode.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("MySQL discovery replay appended another event: %#v", events)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM candidate_sets WHERE candidate_set_id = ?", first.CandidateSet.CandidateSetID)
 		db.Exec("DELETE FROM merchant_capability_current WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
 		db.Exec("DELETE FROM merchant_capabilities WHERE merchant_did = ? AND capability_id = ?", merchant, capabilityID)
 		db.Exec("DELETE FROM episode_events WHERE episode_id = ?", created.Episode.EpisodeID)

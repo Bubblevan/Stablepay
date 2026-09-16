@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/trace"
@@ -52,5 +53,102 @@ func TestEventSequenceIsUniqueAndHistoryIsAppendOnly(t *testing.T) {
 	}
 	if loadedAgain[0].StateAfter != episode.StateDiscovering {
 		t.Fatal("repository exposed mutable event history")
+	}
+}
+
+func repositoryCapability(merchant, capability, version string, status catalog.CapabilityStatus, now time.Time) *catalog.MerchantCapability {
+	price := int64(8)
+	return &catalog.MerchantCapability{MerchantDID: merchant, CapabilityID: capability, PayeeDID: "did:solana:payee:" + capability,
+		Name: capability, Description: "repository catalog fact", TaskTypes: []string{"transcription"}, SemanticTags: []string{"language=en"},
+		InvokeEndpoint: catalog.EndpointRef{Ref: "merchant://" + merchant + "/" + capability}, InputSchemaRef: "schema:input", OutputSchemaRef: "schema:output",
+		InputContentTypes: []string{"audio/mpeg"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v1"},
+		SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: status,
+		Availability: catalog.AvailabilityAvailable, CatalogVersion: version, Source: "repository-test", ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour),
+		CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)}
+}
+
+func TestInMemoryCurrentPointerFollowsLatestVersionAcrossDeactivation(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	store := NewInMemoryStore()
+	merchant := "did:merchant:current-pointer"
+	for _, value := range []*catalog.MerchantCapability{
+		repositoryCapability(merchant, "transcription", "v1", catalog.StatusActive, now),
+		repositoryCapability(merchant, "transcription", "v2", catalog.StatusInactive, now),
+	} {
+		if err := store.SaveCapabilityVersion(context.Background(), value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := store.GetCurrentActiveCapability(context.Background(), merchant, "transcription")
+	if err != nil || current.CatalogVersion != "v2" || current.Status != catalog.StatusInactive {
+		t.Fatalf("current pointer did not retain inactive authoritative version: %#v, %v", current, err)
+	}
+	active, err := store.ListActiveCapabilities(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range active {
+		if value.MerchantDID == merchant && value.CapabilityID == "transcription" {
+			t.Fatalf("discovery fell back to historical v1: %#v", value)
+		}
+	}
+}
+
+func TestInMemoryDeprecatedCurrentVersionHasNoCandidate(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	store := NewInMemoryStore()
+	merchant := "did:merchant:deprecated-pointer"
+	for _, value := range []*catalog.MerchantCapability{
+		repositoryCapability(merchant, "transcription", "v1", catalog.StatusActive, now),
+		repositoryCapability(merchant, "transcription", "v2", catalog.StatusDeprecated, now),
+	} {
+		if err := store.SaveCapabilityVersion(context.Background(), value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := store.GetCurrentActiveCapability(context.Background(), merchant, "transcription")
+	if err != nil || current.CatalogVersion != "v2" || current.Status != catalog.StatusDeprecated {
+		t.Fatalf("current pointer did not retain deprecated authoritative version: %#v, %v", current, err)
+	}
+	active, err := store.ListActiveCapabilities(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range active {
+		if value.MerchantDID == merchant && value.CapabilityID == "transcription" {
+			t.Fatalf("discovery returned a historical active version after deprecation: %#v", value)
+		}
+	}
+}
+
+func TestInMemoryCurrentPointerMovesPastDeactivationToNewActiveVersion(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	store := NewInMemoryStore()
+	merchant := "did:merchant:reactivated-pointer"
+	for _, value := range []*catalog.MerchantCapability{
+		repositoryCapability(merchant, "transcription", "v1", catalog.StatusActive, now),
+		repositoryCapability(merchant, "transcription", "v2", catalog.StatusInactive, now),
+		repositoryCapability(merchant, "transcription", "v3", catalog.StatusActive, now),
+	} {
+		if err := store.SaveCapabilityVersion(context.Background(), value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := store.GetCurrentActiveCapability(context.Background(), merchant, "transcription")
+	if err != nil || current.CatalogVersion != "v3" {
+		t.Fatalf("current pointer did not move to v3: %#v, %v", current, err)
+	}
+	active, err := store.ListActiveCapabilities(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *catalog.MerchantCapability
+	for _, value := range active {
+		if value.MerchantDID == merchant && value.CapabilityID == "transcription" {
+			found = value
+		}
+	}
+	if found == nil || found.CatalogVersion != "v3" {
+		t.Fatalf("discovery did not return current v3: %#v", found)
 	}
 }

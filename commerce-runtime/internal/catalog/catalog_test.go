@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,15 @@ func TestBuildCandidateSetFiltersHardConstraintsAndRanksDeterministically(t *tes
 	if set.Candidates[0].PayeeDID != a.PayeeDID || set.Candidates[0].CatalogVersion != "v1" || set.PayloadHash == "" || set.FactsRef == "" {
 		t.Fatalf("candidate did not retain authoritative catalog facts: %#v", set.Candidates[0])
 	}
+	changedValidity := set.Clone()
+	changedValidity.Candidates[0].CatalogValidUntil = now.Add(30 * time.Minute)
+	changedValidityHash, err := changedValidity.PayloadHashFor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedValidityHash == set.PayloadHash {
+		t.Fatal("candidate catalog validity was not covered by the canonical payload hash")
+	}
 	if err := set.ValidateAt(now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +82,26 @@ func TestCapabilityCanonicalSnapshotSeparatesCapabilityAndPayee(t *testing.T) {
 	}
 	if changedHash == hash {
 		t.Fatal("payee mutation did not change the immutable snapshot hash")
+	}
+}
+
+func TestMerchantAndPayeeMayBeEqualWithoutCollapsingCapabilityID(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	merchantAndPayee := "did:merchant:shared"
+	capability := testCapability(merchantAndPayee, "transcription-premium", merchantAndPayee, "transcription", 8, "v1", now)
+	if err := capability.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	set, err := BuildCandidateSet("cs-shared-identity", "episode-shared-identity", "request-shared-identity", testQuery(now), []*MerchantCapability{capability}, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(set.Candidates) != 1 {
+		t.Fatalf("shared MerchantDID/PayeeDID was not discoverable: %#v", set.Candidates)
+	}
+	candidate := set.Candidates[0]
+	if candidate.MerchantDID != merchantAndPayee || candidate.PayeeDID != merchantAndPayee || candidate.CapabilityID != capability.CapabilityID || strings.HasPrefix(candidate.CapabilityID, "did:") {
+		t.Fatalf("candidate identity fields were collapsed: %#v", candidate)
 	}
 }
 

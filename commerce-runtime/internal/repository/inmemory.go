@@ -80,11 +80,9 @@ func (s *InMemoryStore) SaveCapabilityVersion(ctx context.Context, value *catalo
 		return ErrCatalogVersionConflict
 	}
 	s.capabilities[key] = normalized.Clone()
-	if normalized.Status == catalog.StatusActive {
-		currentVersion, ok := s.currentCapabilities[group]
-		if !ok || catalog.CompareVersions(normalized.CatalogVersion, currentVersion) > 0 {
-			s.currentCapabilities[group] = normalized.CatalogVersion
-		}
+	currentVersion, ok := s.currentCapabilities[group]
+	if !ok || catalog.CompareVersions(normalized.CatalogVersion, currentVersion) > 0 {
+		s.currentCapabilities[group] = normalized.CatalogVersion
 	}
 	return nil
 }
@@ -114,7 +112,7 @@ func (s *InMemoryStore) GetCurrentActiveCapability(ctx context.Context, merchant
 		return nil, ErrNotFound
 	}
 	value, ok := s.capabilities[capabilityVersionKey(strings.TrimSpace(merchantDID), strings.ToLower(strings.TrimSpace(capabilityID)), version)]
-	if !ok || value.Status != catalog.StatusActive {
+	if !ok {
 		return nil, ErrNotFound
 	}
 	return value.Clone(), nil
@@ -129,7 +127,7 @@ func (s *InMemoryStore) ListActiveCapabilities(ctx context.Context) ([]*catalog.
 	result := make([]*catalog.MerchantCapability, 0, len(s.currentCapabilities))
 	for group, version := range s.currentCapabilities {
 		value, ok := s.capabilities[group+"\x00"+version]
-		if !ok || value.Status != catalog.StatusActive {
+		if !ok || value.Status != catalog.StatusActive || value.Availability != catalog.AvailabilityAvailable {
 			continue
 		}
 		result = append(result, value.Clone())
