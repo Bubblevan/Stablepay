@@ -44,7 +44,7 @@
 
 核心方法（最小集）：
 
-- `TransferStableCoin`：执行稳定币转账（amount 使用最小单位整数，6 decimals）
+- `TransferStableCoin`：执行稳定币转账（amount 使用 2 位 business minor units；adapter 仅在链上边界转换为 6 位 raw units）
 - `GetBalance`：查询钱包余额（最小单位整数）
 - `GetTxStatus`：查询交易状态
 
@@ -80,7 +80,7 @@
 
 ### 4.2 金额与精度
 
-- RPC 内部统一使用最小单位整数 `amount_minor`（一期按 6 decimals）
+- RPC 内部统一使用 business minor 单位整数 `amount_minor`（USDC/USDT 为 2 位 decimals；仅 blockchain-adapter 使用 6 位 raw units）
 - RPC 层不接收/传递浮点
 
 ### 4.3 幂等

@@ -305,6 +305,9 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		return StateClaiming, from == StatePaying
 	case trace.ActionVerifyEntitlement:
 		if observation == trace.ObservationEntitlementInvalid {
+			return StateFailed, from == StateClaiming
+		}
+		if observation == trace.ObservationEntitlementUnknown {
 			return StateClaiming, from == StateClaiming
 		}
 		return StateInvokingDelivery, from == StateClaiming && observation == trace.ObservationEntitlementValid

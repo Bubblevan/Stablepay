@@ -37,8 +37,11 @@ func (f CredentialFunc) Credentials(ctx context.Context, intent payment.PaymentI
 	return f(ctx, intent)
 }
 
-// HTTPGatewayPaymentAdapter is retained for explicit gateway integrations.
-// Production runtime wiring uses KitexPaymentAdapter for payment-service RPC.
+// HTTPGatewayPaymentAdapter is an optional/test gateway integration path. It
+// is not a complete production Gateway-auth adapter: it does not implement
+// the canonical X-StablePay-DID/Signature/Timestamp/Nonce authentication
+// headers. Production runtime wiring uses KitexPaymentAdapter for the
+// payment-service RPC boundary.
 type HTTPGatewayPaymentAdapter struct {
 	BaseURL     string
 	Client      *http.Client

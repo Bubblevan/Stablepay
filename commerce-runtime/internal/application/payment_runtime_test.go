@@ -359,6 +359,46 @@ func TestInvalidOrUnboundEntitlementFailsEpisode(t *testing.T) {
 	}
 }
 
+func TestEntitlementUnknownKeepsClaimingWithNonTerminalEvent(t *testing.T) {
+	service, store, now, created := createFixture(t)
+	current := advanceToNegotiating(t, service, created, now)
+	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:entitlement-unknown", CapabilityID: "capability:entitlement-unknown", PayeeDID: "did:payee:entitlement-unknown", QuoteHash: "entitlement-unknown-quote", AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}
+	_, adapter, _, entitlement, dependencies := newS2Dependencies(quote)
+	adapter.outcome = payment.PaymentOutcome{Status: payment.OutcomeConfirmed, TxID: "tx-entitlement-unknown", TxHash: "hash-entitlement-unknown", AmountMinor: 300, Currency: "USDC"}
+	entitlement.result = adapters.EntitlementResult{Status: adapters.EntitlementUnknown, Reason: "entitlement query timeout"}
+	service.paymentDeps = dependencies
+	reserved, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: quote, IdempotencyKey: "unknown-entitlement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeAndSubmitPayment(context.Background(), reserved.Intent.IntentID, "unknown-entitlement-submit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ReconcilePayment(context.Background(), reserved.Intent.IntentID, "unknown-entitlement-confirm"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.VerifyPaymentEntitlement(context.Background(), reserved.Intent.IntentID, "unknown-entitlement-verify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Episode.State != episode.StateClaiming || result.Episode.TerminalReason != "" || episode.IsTerminal(result.Episode.State) {
+		t.Fatalf("unknown entitlement changed terminal/state semantics: %#v", result.Episode)
+	}
+	if result.Event == nil || result.Event.StateBefore != episode.StateClaiming || result.Event.StateAfter != episode.StateClaiming || result.Event.Observation.Type != trace.ObservationEntitlementUnknown {
+		t.Fatalf("unknown entitlement event is incorrect: %#v", result.Event)
+	}
+	if result.Event.Sequence != result.Episode.Version-1 {
+		t.Fatalf("unknown entitlement did not advance event/version together: event=%#v episode=%#v", result.Event, result.Episode)
+	}
+	events, err := store.ListByEpisode(context.Background(), current.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 || events[len(events)-1].Observation.Type != trace.ObservationEntitlementUnknown {
+		t.Fatalf("unknown entitlement event was not durable: %#v", events)
+	}
+}
+
 func TestEntitlementWithConflictingTransactionCannotConfirmIntent(t *testing.T) {
 	service, _, now, created := createFixture(t)
 	current := advanceToNegotiating(t, service, created, now)

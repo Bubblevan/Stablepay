@@ -548,17 +548,13 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	if current.State != episode.StateClaiming {
 		return PaymentExecutionResult{}, decision.ErrActionNotAllowed
 	}
-	eventKey := intent.IdempotencyKey + ":entitlement"
-	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, eventKey); findErr == nil {
-		return PaymentExecutionResult{Intent: intent, Episode: current, Event: existing, Replayed: true, Outcome: payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency}}, nil
-	}
 	result, err := s.paymentDeps.Entitlement.Verify(ctx, adapters.EntitlementQuery{EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, RequesterDID: intent.RequesterDID})
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}
 	now := s.clock().UTC()
 	stateAfter := episode.StateClaiming
-	observationType := trace.ObservationEntitlementInvalid
+	observationType := trace.ObservationEntitlementUnknown
 	if result.Status == adapters.EntitlementValid {
 		if !result.MatchesIntent(*intent) {
 			result.Status = adapters.EntitlementInvalid
@@ -567,6 +563,8 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 			stateAfter = episode.StateInvokingDelivery
 			observationType = trace.ObservationEntitlementValid
 		}
+	} else if result.Status == adapters.EntitlementInvalid {
+		observationType = trace.ObservationEntitlementInvalid
 	}
 	terminalReason := ""
 	if result.Status == adapters.EntitlementInvalid {
@@ -578,6 +576,7 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	if err := next.ApplyCommittedState(stateAfter, now, terminalReason); err != nil {
 		return PaymentExecutionResult{}, err
 	}
+	eventKey := intent.IdempotencyKey + ":entitlement:" + strings.ToLower(string(result.Status))
 	event, err := s.newPaymentEvent(current, next, now, trace.ActionVerifyEntitlement, eventKey, trace.Observation{Type: observationType, Code: result.Reference}, intent.IntentID+":entitlement", "runtime", traceID)
 	if err != nil {
 		return PaymentExecutionResult{}, err

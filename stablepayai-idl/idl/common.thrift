@@ -72,8 +72,10 @@ struct PageResult {
 }
 
 /**
- * 金额（内部表达）：最小单位整数
- * - 一期约定：USDC/USDT 按 6 decimals 处理
+ * 金额（canonical business 表达）：业务最小单位整数
+ * - USDC/USDT 的 amount_minor 使用 2 位 business decimals
+ * - 仅 blockchain-adapter 边界将 business minor 转换为 6 位 SPL token raw units
+ * - amount_minor、budget_limit_minor、quote amount 均不得直接表示 blockchain raw units
  */
 struct MoneyMinor {
   1: i64 amount_minor,

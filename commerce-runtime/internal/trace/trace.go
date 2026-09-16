@@ -52,6 +52,7 @@ const (
 	ObservationPaymentFailed        ObservationType = "PAYMENT_FAILED"
 	ObservationPaymentUnknown       ObservationType = "PAYMENT_UNKNOWN"
 	ObservationEntitlementInvalid   ObservationType = "ENTITLEMENT_INVALID"
+	ObservationEntitlementUnknown   ObservationType = "ENTITLEMENT_UNKNOWN"
 )
 
 type Action struct {

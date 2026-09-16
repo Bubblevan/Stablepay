@@ -38,7 +38,7 @@
 
 - 一期支持：`USDC`、`USDT`
 - 外部 API：`amount` 使用 **字符串 decimal**（例如 `"5.00"`、`"0.50"`），避免浮点误差
-- 内部服务/DB/链适配层：统一转换为最小单位整数（一期按 **6 decimals** 处理）
+- 内部服务/DB 使用 business minor 单位整数（USDC/USDT 为 2 位 decimals）；仅 blockchain-adapter 在链上边界转换为 6 位 raw units
 
 ## 3. 认证与鉴权（一期最小可用）
 
