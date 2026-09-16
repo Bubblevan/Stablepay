@@ -12,12 +12,14 @@ import (
 
 func reconciliationIntent() payment.PaymentIntent {
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
-	return payment.PaymentIntent{
-		IntentID: "pi-1", EpisodeID: "episode-1", MerchantDID: "did:merchant:1", CapabilityID: "capability-1",
+	intent := payment.PaymentIntent{
+		IntentID: "pi-1", EpisodeID: "episode-1", MerchantDID: "did:merchant:1", CapabilityID: "capability-1", PayeeDID: "did:payee:1",
 		QuoteHash: "sha256:quote", AmountMinor: 300, Currency: "USDC", RequesterDID: "did:agent:1",
-		EpisodeVersion: 5, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey("episode-1", "did:merchant:1", "capability-1", "sha256:quote", 300, "USDC"),
-		ExpiresAt: now.Add(time.Hour), Status: payment.IntentPending, TxID: "tx-1", TxHash: "hash-1", CreatedAt: now, UpdatedAt: now,
+		EpisodeVersion: 5, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey("episode-1", "did:merchant:1", "capability-1", "did:payee:1", "sha256:quote", 300, "USDC"),
+		ExpiresAt: now.Add(time.Hour), Status: payment.IntentPending, CredentialRef: "credential:pay-1", TxID: "tx-1", TxHash: "hash-1", CreatedAt: now, UpdatedAt: now,
 	}
+	intent.RequestFingerprint = payment.RequestFingerprint(intent)
+	return intent
 }
 
 type paymentStatusFunc func(context.Context, adapters.PaymentQuery) (payment.PaymentOutcome, error)
@@ -95,7 +97,7 @@ func TestResolverUsesChainAndEntitlementEvidenceForUnknownOutcome(t *testing.T) 
 			if query.IntentID != intent.IntentID || query.TxID != intent.TxID {
 				t.Fatalf("entitlement query lost payment identity: %#v", query)
 			}
-			return adapters.EntitlementResult{Status: adapters.EntitlementValid, Reference: "entitlement-1"}, nil
+			return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: intent.IntentID, EvidenceRef: "entitlement-1"}, nil
 		}),
 	}).Resolve(context.Background(), intent, payment.PaymentOutcome{Status: payment.OutcomeUnknown, Reason: "rpc timeout"})
 	if err != nil || entitlement.Outcome.Status != payment.OutcomeConfirmed || entitlement.Source != "entitlement" {
@@ -117,5 +119,18 @@ func TestResolverNeverSubmitsOrRetries(t *testing.T) {
 	second, err := resolver.Resolve(context.Background(), intent, first.Outcome)
 	if err != nil || second.Outcome.Status != payment.OutcomePending || queries != 2 {
 		t.Fatalf("reconciliation did not remain pending deterministically: first=%#v second=%#v queries=%d err=%v", first, second, queries, err)
+	}
+}
+
+func TestResolverRejectsPaymentEvidenceForAnotherIntent(t *testing.T) {
+	intent := reconciliationIntent()
+	resolution, err := (Resolver{PaymentStatus: paymentStatusFunc(func(context.Context, adapters.PaymentQuery) (payment.PaymentOutcome, error) {
+		return payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: "other-intent", TxID: "other-tx", TxHash: "other-hash", AmountMinor: intent.AmountMinor, Currency: intent.Currency}, nil
+	})}).Resolve(context.Background(), intent, payment.PaymentOutcome{Status: payment.OutcomeUnknown})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Outcome.Status == payment.OutcomeConfirmed || resolution.Source != "unresolved" {
+		t.Fatalf("cross-intent payment status became confirmation: %#v", resolution)
 	}
 }

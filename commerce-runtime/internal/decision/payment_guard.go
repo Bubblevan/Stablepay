@@ -54,7 +54,7 @@ func (RuntimeGuard) CheckPayment(current *episode.CommerceEpisode, intent *payme
 	if intent.AmountMinor != intent.BudgetReservation || current.Budget.Currency != intent.Currency || current.Budget.ReservedAmount < intent.BudgetReservation {
 		return ErrPaymentBudgetReservation
 	}
-	if authorization.RequesterDID != intent.RequesterDID || authorization.MerchantDID != intent.MerchantDID || authorization.CapabilityID != intent.CapabilityID || authorization.QuoteHash != intent.QuoteHash || authorization.AmountMinor != intent.AmountMinor || strings.ToUpper(authorization.Currency) != strings.ToUpper(intent.Currency) {
+	if authorization.RequesterDID != intent.RequesterDID || authorization.MerchantDID != intent.MerchantDID || authorization.CapabilityID != intent.CapabilityID || authorization.PayeeDID != intent.PayeeDID || authorization.QuoteHash != intent.QuoteHash || authorization.AmountMinor != intent.AmountMinor || strings.ToUpper(authorization.Currency) != strings.ToUpper(intent.Currency) {
 		return ErrPaymentBindingMismatch
 	}
 	if !now.Before(current.DeadlineAt) || !now.Before(intent.ExpiresAt) {

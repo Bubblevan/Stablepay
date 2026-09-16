@@ -93,7 +93,7 @@ func TestCreateAndCommitProposalProducesStructuredEvent(t *testing.T) {
 func TestDeterministicS1FlowReachesFulfilledWithoutLLM(t *testing.T) {
 	service, store, now, created := createFixture(t)
 	current := advanceToNegotiating(t, service, created, now)
-	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:s1", CapabilityID: "capability:s1", QuoteHash: "s1-quote", AmountMinor: 300,
+	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:s1", CapabilityID: "capability:s1", PayeeDID: "did:payee:s1", QuoteHash: "s1-quote", AmountMinor: 300,
 		Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}
 	_, paymentAdapter, status, entitlement, dependencies := newS2Dependencies(quote)
 	service.paymentDeps = dependencies
@@ -221,7 +221,7 @@ func TestSameStatePaymentStepIsCommittedWithoutNewEpisodeState(t *testing.T) {
 		created = result.Episode
 	}
 	reserved, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: created.EpisodeID,
-		Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:same-state", CapabilityID: "capability:same-state", QuoteHash: "same-state-quote", AmountMinor: 100,
+		Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:same-state", CapabilityID: "capability:same-state", PayeeDID: "did:payee:same-state", QuoteHash: "same-state-quote", AmountMinor: 100,
 			Currency: "USDC", RequesterDID: created.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}, IdempotencyKey: "same-state-reserve", TraceID: "same-state-trace"})
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +359,12 @@ func TestStaticProviderHasNoCommitAuthority(t *testing.T) {
 func TestDecisionProposalCannotCommitPaymentFacts(t *testing.T) {
 	service, store, now, created := createFixture(t)
 	current := advanceToNegotiating(t, service, created, now)
-	for index, action := range []trace.ActionType{trace.ActionReserveBudget, trace.ActionCreatePayment, trace.ActionPaymentConfirmed, trace.ActionVerifyEntitlement} {
+	for index, action := range []trace.ActionType{
+		trace.ActionReserveBudget, trace.ActionNegotiateAndPay, trace.ActionCreatePayment,
+		trace.ActionPaymentAuthorizationChecked, trace.ActionPaymentSubmitted, trace.ActionPaymentPending,
+		trace.ActionPaymentStatusQueried, trace.ActionPaymentConfirmed, trace.ActionPaymentFailed,
+		trace.ActionPaymentUnknown, trace.ActionVerifyEntitlement,
+	} {
 		proposal := makeProposal(current.EpisodeID, current.Version-1, action, now)
 		if _, err := service.CommitProposal(context.Background(), commitRequest(proposal, action, "blocked-payment-action-"+string(rune('a'+index)), trace.Observation{Type: trace.ObservationPaymentConfirmed})); !errors.Is(err, decision.ErrActionNotAllowed) {
 			t.Fatalf("expected runtime-owned action %s to be blocked, got %v", action, err)

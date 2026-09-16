@@ -254,7 +254,9 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 func runtimeOwnedProposalAction(action trace.ActionType) bool {
 	switch action {
 	case trace.ActionReserveBudget, trace.ActionNegotiateAndPay, trace.ActionCreatePayment,
-		trace.ActionVerifyEntitlement, trace.ActionPaymentConfirmed:
+		trace.ActionVerifyEntitlement, trace.ActionPaymentAuthorizationChecked,
+		trace.ActionPaymentSubmitted, trace.ActionPaymentPending, trace.ActionPaymentStatusQueried,
+		trace.ActionPaymentConfirmed, trace.ActionPaymentFailed, trace.ActionPaymentUnknown:
 		return true
 	default:
 		return false

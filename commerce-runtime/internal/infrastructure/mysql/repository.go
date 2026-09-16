@@ -100,26 +100,29 @@ type LedgerEntryModel struct {
 func (LedgerEntryModel) TableName() string { return "ledger_entries" }
 
 type PaymentIntentModel struct {
-	IntentID          string    `gorm:"column:intent_id;type:varchar(128);primaryKey"`
-	EpisodeID         string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_intent_episode"`
-	MerchantDID       string    `gorm:"column:merchant_did;type:varchar(128);not null"`
-	CapabilityID      string    `gorm:"column:capability_id;type:varchar(128);not null"`
-	QuoteHash         string    `gorm:"column:quote_hash;type:char(71);not null"`
-	AmountMinor       int64     `gorm:"column:amount_minor;not null"`
-	Currency          string    `gorm:"column:currency;type:varchar(16);not null"`
-	RequesterDID      string    `gorm:"column:requester_did;type:varchar(128);not null"`
-	EpisodeVersion    uint64    `gorm:"column:episode_version;not null"`
-	BudgetReservation int64     `gorm:"column:budget_reservation;not null"`
-	IdempotencyKey    string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_intent_idempotency"`
-	EconomicKey       string    `gorm:"column:economic_key;type:char(71);not null;uniqueIndex:uk_intent_economic"`
-	ExpiresAt         time.Time `gorm:"column:expires_at;not null"`
-	Status            string    `gorm:"column:status;type:varchar(24);not null"`
-	TxID              string    `gorm:"column:tx_id;type:varchar(128)"`
-	TxHash            string    `gorm:"column:tx_hash;type:varchar(128)"`
-	AuthorizationRef  string    `gorm:"column:authorization_ref;type:varchar(128)"`
-	FailureCode       string    `gorm:"column:failure_code;type:varchar(128)"`
-	CreatedAt         time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt         time.Time `gorm:"column:updated_at;not null"`
+	IntentID           string    `gorm:"column:intent_id;type:varchar(128);primaryKey"`
+	EpisodeID          string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_intent_episode"`
+	MerchantDID        string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID       string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	PayeeDID           string    `gorm:"column:payee_did;type:varchar(128);not null"`
+	QuoteHash          string    `gorm:"column:quote_hash;type:char(71);not null"`
+	AmountMinor        int64     `gorm:"column:amount_minor;not null"`
+	Currency           string    `gorm:"column:currency;type:varchar(16);not null"`
+	RequesterDID       string    `gorm:"column:requester_did;type:varchar(128);not null"`
+	EpisodeVersion     uint64    `gorm:"column:episode_version;not null"`
+	BudgetReservation  int64     `gorm:"column:budget_reservation;not null"`
+	IdempotencyKey     string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_intent_idempotency"`
+	EconomicKey        string    `gorm:"column:economic_key;type:char(71);not null;uniqueIndex:uk_intent_economic"`
+	ExpiresAt          time.Time `gorm:"column:expires_at;not null"`
+	Status             string    `gorm:"column:status;type:varchar(24);not null"`
+	TxID               string    `gorm:"column:tx_id;type:varchar(128)"`
+	TxHash             string    `gorm:"column:tx_hash;type:varchar(128)"`
+	AuthorizationRef   string    `gorm:"column:authorization_ref;type:varchar(128)"`
+	CredentialRef      string    `gorm:"column:credential_ref;type:varchar(128);not null"`
+	RequestFingerprint string    `gorm:"column:request_fingerprint;type:char(71);not null"`
+	FailureCode        string    `gorm:"column:failure_code;type:varchar(128)"`
+	CreatedAt          time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (PaymentIntentModel) TableName() string { return "payment_intents" }
@@ -864,21 +867,21 @@ func paymentIntentToModel(value *payment.PaymentIntent) (*PaymentIntentModel, er
 		return nil, err
 	}
 	return &PaymentIntentModel{
-		IntentID: value.IntentID, EpisodeID: value.EpisodeID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID,
+		IntentID: value.IntentID, EpisodeID: value.EpisodeID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID,
 		QuoteHash: value.QuoteHash, AmountMinor: value.AmountMinor, Currency: value.Currency, RequesterDID: value.RequesterDID,
 		EpisodeVersion: value.EpisodeVersion, BudgetReservation: value.BudgetReservation, IdempotencyKey: value.IdempotencyKey,
 		EconomicKey: value.EconomicKey, ExpiresAt: value.ExpiresAt, Status: string(value.Status), TxID: value.TxID, TxHash: value.TxHash,
-		AuthorizationRef: value.AuthorizationRef, FailureCode: value.FailureCode, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		AuthorizationRef: value.AuthorizationRef, CredentialRef: value.CredentialRef, RequestFingerprint: value.RequestFingerprint, FailureCode: value.FailureCode, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}, nil
 }
 
 func modelToPaymentIntent(row PaymentIntentModel) (*payment.PaymentIntent, error) {
 	value := &payment.PaymentIntent{
-		IntentID: row.IntentID, EpisodeID: row.EpisodeID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID,
+		IntentID: row.IntentID, EpisodeID: row.EpisodeID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, PayeeDID: row.PayeeDID,
 		QuoteHash: row.QuoteHash, AmountMinor: row.AmountMinor, Currency: row.Currency, RequesterDID: row.RequesterDID,
 		EpisodeVersion: row.EpisodeVersion, BudgetReservation: row.BudgetReservation, IdempotencyKey: row.IdempotencyKey,
 		EconomicKey: row.EconomicKey, ExpiresAt: row.ExpiresAt, Status: payment.IntentStatus(row.Status), TxID: row.TxID, TxHash: row.TxHash,
-		AuthorizationRef: row.AuthorizationRef, FailureCode: row.FailureCode, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		AuthorizationRef: row.AuthorizationRef, CredentialRef: row.CredentialRef, RequestFingerprint: row.RequestFingerprint, FailureCode: row.FailureCode, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if err := value.Validate(); err != nil {
 		return nil, err
@@ -889,7 +892,7 @@ func modelToPaymentIntent(row PaymentIntentModel) (*payment.PaymentIntent, error
 func paymentIntentUpdates(value *payment.PaymentIntent) map[string]any {
 	return map[string]any{
 		"episode_version": value.EpisodeVersion, "status": string(value.Status), "tx_id": value.TxID, "tx_hash": value.TxHash,
-		"authorization_ref": value.AuthorizationRef, "failure_code": value.FailureCode, "updated_at": value.UpdatedAt,
+		"authorization_ref": value.AuthorizationRef, "credential_ref": value.CredentialRef, "request_fingerprint": value.RequestFingerprint, "failure_code": value.FailureCode, "updated_at": value.UpdatedAt,
 	}
 }
 
@@ -898,10 +901,10 @@ func sameIntentIdentity(left, right *payment.PaymentIntent) bool {
 		return false
 	}
 	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
-		left.CapabilityID == right.CapabilityID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
 		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID &&
-		left.BudgetReservation == right.BudgetReservation && left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey &&
-		left.ExpiresAt.Equal(right.ExpiresAt) && left.CreatedAt.Equal(right.CreatedAt)
+		left.BudgetReservation == right.BudgetReservation && left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.CredentialRef == right.CredentialRef &&
+		left.ExpiresAt.Equal(right.ExpiresAt) && left.CreatedAt.Equal(right.CreatedAt) && left.RequestFingerprint == right.RequestFingerprint
 }
 
 func isDuplicateKey(err error) bool {

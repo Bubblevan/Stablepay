@@ -34,12 +34,13 @@ func guardFixtures(t *testing.T) (*episode.CommerceEpisode, *payment.PaymentInte
 		t.Fatal(err)
 	}
 	intent := &payment.PaymentIntent{
-		IntentID: "pi-1", EpisodeID: current.EpisodeID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID,
+		IntentID: "pi-1", EpisodeID: current.EpisodeID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, PayeeDID: "did:payee:1",
 		QuoteHash: current.CurrentQuoteHash, AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID,
-		EpisodeVersion: current.Version, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey(current.EpisodeID, current.SelectedMerchantDID, current.SelectedCapabilityID, current.CurrentQuoteHash, 300, "USDC"),
-		ExpiresAt: now.Add(30 * time.Minute), Status: payment.IntentAuthorized, CreatedAt: now, UpdatedAt: now,
+		EpisodeVersion: current.Version, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey(current.EpisodeID, current.SelectedMerchantDID, current.SelectedCapabilityID, "did:payee:1", current.CurrentQuoteHash, 300, "USDC"),
+		ExpiresAt: now.Add(30 * time.Minute), Status: payment.IntentAuthorized, CredentialRef: "credential:pay-1", CreatedAt: now, UpdatedAt: now,
 	}
-	authorization := adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID,
+	intent.RequestFingerprint = payment.RequestFingerprint(*intent)
+	authorization := adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID,
 		QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: "auth-1"}
 	return current, intent, authorization, now
 }
@@ -59,7 +60,8 @@ func TestPaymentGuardRejectsStaleOrMismatchedIntent(t *testing.T) {
 	current.Budget.ReservedAmount = 300
 	current.Budget.AvailableBudget = 700
 	intent.QuoteHash = "sha256:other"
-	intent.EconomicKey = payment.EconomicIdentityKey(intent.EpisodeID, intent.MerchantDID, intent.CapabilityID, intent.QuoteHash, intent.AmountMinor, intent.Currency)
+	intent.EconomicKey = payment.EconomicIdentityKey(intent.EpisodeID, intent.MerchantDID, intent.CapabilityID, intent.PayeeDID, intent.QuoteHash, intent.AmountMinor, intent.Currency)
+	intent.RequestFingerprint = payment.RequestFingerprint(*intent)
 	if err := (RuntimeGuard{}).CheckPayment(current, intent, authorization, now); err != ErrPaymentQuoteMismatch {
 		t.Fatalf("expected quote mismatch, got %v", err)
 	}
@@ -87,5 +89,13 @@ func TestPaymentGuardRequiresTrustedAuthorizationBinding(t *testing.T) {
 	authorization.Reason = "policy denied"
 	if err := (RuntimeGuard{}).CheckPayment(current, intent, authorization, now); err != ErrPaymentAuthorization {
 		t.Fatalf("expected authorization denial, got %v", err)
+	}
+}
+
+func TestPaymentGuardRequiresPayeeBinding(t *testing.T) {
+	current, intent, authorization, now := guardFixtures(t)
+	authorization.PayeeDID = "did:payee:other"
+	if err := (RuntimeGuard{}).CheckPayment(current, intent, authorization, now); err != ErrPaymentBindingMismatch {
+		t.Fatalf("expected payee binding mismatch, got %v", err)
 	}
 }

@@ -35,6 +35,7 @@ func WithPaymentAdapters(dependencies PaymentDependencies) Option {
 type TrustedPaymentQuote struct {
 	MerchantDID  string
 	CapabilityID string
+	PayeeDID     string
 	QuoteHash    string
 	AmountMinor  int64
 	Currency     string
@@ -43,7 +44,7 @@ type TrustedPaymentQuote struct {
 }
 
 func (q TrustedPaymentQuote) Validate(now time.Time, deadline time.Time) error {
-	if strings.TrimSpace(q.MerchantDID) == "" || strings.TrimSpace(q.CapabilityID) == "" || strings.TrimSpace(q.QuoteHash) == "" || strings.TrimSpace(q.RequesterDID) == "" || q.AmountMinor <= 0 || strings.TrimSpace(q.Currency) == "" || q.ExpiresAt.IsZero() {
+	if strings.TrimSpace(q.MerchantDID) == "" || strings.TrimSpace(q.CapabilityID) == "" || strings.TrimSpace(q.PayeeDID) == "" || strings.TrimSpace(q.QuoteHash) == "" || strings.TrimSpace(q.RequesterDID) == "" || q.AmountMinor <= 0 || strings.TrimSpace(q.Currency) == "" || q.ExpiresAt.IsZero() {
 		return payment.ErrInvalidIntent
 	}
 	if !q.ExpiresAt.After(now) || !q.ExpiresAt.Before(deadline) {
@@ -147,7 +148,7 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	} else if !errors.Is(err, repository.ErrPaymentIntentNotFound) {
 		return PaymentIntentResult{}, err
 	}
-	economicKey := payment.EconomicIdentityKey(current.EpisodeID, request.Quote.MerchantDID, request.Quote.CapabilityID, request.Quote.QuoteHash, request.Quote.AmountMinor, request.Quote.Currency)
+	economicKey := payment.EconomicIdentityKey(current.EpisodeID, request.Quote.MerchantDID, request.Quote.CapabilityID, request.Quote.PayeeDID, request.Quote.QuoteHash, request.Quote.AmountMinor, request.Quote.Currency)
 	if existing, err := store.FindPaymentIntentByEconomicKey(ctx, current.EpisodeID, economicKey); err == nil {
 		if !intentMatchesQuote(existing, current.EpisodeID, request.Quote) {
 			return PaymentIntentResult{}, repository.ErrPaymentIntentConflict
@@ -182,11 +183,13 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	}
 	intent := &payment.PaymentIntent{
 		IntentID: s.idGenerator("pi"), EpisodeID: current.EpisodeID, MerchantDID: request.Quote.MerchantDID,
-		CapabilityID: request.Quote.CapabilityID, QuoteHash: request.Quote.QuoteHash, AmountMinor: request.Quote.AmountMinor,
+		CapabilityID: request.Quote.CapabilityID, PayeeDID: request.Quote.PayeeDID, QuoteHash: request.Quote.QuoteHash, AmountMinor: request.Quote.AmountMinor,
 		Currency: strings.ToUpper(request.Quote.Currency), RequesterDID: request.Quote.RequesterDID,
 		EpisodeVersion: current.Version + 1, BudgetReservation: request.Quote.AmountMinor, IdempotencyKey: request.IdempotencyKey,
 		EconomicKey: economicKey, ExpiresAt: request.Quote.ExpiresAt, Status: payment.IntentCreated, CreatedAt: now, UpdatedAt: now,
+		CredentialRef: "credential:" + request.IdempotencyKey,
 	}
+	intent.RequestFingerprint = payment.RequestFingerprint(*intent)
 	entry.PaymentIntentID = intent.IntentID
 	if err := projection.Apply(*entry); err != nil {
 		return PaymentIntentResult{}, err
@@ -257,7 +260,7 @@ func nextLedgerSequence(ctx context.Context, store repository.S2Store, episodeID
 }
 
 func intentMatchesQuote(intent *payment.PaymentIntent, episodeID string, quote TrustedPaymentQuote) bool {
-	return intent != nil && intent.EpisodeID == episodeID && intent.MerchantDID == quote.MerchantDID && intent.CapabilityID == quote.CapabilityID && intent.QuoteHash == quote.QuoteHash && intent.AmountMinor == quote.AmountMinor && strings.EqualFold(intent.Currency, quote.Currency) && intent.RequesterDID == quote.RequesterDID
+	return intent != nil && intent.EpisodeID == episodeID && intent.MerchantDID == quote.MerchantDID && intent.CapabilityID == quote.CapabilityID && intent.PayeeDID == quote.PayeeDID && intent.QuoteHash == quote.QuoteHash && intent.AmountMinor == quote.AmountMinor && strings.EqualFold(intent.Currency, quote.Currency) && intent.RequesterDID == quote.RequesterDID
 }
 
 func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, traceID string) (PaymentExecutionResult, error) {
@@ -282,24 +285,28 @@ func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, trace
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}
-	authorization := adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: intent.AuthorizationRef}
+	authorization := adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: intent.AuthorizationRef}
 	if intent.Status == payment.IntentCreated {
 		if s.paymentDeps.DID == nil {
 			return PaymentExecutionResult{}, errors.New("DID adapter is not configured")
 		}
-		authorization, err = s.paymentDeps.DID.AuthorizePayment(ctx, adapters.AuthorizationRequest{Intent: *intent, Now: s.clock().UTC()})
+		authorization, err = s.paymentDeps.DID.AuthorizePayment(ctx, adapters.AuthorizationRequest{Intent: *intent, PayeeDID: intent.PayeeDID, Now: s.clock().UTC()})
 		if err != nil {
-			return PaymentExecutionResult{}, err
+			return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, "PAYMENT_AUTHORIZATION_ERROR", traceID, err)
 		}
 		if err := authorization.Validate(); err != nil {
-			return PaymentExecutionResult{}, err
+			return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, "PAYMENT_AUTHORIZATION_INVALID", traceID, err)
+		}
+		if !authorization.Allowed {
+			return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, "PAYMENT_AUTHORIZATION_DENIED", traceID, decision.ErrPaymentAuthorization)
 		}
 		if err := s.guard.CheckPayment(current, intent, authorization, s.clock().UTC()); err != nil {
-			return PaymentExecutionResult{}, err
+			return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, paymentGuardFailureCode(err), traceID, err)
 		}
 		intentNext := *intent
 		intentNext.Status = payment.IntentAuthorized
 		intentNext.AuthorizationRef = authorization.AuthorizationRef
+		intentNext.RequestFingerprint = payment.RequestFingerprint(intentNext)
 		intentNext.UpdatedAt = s.clock().UTC()
 		currentNext := current.Clone()
 		currentNext.ActionCount++
@@ -328,10 +335,10 @@ func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, trace
 	if intent.Status != payment.IntentAuthorized {
 		return s.persistedPaymentResult(ctx, intent, true)
 	}
-	authorization = adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: intent.AuthorizationRef}
+	authorization = adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: intent.AuthorizationRef}
 	now := s.clock().UTC()
 	if err := s.guard.CheckPayment(current, intent, authorization, now); err != nil {
-		return PaymentExecutionResult{}, err
+		return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, paymentGuardFailureCode(err), traceID, err)
 	}
 	intentNext := *intent
 	intentNext.Status = payment.IntentSubmitting
@@ -353,7 +360,7 @@ func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, trace
 		}
 		return PaymentExecutionResult{}, err
 	}
-	outcome, adapterErr := s.paymentDeps.Payment.Submit(ctx, adapters.PaymentSubmitRequest{Intent: intentNext, Authorization: authorization, TraceID: traceID})
+	outcome, adapterErr := s.paymentDeps.Payment.Submit(ctx, adapters.PaymentSubmitRequest{Intent: intentNext, Authorization: authorization, PayeeDID: intentNext.PayeeDID, RequestFingerprint: intentNext.RequestFingerprint, TraceID: traceID})
 	if adapterErr != nil && outcome.Status == "" {
 		outcome.Status = payment.OutcomeUnknown
 	}
@@ -377,10 +384,36 @@ func (s *Service) ReconcilePayment(ctx context.Context, intentID, traceID string
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}
-	if outcomeStatusForIntent(resolution.Outcome.Status) == intent.Status && resolution.Outcome.TxID == intent.TxID && resolution.Outcome.TxHash == intent.TxHash {
+	if resolution.Source != "unresolved" && outcomeStatusForIntent(resolution.Outcome.Status) == intent.Status && resolution.Outcome.TxID == intent.TxID && resolution.Outcome.TxHash == intent.TxHash {
 		return s.persistedPaymentResult(ctx, intent, false)
 	}
+	if resolution.Source == "unresolved" && (intent.Status == payment.IntentSubmitting || intent.Status == payment.IntentUnknown) {
+		return s.resubmitExactPayment(ctx, intent, traceID)
+	}
 	return s.recordPaymentOutcome(ctx, intentID, intent.Status, resolution.Outcome, traceID, nil)
+}
+
+// resubmitExactPayment is the crash-window recovery path. It never creates a
+// second intent or increments the payment attempt count. The persisted intent,
+// idempotency key, request fingerprint and opaque credential reference are the
+// only source of the command sent to payment-service.
+func (s *Service) resubmitExactPayment(ctx context.Context, intent *payment.PaymentIntent, traceID string) (PaymentExecutionResult, error) {
+	if s.paymentDeps.Payment == nil {
+		return PaymentExecutionResult{}, errors.New("payment adapter is not configured")
+	}
+	current, err := s.store.Get(ctx, intent.EpisodeID)
+	if err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	authorization := adapters.AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, AuthorizationRef: intent.AuthorizationRef}
+	if err := s.guard.CheckPayment(current, intent, authorization, s.clock().UTC()); err != nil {
+		return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, paymentGuardFailureCode(err), traceID, err)
+	}
+	outcome, adapterErr := s.paymentDeps.Payment.Submit(ctx, adapters.PaymentSubmitRequest{Intent: *intent, Authorization: authorization, PayeeDID: intent.PayeeDID, RequestFingerprint: intent.RequestFingerprint, TraceID: traceID})
+	if adapterErr != nil && outcome.Status == "" {
+		outcome.Status = payment.OutcomeUnknown
+	}
+	return s.recordPaymentOutcome(ctx, intent.IntentID, intent.Status, outcome, traceID, adapterErr)
 }
 
 func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, outcome payment.PaymentOutcome, traceID string, adapterErr error) (PaymentExecutionResult, error) {
@@ -391,6 +424,9 @@ func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, exp
 	intent, err := store.GetPaymentIntent(ctx, intentID)
 	if err != nil {
 		return PaymentExecutionResult{}, err
+	}
+	if !paymentOutcomeIdentityMatches(*intent, outcome) {
+		outcome = payment.PaymentOutcome{Status: payment.OutcomeUnknown, Reason: "adapter response identity did not match intent"}
 	}
 	outcome = fillPaymentOutcome(*intent, outcome)
 	if outcome.Validate() != nil || (outcome.Status == payment.OutcomeConfirmed && (outcome.AmountMinor != intent.AmountMinor || !strings.EqualFold(outcome.Currency, intent.Currency))) {
@@ -438,6 +474,7 @@ func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, exp
 		action = trace.ActionPaymentConfirmed
 		observation = trace.Observation{Type: trace.ObservationPaymentConfirmed, Code: outcome.TxID}
 	case payment.OutcomeFailed:
+		stateAfter = episode.StateFailed
 		action = trace.ActionPaymentFailed
 		observation = trace.Observation{Type: trace.ObservationPaymentFailed, Code: outcome.Reason}
 	case payment.OutcomeUnknown:
@@ -463,7 +500,15 @@ func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, exp
 		}
 		next.Budget = projection.ToEpisodeBudget()
 	}
-	if err := next.ApplyCommittedState(stateAfter, now, ""); err != nil {
+	terminalReason := ""
+	if outcome.Status == payment.OutcomeFailed {
+		terminalReason = strings.TrimSpace(outcome.Reason)
+		if terminalReason == "" {
+			terminalReason = "PAYMENT_FAILED"
+		}
+		intentNext.FailureCode = terminalReason
+	}
+	if err := next.ApplyCommittedState(stateAfter, now, terminalReason); err != nil {
 		return PaymentExecutionResult{}, err
 	}
 	intentNext.EpisodeVersion = next.Version
@@ -507,7 +552,7 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, eventKey); findErr == nil {
 		return PaymentExecutionResult{Intent: intent, Episode: current, Event: existing, Replayed: true, Outcome: payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency}}, nil
 	}
-	result, err := s.paymentDeps.Entitlement.Verify(ctx, adapters.EntitlementQuery{EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, RequesterDID: intent.RequesterDID})
+	result, err := s.paymentDeps.Entitlement.Verify(ctx, adapters.EntitlementQuery{EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, RequesterDID: intent.RequesterDID})
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}
@@ -515,12 +560,22 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	stateAfter := episode.StateClaiming
 	observationType := trace.ObservationEntitlementInvalid
 	if result.Status == adapters.EntitlementValid {
-		stateAfter = episode.StateInvokingDelivery
-		observationType = trace.ObservationEntitlementValid
+		if !result.MatchesIntent(*intent) {
+			result.Status = adapters.EntitlementInvalid
+			result.Reason = "ENTITLEMENT_EVIDENCE_MISMATCH"
+		} else {
+			stateAfter = episode.StateInvokingDelivery
+			observationType = trace.ObservationEntitlementValid
+		}
+	}
+	terminalReason := ""
+	if result.Status == adapters.EntitlementInvalid {
+		stateAfter = episode.StateFailed
+		terminalReason = "ENTITLEMENT_INVALID"
 	}
 	next := current.Clone()
 	next.ActionCount++
-	if err := next.ApplyCommittedState(stateAfter, now, result.Reason); err != nil {
+	if err := next.ApplyCommittedState(stateAfter, now, terminalReason); err != nil {
 		return PaymentExecutionResult{}, err
 	}
 	event, err := s.newPaymentEvent(current, next, now, trace.ActionVerifyEntitlement, eventKey, trace.Observation{Type: observationType, Code: result.Reference}, intent.IntentID+":entitlement", "runtime", traceID)
@@ -534,6 +589,99 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 		return PaymentExecutionResult{}, err
 	}
 	return PaymentExecutionResult{Intent: intent, Episode: next, Event: event, Outcome: payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency}}, nil
+}
+
+func paymentGuardFailureCode(err error) string {
+	switch {
+	case errors.Is(err, decision.ErrPaymentIntentExpired), errors.Is(err, payment.ErrIntentExpired):
+		return "PAYMENT_INTENT_EXPIRED"
+	case errors.Is(err, decision.ErrPaymentAuthorization):
+		return "PAYMENT_AUTHORIZATION_DENIED"
+	case errors.Is(err, decision.ErrPaymentAttemptLimit):
+		return "PAYMENT_ATTEMPT_LIMIT"
+	case errors.Is(err, decision.ErrStalePaymentIntent):
+		return "PAYMENT_INTENT_STALE"
+	case errors.Is(err, decision.ErrPaymentQuoteMismatch):
+		return "PAYMENT_QUOTE_MISMATCH"
+	case errors.Is(err, decision.ErrPaymentBindingMismatch):
+		return "PAYMENT_BINDING_MISMATCH"
+	case errors.Is(err, decision.ErrPaymentBudgetReservation):
+		return "PAYMENT_BUDGET_RESERVATION"
+	default:
+		return "PAYMENT_PRE_SUBMIT_REJECTED"
+	}
+}
+
+// closePaymentIntent is the deterministic local compensation path for a
+// rejection after reservation but before a payment can be accepted by the
+// external plane. It releases the reservation, closes the intent and moves
+// the episode to a terminal state in one finance transaction.
+func (s *Service) closePaymentIntent(ctx context.Context, intent *payment.PaymentIntent, current *episode.CommerceEpisode, status payment.IntentStatus, reason, traceID string, cause error) (PaymentExecutionResult, error) {
+	store, err := s.financeStore()
+	if err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	if intent == nil || current == nil {
+		return PaymentExecutionResult{}, cause
+	}
+	if intent.IsTerminal() {
+		result, persistedErr := s.persistedPaymentResult(ctx, intent, true)
+		if persistedErr != nil {
+			return PaymentExecutionResult{}, persistedErr
+		}
+		return result, cause
+	}
+	if current.State != episode.StatePaying || current.Budget.ReservedAmount < intent.BudgetReservation {
+		return PaymentExecutionResult{}, cause
+	}
+	now := s.clock().UTC()
+	if reason == "PAYMENT_INTENT_EXPIRED" {
+		status = payment.IntentExpired
+	}
+	projection, err := s.currentProjection(ctx, store, current)
+	if err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	sequence, err := nextLedgerSequence(ctx, store, current.EpisodeID)
+	if err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	release := &ledger.LedgerEntry{EntryID: s.idGenerator("led"), EpisodeID: current.EpisodeID, Sequence: sequence, Type: ledger.EntryBudgetReleased, Currency: intent.Currency, AmountMinor: intent.BudgetReservation, PaymentIntentID: intent.IntentID, TxID: intent.TxID, IdempotencyKey: intent.IdempotencyKey + ":release:" + reason, OccurredAt: now, TraceID: traceID, ReferenceHash: intent.EconomicKey, MetadataHash: ledger.HashReference(reason)}
+	if err := projection.Apply(*release); err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	intentNext := *intent
+	intentNext.Status = status
+	intentNext.FailureCode = reason
+	intentNext.UpdatedAt = now
+	next := current.Clone()
+	next.Budget = projection.ToEpisodeBudget()
+	next.ActionCount++
+	stateAfter := episode.StateFailed
+	if reason == "PAYMENT_INTENT_EXPIRED" {
+		stateAfter = episode.StateExpired
+	}
+	if err := next.ApplyCommittedState(stateAfter, now, reason); err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	intentNext.EpisodeVersion = next.Version
+	eventKey := intent.IdempotencyKey + ":closed:" + reason
+	event, err := s.newPaymentEvent(current, next, now, trace.ActionPaymentFailed, eventKey, trace.Observation{Type: trace.ObservationPaymentFailed, Code: reason}, intent.IntentID+":closed", "runtime", traceID)
+	if err != nil {
+		return PaymentExecutionResult{}, err
+	}
+	commitErr := store.CommitFinanceTransition(ctx, repository.FinanceTransition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, LedgerEntries: []*ledger.LedgerEntry{release}, IntentUpdate: &intentNext, ExpectedIntentStatus: intent.Status})
+	if commitErr != nil {
+		if refreshed, refreshErr := store.GetPaymentIntent(ctx, intent.IntentID); refreshErr == nil && refreshed.IsTerminal() {
+			result, resultErr := s.persistedPaymentResult(ctx, refreshed, true)
+			if resultErr == nil {
+				return result, cause
+			}
+		}
+		return PaymentExecutionResult{}, commitErr
+	}
+	result := PaymentExecutionResult{Intent: &intentNext, Episode: next, Event: event, Outcome: payment.PaymentOutcome{Status: payment.OutcomeFailed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, Reason: reason}}
+	return result, cause
 }
 
 func (s *Service) newPaymentEvent(current, next *episode.CommerceEpisode, now time.Time, action trace.ActionType, key string, observation trace.Observation, proposalID, actor, traceID string) (*episode.EpisodeEvent, error) {
@@ -576,6 +724,19 @@ func fillPaymentOutcome(intent payment.PaymentIntent, outcome payment.PaymentOut
 		outcome.Currency = intent.Currency
 	}
 	return outcome
+}
+
+func paymentOutcomeIdentityMatches(intent payment.PaymentIntent, outcome payment.PaymentOutcome) bool {
+	if outcome.IntentID != "" && outcome.IntentID != intent.IntentID {
+		return false
+	}
+	if intent.TxID != "" && outcome.TxID != "" && outcome.TxID != intent.TxID {
+		return false
+	}
+	if intent.TxHash != "" && outcome.TxHash != "" && outcome.TxHash != intent.TxHash {
+		return false
+	}
+	return true
 }
 
 func outcomeFromIntent(intent *payment.PaymentIntent) payment.PaymentOutcome {

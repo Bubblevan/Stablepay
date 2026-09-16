@@ -18,6 +18,9 @@ import (
 var ErrPaymentAdapterResponse = errors.New("invalid payment adapter response")
 
 type PaymentCredentials struct {
+	// Reference is an opaque durable reference. Secrets and private keys never
+	// enter the EpisodeEvent, LedgerEntry or PaymentIntent payload.
+	Reference      string
 	Signature      string
 	Timestamp      string
 	Nonce          string
@@ -34,17 +37,15 @@ func (f CredentialFunc) Credentials(ctx context.Context, intent payment.PaymentI
 	return f(ctx, intent)
 }
 
-// HTTPPaymentAdapter speaks the existing canonical payment-service HTTP
-// contract. It accepts only a runtime PaymentIntent snapshot and credentials
-// supplied by a trusted credential provider; it cannot accept free-form amount
-// or recipient fields from a DecisionProvider.
-type HTTPPaymentAdapter struct {
+// HTTPGatewayPaymentAdapter is retained for explicit gateway integrations.
+// Production runtime wiring uses KitexPaymentAdapter for payment-service RPC.
+type HTTPGatewayPaymentAdapter struct {
 	BaseURL     string
 	Client      *http.Client
 	Credentials CredentialProvider
 }
 
-func (a *HTTPPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitRequest) (payment.PaymentOutcome, error) {
+func (a *HTTPGatewayPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitRequest) (payment.PaymentOutcome, error) {
 	if err := request.Intent.Validate(); err != nil {
 		return unknownOutcome(request.Intent, err), err
 	}
@@ -54,12 +55,24 @@ func (a *HTTPPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitRe
 	if err := a.validateBinding(request.Intent, request.Authorization); err != nil {
 		return unknownOutcome(request.Intent, err), err
 	}
+	if request.PayeeDID != request.Intent.PayeeDID {
+		err := errors.New("payment request payee does not match intent snapshot")
+		return unknownOutcome(request.Intent, err), err
+	}
+	if request.RequestFingerprint == "" || request.RequestFingerprint != request.Intent.RequestFingerprint {
+		err := errors.New("payment request fingerprint does not match intent")
+		return unknownOutcome(request.Intent, err), err
+	}
 	if a == nil || strings.TrimSpace(a.BaseURL) == "" || a.Credentials == nil {
 		err := errors.New("payment adapter base URL and credentials are required")
 		return unknownOutcome(request.Intent, err), err
 	}
 	credentials, err := a.Credentials.Credentials(ctx, request.Intent)
 	if err != nil {
+		return unknownOutcome(request.Intent, err), err
+	}
+	if request.Intent.CredentialRef != "" && credentials.Reference != request.Intent.CredentialRef {
+		err := errors.New("credential reference changed for payment retry")
 		return unknownOutcome(request.Intent, err), err
 	}
 	body := struct {
@@ -73,7 +86,7 @@ func (a *HTTPPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitRe
 		SignedTxBase64 string `json:"signed_tx_base64,omitempty"`
 		IntentID       string `json:"intent_id"`
 	}{
-		AgentDID: request.Intent.RequesterDID, SkillDID: request.Intent.CapabilityID,
+		AgentDID: request.Intent.RequesterDID, SkillDID: request.Intent.PayeeDID,
 		Amount: minorToMajor(request.Intent.AmountMinor), Currency: strings.ToUpper(request.Intent.Currency),
 		Signature: credentials.Signature, Timestamp: credentials.Timestamp, Nonce: credentials.Nonce,
 		SignedTxBase64: credentials.SignedTxBase64, IntentID: request.Intent.IntentID,
@@ -113,8 +126,12 @@ func (a *HTTPPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitRe
 	return outcome, nil
 }
 
-func (a *HTTPPaymentAdapter) Query(ctx context.Context, request PaymentQuery) (payment.PaymentOutcome, error) {
+func (a *HTTPGatewayPaymentAdapter) Query(ctx context.Context, request PaymentQuery) (payment.PaymentOutcome, error) {
 	if err := request.Intent.Validate(); err != nil {
+		return unknownOutcome(request.Intent, err), err
+	}
+	if request.PayeeDID != request.Intent.PayeeDID {
+		err := errors.New("payment query payee does not match intent snapshot")
 		return unknownOutcome(request.Intent, err), err
 	}
 	if request.Intent.TxID == "" {
@@ -152,8 +169,8 @@ func (a *HTTPPaymentAdapter) Query(ctx context.Context, request PaymentQuery) (p
 	return outcome, nil
 }
 
-func (a *HTTPPaymentAdapter) validateBinding(intent payment.PaymentIntent, authorization AuthorizationResult) error {
-	if authorization.RequesterDID != intent.RequesterDID || authorization.MerchantDID != intent.MerchantDID || authorization.CapabilityID != intent.CapabilityID || authorization.QuoteHash != intent.QuoteHash || authorization.AmountMinor != intent.AmountMinor || strings.ToUpper(authorization.Currency) != strings.ToUpper(intent.Currency) {
+func (a *HTTPGatewayPaymentAdapter) validateBinding(intent payment.PaymentIntent, authorization AuthorizationResult) error {
+	if authorization.RequesterDID != intent.RequesterDID || authorization.MerchantDID != intent.MerchantDID || authorization.CapabilityID != intent.CapabilityID || authorization.PayeeDID != intent.PayeeDID || authorization.QuoteHash != intent.QuoteHash || authorization.AmountMinor != intent.AmountMinor || strings.ToUpper(authorization.Currency) != strings.ToUpper(intent.Currency) {
 		return errors.New("payment authorization does not match intent snapshot")
 	}
 	return nil

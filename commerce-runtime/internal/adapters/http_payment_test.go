@@ -14,17 +14,19 @@ import (
 
 func adapterIntent() payment.PaymentIntent {
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
-	return payment.PaymentIntent{
-		IntentID: "pi-1", EpisodeID: "episode-1", MerchantDID: "did:merchant:1", CapabilityID: "capability-1",
+	intent := payment.PaymentIntent{
+		IntentID: "pi-1", EpisodeID: "episode-1", MerchantDID: "did:merchant:1", CapabilityID: "capability-1", PayeeDID: "did:payee:1",
 		QuoteHash: "sha256:quote", AmountMinor: 300, Currency: "USDC", RequesterDID: "did:agent:1",
-		EpisodeVersion: 5, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey("episode-1", "did:merchant:1", "capability-1", "sha256:quote", 300, "USDC"),
-		ExpiresAt: now.Add(time.Hour), Status: payment.IntentAuthorized, CreatedAt: now, UpdatedAt: now,
+		EpisodeVersion: 5, BudgetReservation: 300, IdempotencyKey: "pay-1", EconomicKey: payment.EconomicIdentityKey("episode-1", "did:merchant:1", "capability-1", "did:payee:1", "sha256:quote", 300, "USDC"),
+		ExpiresAt: now.Add(time.Hour), Status: payment.IntentAuthorized, CredentialRef: "credential:pay-1", CreatedAt: now, UpdatedAt: now,
 	}
+	intent.RequestFingerprint = payment.RequestFingerprint(intent)
+	return intent
 }
 
 func adapterAuthorization(intent payment.PaymentIntent) AuthorizationResult {
 	return AuthorizationResult{Allowed: true, RequesterDID: intent.RequesterDID, MerchantDID: intent.MerchantDID,
-		CapabilityID: intent.CapabilityID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor,
+		CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, QuoteHash: intent.QuoteHash, AmountMinor: intent.AmountMinor,
 		Currency: intent.Currency, AuthorizationRef: "auth-1"}
 }
 
@@ -47,7 +49,7 @@ func TestHTTPPaymentAdapterUsesIntentSnapshotAndMapsConfirmed(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.AgentDID != intent.RequesterDID || body.SkillDID != intent.CapabilityID || body.Amount != "3.00" || body.Currency != intent.Currency || body.IntentID != intent.IntentID {
+		if body.AgentDID != intent.RequesterDID || body.SkillDID != intent.PayeeDID || body.Amount != "3.00" || body.Currency != intent.Currency || body.IntentID != intent.IntentID {
 			t.Fatalf("adapter sent untrusted or incorrectly formatted fields: %#v", body)
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -55,10 +57,10 @@ func TestHTTPPaymentAdapterUsesIntentSnapshotAndMapsConfirmed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter := &HTTPPaymentAdapter{BaseURL: server.URL, Credentials: CredentialFunc(func(context.Context, payment.PaymentIntent) (PaymentCredentials, error) {
-		return PaymentCredentials{Signature: "sig", Timestamp: "ts", Nonce: "nonce"}, nil
+	adapter := &HTTPGatewayPaymentAdapter{BaseURL: server.URL, Credentials: CredentialFunc(func(context.Context, payment.PaymentIntent) (PaymentCredentials, error) {
+		return PaymentCredentials{Reference: "credential:pay-1", Signature: "sig", Timestamp: "ts", Nonce: "nonce"}, nil
 	})}
-	outcome, err := adapter.Submit(context.Background(), PaymentSubmitRequest{Intent: intent, Authorization: adapterAuthorization(intent), TraceID: "trace-1"})
+	outcome, err := adapter.Submit(context.Background(), PaymentSubmitRequest{Intent: intent, Authorization: adapterAuthorization(intent), PayeeDID: intent.PayeeDID, RequestFingerprint: intent.RequestFingerprint, TraceID: "trace-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +83,8 @@ func TestHTTPPaymentAdapterMapsPendingFailedAndUnknown(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"tx_id":"tx-1","status":"` + statuses[index] + `","amount_minor":300,"currency":"USDC"}`))
 	}))
 	defer server.Close()
-	adapter := &HTTPPaymentAdapter{BaseURL: server.URL, Credentials: CredentialFunc(func(context.Context, payment.PaymentIntent) (PaymentCredentials, error) {
-		return PaymentCredentials{}, nil
+	adapter := &HTTPGatewayPaymentAdapter{BaseURL: server.URL, Credentials: CredentialFunc(func(context.Context, payment.PaymentIntent) (PaymentCredentials, error) {
+		return PaymentCredentials{Reference: "credential:pay-1"}, nil
 	})}
 	for _, test := range []struct {
 		trace  string
@@ -92,7 +94,7 @@ func TestHTTPPaymentAdapterMapsPendingFailedAndUnknown(t *testing.T) {
 		{trace: "trace-failed", status: payment.OutcomeFailed},
 		{trace: "trace-unknown", status: payment.OutcomeUnknown},
 	} {
-		outcome, err := adapter.Submit(context.Background(), PaymentSubmitRequest{Intent: intent, Authorization: adapterAuthorization(intent), TraceID: test.trace})
+		outcome, err := adapter.Submit(context.Background(), PaymentSubmitRequest{Intent: intent, Authorization: adapterAuthorization(intent), PayeeDID: intent.PayeeDID, RequestFingerprint: intent.RequestFingerprint, TraceID: test.trace})
 		if test.status == payment.OutcomeUnknown {
 			if err == nil || outcome.Status != payment.OutcomeUnknown {
 				t.Fatalf("expected unknown adapter response, outcome=%#v err=%v", outcome, err)
@@ -116,13 +118,13 @@ func TestHTTPPaymentAdapterQueryUsesTransactionIdentity(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"status":"completed","tx_id":"tx-1","amount_minor":300,"currency":"USDC"}`))
 	}))
 	defer server.Close()
-	adapter := &HTTPPaymentAdapter{BaseURL: server.URL}
-	outcome, err := adapter.Query(context.Background(), PaymentQuery{Intent: intent})
+	adapter := &HTTPGatewayPaymentAdapter{BaseURL: server.URL}
+	outcome, err := adapter.Query(context.Background(), PaymentQuery{Intent: intent, PayeeDID: intent.PayeeDID})
 	if err != nil || outcome.Status != payment.OutcomeConfirmed {
 		t.Fatalf("expected confirmed query, outcome=%#v err=%v", outcome, err)
 	}
 	intent.TxID = ""
-	outcome, err = adapter.Query(context.Background(), PaymentQuery{Intent: intent})
+	outcome, err = adapter.Query(context.Background(), PaymentQuery{Intent: intent, PayeeDID: intent.PayeeDID})
 	if err == nil || outcome.Status != payment.OutcomeUnknown {
 		t.Fatalf("expected no-blind-resubmit unknown, outcome=%#v err=%v", outcome, err)
 	}

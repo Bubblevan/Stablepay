@@ -20,7 +20,7 @@ type mysqlS2DIDAdapter struct{}
 
 func (mysqlS2DIDAdapter) AuthorizePayment(_ context.Context, request adapters.AuthorizationRequest) (adapters.AuthorizationResult, error) {
 	return adapters.AuthorizationResult{Allowed: true, RequesterDID: request.Intent.RequesterDID, MerchantDID: request.Intent.MerchantDID,
-		CapabilityID: request.Intent.CapabilityID, QuoteHash: request.Intent.QuoteHash, AmountMinor: request.Intent.AmountMinor,
+		CapabilityID: request.Intent.CapabilityID, PayeeDID: request.Intent.PayeeDID, QuoteHash: request.Intent.QuoteHash, AmountMinor: request.Intent.AmountMinor,
 		Currency: request.Intent.Currency, AuthorizationRef: "mysql-auth"}, nil
 }
 
@@ -40,8 +40,8 @@ func (a *mysqlS2StatusAdapter) Query(context.Context, adapters.PaymentQuery) (pa
 
 type mysqlS2EntitlementAdapter struct{}
 
-func (mysqlS2EntitlementAdapter) Verify(context.Context, adapters.EntitlementQuery) (adapters.EntitlementResult, error) {
-	return adapters.EntitlementResult{Status: adapters.EntitlementValid, Reference: "mysql-entitlement-1"}, nil
+func (mysqlS2EntitlementAdapter) Verify(_ context.Context, query adapters.EntitlementQuery) (adapters.EntitlementResult, error) {
+	return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: query.IntentID, EvidenceRef: "mysql-entitlement-1"}, nil
 }
 
 func TestMySQLS2LedgerPaymentIntegration(t *testing.T) {
@@ -101,7 +101,7 @@ func TestMySQLS2LedgerPaymentIntegration(t *testing.T) {
 		}
 		current = result.Episode
 	}
-	quote := application.TrustedPaymentQuote{MerchantDID: "did:merchant:mysql", CapabilityID: "capability:mysql", QuoteHash: "sha256:mysql-s2-quote",
+	quote := application.TrustedPaymentQuote{MerchantDID: "did:merchant:mysql", CapabilityID: "capability:mysql", PayeeDID: "did:payee:mysql", QuoteHash: "sha256:mysql-s2-quote",
 		AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}
 	reserved, err := service.ReservePaymentIntent(ctx, application.ReservePaymentIntentRequest{EpisodeID: episodeID, Quote: quote, IdempotencyKey: "mysql-s2-pay", TraceID: "mysql-s2-reserve"})
 	if err != nil {
@@ -132,6 +132,9 @@ func TestMySQLS2LedgerPaymentIntegration(t *testing.T) {
 	intent, err := store.GetPaymentIntent(ctx, reserved.Intent.IntentID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if intent.PayeeDID != quote.PayeeDID || intent.RequestFingerprint == "" || intent.EconomicKey != payment.EconomicIdentityKey(intent.EpisodeID, intent.MerchantDID, intent.CapabilityID, intent.PayeeDID, intent.QuoteHash, intent.AmountMinor, intent.Currency) {
+		t.Fatalf("MySQL did not preserve distinct payee and command identity: %#v", intent)
 	}
 	beforeRollback, err := service.GetEpisode(ctx, episodeID)
 	if err != nil {

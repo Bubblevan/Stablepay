@@ -15,8 +15,9 @@ import (
 var ErrInvalidAuthorization = errors.New("invalid payment authorization result")
 
 type AuthorizationRequest struct {
-	Intent payment.PaymentIntent
-	Now    time.Time
+	Intent   payment.PaymentIntent
+	PayeeDID string
+	Now      time.Time
 }
 
 type AuthorizationResult struct {
@@ -24,6 +25,7 @@ type AuthorizationResult struct {
 	RequesterDID     string
 	MerchantDID      string
 	CapabilityID     string
+	PayeeDID         string
 	QuoteHash        string
 	AmountMinor      int64
 	Currency         string
@@ -38,7 +40,7 @@ func (r AuthorizationResult) Validate() error {
 		}
 		return nil
 	}
-	if strings.TrimSpace(r.RequesterDID) == "" || strings.TrimSpace(r.MerchantDID) == "" || strings.TrimSpace(r.CapabilityID) == "" || strings.TrimSpace(r.QuoteHash) == "" || r.AmountMinor <= 0 || strings.TrimSpace(r.Currency) == "" || strings.TrimSpace(r.AuthorizationRef) == "" {
+	if strings.TrimSpace(r.RequesterDID) == "" || strings.TrimSpace(r.MerchantDID) == "" || strings.TrimSpace(r.CapabilityID) == "" || strings.TrimSpace(r.PayeeDID) == "" || strings.TrimSpace(r.QuoteHash) == "" || r.AmountMinor <= 0 || strings.TrimSpace(r.Currency) == "" || strings.TrimSpace(r.AuthorizationRef) == "" {
 		return ErrInvalidAuthorization
 	}
 	return nil
@@ -49,14 +51,17 @@ type DIDAdapter interface {
 }
 
 type PaymentSubmitRequest struct {
-	Intent        payment.PaymentIntent
-	Authorization AuthorizationResult
-	TraceID       string
+	Intent             payment.PaymentIntent
+	Authorization      AuthorizationResult
+	PayeeDID           string
+	RequestFingerprint string
+	TraceID            string
 }
 
 type PaymentQuery struct {
-	Intent  payment.PaymentIntent
-	TraceID string
+	Intent   payment.PaymentIntent
+	PayeeDID string
+	TraceID  string
 }
 
 type PaymentAdapter interface {
@@ -77,6 +82,7 @@ type EntitlementQuery struct {
 	TxID         string
 	MerchantDID  string
 	CapabilityID string
+	PayeeDID     string
 	RequesterDID string
 }
 
@@ -89,9 +95,41 @@ const (
 )
 
 type EntitlementResult struct {
-	Status    EntitlementStatus
-	Reference string
-	Reason    string
+	Status          EntitlementStatus
+	Reference       string
+	PaymentIntentID string
+	TxID            string
+	TxHash          string
+	EvidenceRef     string
+	Reason          string
+}
+
+// MatchesIntent prevents a valid entitlement for another capability or
+// previous purchase from becoming payment evidence for this intent.
+func (r EntitlementResult) MatchesIntent(intent payment.PaymentIntent) bool {
+	if r.Status != EntitlementValid || strings.TrimSpace(r.EvidenceRef) == "" && strings.TrimSpace(r.Reference) == "" {
+		return false
+	}
+	matchedIdentity := false
+	if r.PaymentIntentID != "" {
+		if r.PaymentIntentID != intent.IntentID {
+			return false
+		}
+		matchedIdentity = true
+	}
+	if r.TxID != "" {
+		if r.TxID != intent.TxID {
+			return false
+		}
+		matchedIdentity = true
+	}
+	if r.TxHash != "" {
+		if r.TxHash != intent.TxHash {
+			return false
+		}
+		matchedIdentity = true
+	}
+	return matchedIdentity
 }
 
 type EntitlementAdapter interface {

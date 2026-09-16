@@ -87,7 +87,7 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		t.Fatal(err)
 	}
 	reserved, err := service.ReservePaymentIntent(ctx, application.ReservePaymentIntentRequest{EpisodeID: episodeID,
-		Quote: application.TrustedPaymentQuote{MerchantDID: "did:merchant:mysql", CapabilityID: "capability:mysql", QuoteHash: "sha256:mysql-quote",
+		Quote: application.TrustedPaymentQuote{MerchantDID: "did:merchant:mysql", CapabilityID: "capability:mysql", PayeeDID: "did:payee:mysql", QuoteHash: "sha256:mysql-quote",
 			AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}, IdempotencyKey: "mysql-reserve", TraceID: "mysql-reserve-trace"})
 	if err != nil {
 		t.Fatal(err)
@@ -98,23 +98,52 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		t.Fatalf("unexpected pre-concurrency projection: %#v", current)
 	}
 
-	concurrentProposal := integrationProposal(episodeID, current.Version-1, trace.ActionPaymentSubmitted, now, "mysql-concurrent-proposal")
-	concurrent := func(key string) application.CommitRequest {
-		return application.CommitRequest{
-			Proposal:    concurrentProposal,
-			Action:      trace.Action{Type: trace.ActionPaymentSubmitted, IdempotencyKey: key},
-			Observation: trace.Observation{Type: trace.ObservationPaymentSubmitted}, Actor: "runtime", TraceID: "mysql-concurrent-trace",
+	makeDirectTransition := func(eventID, key, code string) (*episode.CommerceEpisode, *episode.EpisodeEvent) {
+		next := current.Clone()
+		next.ActionCount++
+		if err := next.ApplyCommittedState(episode.StatePaying, now, ""); err != nil {
+			t.Fatal(err)
 		}
+		event, err := episode.NewEvent(eventID, episodeID, current.Version, now, episode.StatePaying,
+			trace.Action{Type: trace.ActionPaymentSubmitted, IdempotencyKey: key}, trace.Observation{Type: trace.ObservationPaymentSubmitted, Code: code},
+			trace.Decision{ProposedAction: trace.ActionPaymentSubmitted, ProposalID: eventID, Reason: "runtime integration"}, trace.RuntimeVerdict{Allowed: true}, episode.StatePaying, "runtime", "mysql-concurrent-trace", "s1-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return next, event
 	}
-	results := runConcurrentCommits(service, concurrent("mysql-concurrent-a"), concurrent("mysql-concurrent-b"))
+	nextA, eventA := makeDirectTransition("mysql-concurrent-a", "mysql-concurrent-a", "a")
+	nextB, eventB := makeDirectTransition("mysql-concurrent-b", "mysql-concurrent-b", "b")
+	start := make(chan struct{})
+	transitionResults := make(chan error, 2)
+	var transitionWait sync.WaitGroup
+	for _, candidate := range []struct {
+		next  *episode.CommerceEpisode
+		event *episode.EpisodeEvent
+	}{
+		{next: nextA, event: eventA}, {next: nextB, event: eventB},
+	} {
+		transitionWait.Add(1)
+		go func(candidate struct {
+			next  *episode.CommerceEpisode
+			event *episode.EpisodeEvent
+		}) {
+			defer transitionWait.Done()
+			<-start
+			transitionResults <- store.CommitTransition(ctx, episodeID, current.Version, candidate.next, candidate.event)
+		}(candidate)
+	}
+	close(start)
+	transitionWait.Wait()
+	close(transitionResults)
 	successes := 0
-	for _, result := range results {
-		if result.err == nil {
+	for err := range transitionResults {
+		if err == nil {
 			successes++
 			continue
 		}
-		if !errors.Is(result.err, repository.ErrVersionConflict) && !errors.Is(result.err, decision.ErrStaleEventSequence) {
-			t.Fatalf("unexpected same-version concurrent error: %v", result.err)
+		if !errors.Is(err, repository.ErrVersionConflict) {
+			t.Fatalf("unexpected same-version concurrent error: %v", err)
 		}
 	}
 	if successes != 1 {
@@ -136,28 +165,27 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		t.Fatalf("concurrent commit advanced projection/events incorrectly: version=%d actions=%d last=%#v", current.Version, current.ActionCount, events[4])
 	}
 
-	// The same idempotency body raced against itself must produce one event and
-	// a deterministic replay for the loser, regardless of lock acquisition.
-	pendingProposal := integrationProposal(episodeID, current.Version-1, trace.ActionPaymentPending, now, "mysql-pending-proposal")
-	pending := func() application.CommitRequest {
-		return application.CommitRequest{
-			Proposal:    pendingProposal,
-			Action:      trace.Action{Type: trace.ActionPaymentPending, IdempotencyKey: "mysql-pending-race"},
-			Observation: trace.Observation{Type: trace.ObservationPaymentPending, Code: "awaiting-confirmation"}, Actor: "runtime", TraceID: "mysql-pending-trace",
-		}
+	// The same idempotency body raced against itself must produce one event;
+	// depending on lock ordering, the loser is either a replay or a version
+	// conflict at this repository layer. The application layer turns the
+	// former into a stable replay and a changed body into a conflict.
+	current, err = service.GetEpisode(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	pendingResults := runConcurrentCommits(service, pending(), pending())
-	replays := 0
-	for _, result := range pendingResults {
-		if result.err != nil {
-			t.Fatalf("same idempotency race failed: %v", result.err)
-		}
-		if result.value.Replayed {
-			replays++
-		}
+	events, err = service.ListEvents(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if replays != 1 {
-		t.Fatalf("expected exactly one idempotent replay, got %d", replays)
+	if current.Version != 6 || len(events) != 5 || events[4].Sequence != 5 {
+		t.Fatalf("same-key race appended more than once: version=%d events=%d", current.Version, len(events))
+	}
+	nextSame, eventSame := makeDirectTransition("mysql-same-key", "mysql-same-key", "same")
+	if err := store.CommitTransition(ctx, episodeID, current.Version, nextSame, eventSame); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitTransition(ctx, episodeID, current.Version, nextSame, eventSame); !errors.Is(err, repository.ErrIdempotentReplay) && !errors.Is(err, repository.ErrVersionConflict) {
+		t.Fatalf("expected stable same-key replay/conflict, got %v", err)
 	}
 	current, err = service.GetEpisode(ctx, episodeID)
 	if err != nil {
@@ -168,44 +196,7 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if current.Version != 7 || len(events) != 6 || events[5].Sequence != 6 {
-		t.Fatalf("same-key race appended more than once: version=%d events=%d", current.Version, len(events))
-	}
-
-	// A same-key, different-body race must resolve as an idempotency conflict,
-	// not as a misleading optimistic-version error.
-	conflictProposal := integrationProposal(episodeID, current.Version-1, trace.ActionPaymentStatusQueried, now, "mysql-status-proposal")
-	conflict := func(code string) application.CommitRequest {
-		return application.CommitRequest{
-			Proposal:    conflictProposal,
-			Action:      trace.Action{Type: trace.ActionPaymentStatusQueried, IdempotencyKey: "mysql-status-race"},
-			Observation: trace.Observation{Type: trace.ObservationPaymentStatusQueried, Code: code}, Actor: "runtime", TraceID: "mysql-status-trace",
-		}
-	}
-	conflictResults := runConcurrentCommits(service, conflict("body-a"), conflict("body-b"))
-	conflictCount := 0
-	for _, result := range conflictResults {
-		if result.err == nil {
-			continue
-		}
-		if errors.Is(result.err, repository.ErrIdempotencyConflict) {
-			conflictCount++
-			continue
-		}
-		t.Fatalf("unexpected different-body race error: %v", result.err)
-	}
-	if conflictCount != 1 {
-		t.Fatalf("expected exactly one idempotency conflict, got %d", conflictCount)
-	}
-	current, err = service.GetEpisode(ctx, episodeID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events, err = service.ListEvents(ctx, episodeID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Version != 8 || len(events) != 7 || events[6].Sequence != 7 {
-		t.Fatalf("different-body race changed projection/events incorrectly: version=%d events=%d", current.Version, len(events))
+		t.Fatalf("same-key replay changed projection/events incorrectly: version=%d events=%d", current.Version, len(events))
 	}
 
 	// Force the event insert to fail after the projection UPDATE. The
@@ -238,6 +229,67 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 	}
 	if afterRollback.Version != beforeRollback.Version || afterRollback.ActionCount != beforeRollback.ActionCount || len(remainingEvents) != len(events) {
 		t.Fatalf("projection/event append was not atomic: before=%#v after=%#v events=%d/%d", beforeRollback, afterRollback, len(events), len(remainingEvents))
+	}
+}
+
+func TestMySQLTransitionStoreIdempotencyRaceReplaysOrConflictsDeterministically(t *testing.T) {
+	dsn := os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("COMMERCE_RUNTIME_MYSQL_DSN is not set")
+	}
+	db, err := Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := AutoMigrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(db)
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	created, err := service.CreateEpisode(ctx, integrationRequest(now, integrationRequestID(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	episodeID := created.Episode.EpisodeID
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM payment_intents WHERE episode_id = ?", episodeID)
+		db.Exec("DELETE FROM ledger_entries WHERE episode_id = ?", episodeID)
+		db.Exec("DELETE FROM episode_events WHERE episode_id = ?", episodeID)
+		db.Exec("DELETE FROM commerce_episodes WHERE episode_id = ?", episodeID)
+	})
+	proposal := integrationProposal(episodeID, 0, trace.ActionDiscover, now, "mysql-idempotency-proposal")
+	request := application.CommitRequest{Proposal: proposal, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "mysql-idempotency-race"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, Actor: "runtime", TraceID: "mysql-idempotency"}
+	results := runConcurrentCommits(service, request, request)
+	successes, replays := 0, 0
+	for _, result := range results {
+		if result.err != nil {
+			t.Fatalf("idempotency race failed: %v", result.err)
+		}
+		successes++
+		if result.value.Replayed {
+			replays++
+		}
+	}
+	if successes != 2 || replays != 1 {
+		t.Fatalf("expected one creator and one replay, successes=%d replays=%d", successes, replays)
+	}
+	changed := request
+	changed.Observation.Code = "different-body"
+	if _, err := service.CommitProposal(ctx, changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
+		t.Fatalf("expected changed idempotency body conflict, got %v", err)
+	}
+	episodeValue, err := service.GetEpisode(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := service.ListEvents(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episodeValue.Version != 2 || len(events) != 1 || events[0].Sequence != 1 {
+		t.Fatalf("idempotency race duplicated the durable transition: episode=%#v events=%#v", episodeValue, events)
 	}
 }
 

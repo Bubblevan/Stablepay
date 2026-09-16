@@ -491,10 +491,10 @@ func samePaymentIntentIdentity(left, right *payment.PaymentIntent) bool {
 		return false
 	}
 	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
-		left.CapabilityID == right.CapabilityID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
 		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID && left.BudgetReservation == right.BudgetReservation &&
-		left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.ExpiresAt.Equal(right.ExpiresAt) &&
-		left.CreatedAt.Equal(right.CreatedAt)
+		left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.CredentialRef == right.CredentialRef && left.ExpiresAt.Equal(right.ExpiresAt) &&
+		left.CreatedAt.Equal(right.CreatedAt) && left.RequestFingerprint == right.RequestFingerprint
 }
 
 func (s *InMemoryStore) updateLocked(episodeID string, expectedVersion uint64, next *episode.CommerceEpisode) error {
