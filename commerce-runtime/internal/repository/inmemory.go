@@ -8,22 +8,32 @@ import (
 	"sync"
 
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/ledger"
+	"github.com/stablepay/commerce-runtime/internal/payment"
 )
 
 // InMemoryStore is a deterministic repository for unit tests and local
 // demonstrations. The mutex models the atomic boundary of the SQL transaction.
 type InMemoryStore struct {
-	mu        sync.RWMutex
-	episodes  map[string]*episode.CommerceEpisode
-	byRequest map[string]string
-	events    map[string][]*episode.EpisodeEvent
+	mu                  sync.RWMutex
+	episodes            map[string]*episode.CommerceEpisode
+	byRequest           map[string]string
+	events              map[string][]*episode.EpisodeEvent
+	ledger              map[string][]*ledger.LedgerEntry
+	intents             map[string]*payment.PaymentIntent
+	intentByIdempotency map[string]string
+	intentByEconomicKey map[string]string
 }
 
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		episodes:  make(map[string]*episode.CommerceEpisode),
-		byRequest: make(map[string]string),
-		events:    make(map[string][]*episode.EpisodeEvent),
+		episodes:            make(map[string]*episode.CommerceEpisode),
+		byRequest:           make(map[string]string),
+		events:              make(map[string][]*episode.EpisodeEvent),
+		ledger:              make(map[string][]*ledger.LedgerEntry),
+		intents:             make(map[string]*payment.PaymentIntent),
+		intentByIdempotency: make(map[string]string),
+		intentByEconomicKey: make(map[string]string),
 	}
 }
 
@@ -163,6 +173,328 @@ func (s *InMemoryStore) CommitTransition(ctx context.Context, episodeID string, 
 		return err
 	}
 	return nil
+}
+
+func (s *InMemoryStore) AppendLedgerEntry(ctx context.Context, value *ledger.LedgerEntry) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return ledger.ErrInvalidEntry
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.episodes[value.EpisodeID]; !ok {
+		return ErrNotFound
+	}
+	return s.appendLedgerLocked(value)
+}
+
+func (s *InMemoryStore) ListLedgerEntries(ctx context.Context, episodeID string) ([]*ledger.LedgerEntry, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := s.ledger[episodeID]
+	result := make([]*ledger.LedgerEntry, 0, len(values))
+	for _, value := range values {
+		copy := *value
+		result = append(result, &copy)
+	}
+	return result, nil
+}
+
+func (s *InMemoryStore) FindLedgerByIdempotencyKey(ctx context.Context, episodeID, key string) (*ledger.LedgerEntry, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.ledger[episodeID] {
+		if value.IdempotencyKey == key {
+			copy := *value
+			return &copy, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *InMemoryStore) CreatePaymentIntent(ctx context.Context, value *payment.PaymentIntent) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return payment.ErrInvalidIntent
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.episodes[value.EpisodeID]; !ok {
+		return ErrNotFound
+	}
+	if existingID, ok := s.intentByIdempotency[value.EpisodeID+"\x00"+value.IdempotencyKey]; ok && existingID != value.IntentID {
+		return ErrPaymentIntentConflict
+	}
+	if existingID, ok := s.intentByEconomicKey[value.EpisodeID+"\x00"+value.EconomicKey]; ok && existingID != value.IntentID {
+		return ErrPaymentIntentConflict
+	}
+	if _, ok := s.intents[value.IntentID]; ok {
+		return ErrPaymentIntentConflict
+	}
+	copy := *value
+	s.intents[value.IntentID] = &copy
+	s.intentByIdempotency[value.EpisodeID+"\x00"+value.IdempotencyKey] = value.IntentID
+	s.intentByEconomicKey[value.EpisodeID+"\x00"+value.EconomicKey] = value.IntentID
+	return nil
+}
+
+func (s *InMemoryStore) GetPaymentIntent(ctx context.Context, intentID string) (*payment.PaymentIntent, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.intents[intentID]
+	if !ok {
+		return nil, ErrPaymentIntentNotFound
+	}
+	copy := *value
+	return &copy, nil
+}
+
+func (s *InMemoryStore) FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error) {
+	return s.findPaymentIntent(ctx, s.intentByIdempotency, episodeID+"\x00"+key)
+}
+
+func (s *InMemoryStore) FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error) {
+	return s.findPaymentIntent(ctx, s.intentByEconomicKey, episodeID+"\x00"+key)
+}
+
+func (s *InMemoryStore) findPaymentIntent(ctx context.Context, index map[string]string, key string) (*payment.PaymentIntent, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	intentID, ok := index[key]
+	if !ok {
+		return nil, ErrPaymentIntentNotFound
+	}
+	copy := *s.intents[intentID]
+	return &copy, nil
+}
+
+func (s *InMemoryStore) UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if next == nil || next.IntentID != intentID {
+		return payment.ErrInvalidIntent
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.intents[intentID]
+	if !ok {
+		return ErrPaymentIntentNotFound
+	}
+	if expectedStatus != "" && current.Status != expectedStatus {
+		return ErrPaymentIntentStateConflict
+	}
+	if !samePaymentIntentIdentity(current, next) {
+		return payment.ErrIntentConflict
+	}
+	copy := *next
+	s.intents[intentID] = &copy
+	return nil
+}
+
+func (s *InMemoryStore) CommitFinanceTransition(ctx context.Context, transition FinanceTransition) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if transition.NextEpisode == nil || transition.Event == nil || transition.NextEpisode.EpisodeID != transition.EpisodeID || transition.Event.EpisodeID != transition.EpisodeID {
+		return errors.New("finance transition records do not refer to the same episode")
+	}
+	if err := transition.NextEpisode.Validate(); err != nil {
+		return err
+	}
+	if err := transition.Event.Validate(); err != nil {
+		return err
+	}
+	if transition.ExpectedEpisodeVersion == 0 || transition.Event.Sequence != transition.ExpectedEpisodeVersion || transition.NextEpisode.Version != transition.ExpectedEpisodeVersion+1 {
+		return ErrVersionConflict
+	}
+	for _, entry := range transition.LedgerEntries {
+		if entry == nil {
+			return ledger.ErrInvalidEntry
+		}
+		if entry.EpisodeID != transition.EpisodeID {
+			return ledger.ErrInvalidEntry
+		}
+		if err := entry.Validate(); err != nil {
+			return err
+		}
+	}
+	if transition.IntentCreate != nil && transition.IntentUpdate != nil {
+		return errors.New("finance transition cannot create and update an intent together")
+	}
+	if transition.IntentCreate != nil && transition.IntentCreate.EpisodeID != transition.EpisodeID {
+		return payment.ErrIntentConflict
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.episodes[transition.EpisodeID]
+	if !ok {
+		return ErrNotFound
+	}
+	if current.Version != transition.ExpectedEpisodeVersion {
+		return ErrVersionConflict
+	}
+	if current.State != transition.Event.StateBefore || transition.NextEpisode.State != transition.Event.StateAfter {
+		return errors.New("finance event does not match episode projection")
+	}
+	for _, existing := range s.events[transition.EpisodeID] {
+		if existing.Action.IdempotencyKey == transition.Event.Action.IdempotencyKey {
+			return ErrIdempotentReplay
+		}
+	}
+	if err := s.validateLedgerBatchLocked(transition.EpisodeID, transition.LedgerEntries); err != nil {
+		return err
+	}
+	if err := s.validateBudgetProjectionLocked(current, transition.NextEpisode, transition.LedgerEntries); err != nil {
+		return err
+	}
+	if transition.IntentCreate != nil {
+		if err := s.validateIntentCreateLocked(transition.IntentCreate); err != nil {
+			return err
+		}
+	}
+	if transition.IntentUpdate != nil {
+		currentIntent, ok := s.intents[transition.IntentUpdate.IntentID]
+		if !ok {
+			return ErrPaymentIntentNotFound
+		}
+		if transition.ExpectedIntentStatus != "" && currentIntent.Status != transition.ExpectedIntentStatus {
+			return ErrPaymentIntentStateConflict
+		}
+		if !samePaymentIntentIdentity(currentIntent, transition.IntentUpdate) {
+			return payment.ErrIntentConflict
+		}
+	}
+	previous := current.Clone()
+	s.episodes[transition.EpisodeID] = transition.NextEpisode.Clone()
+	if err := s.appendLocked(transition.Event); err != nil {
+		s.episodes[transition.EpisodeID] = previous
+		return err
+	}
+	for _, entry := range transition.LedgerEntries {
+		copy := *entry
+		s.ledger[transition.EpisodeID] = append(s.ledger[transition.EpisodeID], &copy)
+	}
+	if transition.IntentCreate != nil {
+		copy := *transition.IntentCreate
+		s.intents[copy.IntentID] = &copy
+		s.intentByIdempotency[copy.EpisodeID+"\x00"+copy.IdempotencyKey] = copy.IntentID
+		s.intentByEconomicKey[copy.EpisodeID+"\x00"+copy.EconomicKey] = copy.IntentID
+	}
+	if transition.IntentUpdate != nil {
+		copy := *transition.IntentUpdate
+		s.intents[copy.IntentID] = &copy
+	}
+	return nil
+}
+
+func (s *InMemoryStore) appendLedgerLocked(value *ledger.LedgerEntry) error {
+	for _, existing := range s.ledger[value.EpisodeID] {
+		if existing.EntryID == value.EntryID {
+			if *existing == *value {
+				return ErrLedgerIdempotentReplay
+			}
+			return ErrLedgerIdempotencyConflict
+		}
+		if existing.IdempotencyKey == value.IdempotencyKey {
+			if *existing == *value {
+				return ErrLedgerIdempotentReplay
+			}
+			return ErrLedgerIdempotencyConflict
+		}
+	}
+	if value.Sequence != uint64(len(s.ledger[value.EpisodeID])+1) {
+		return ErrEventSequenceConflict
+	}
+	copy := *value
+	s.ledger[value.EpisodeID] = append(s.ledger[value.EpisodeID], &copy)
+	return nil
+}
+
+func (s *InMemoryStore) validateLedgerBatchLocked(episodeID string, entries []*ledger.LedgerEntry) error {
+	for index, entry := range entries {
+		if entry.Sequence != uint64(len(s.ledger[episodeID])+index+1) {
+			return ErrEventSequenceConflict
+		}
+		for _, existing := range s.ledger[episodeID] {
+			if existing.EntryID == entry.EntryID || existing.IdempotencyKey == entry.IdempotencyKey {
+				return ErrLedgerIdempotencyConflict
+			}
+		}
+		for previous := 0; previous < index; previous++ {
+			if entries[previous].EntryID == entry.EntryID || entries[previous].IdempotencyKey == entry.IdempotencyKey {
+				return ErrLedgerIdempotencyConflict
+			}
+		}
+	}
+	return nil
+}
+
+func (s *InMemoryStore) validateBudgetProjectionLocked(current, next *episode.CommerceEpisode, entries []*ledger.LedgerEntry) error {
+	existing := s.ledger[current.EpisodeID]
+	all := make([]*ledger.LedgerEntry, 0, len(existing)+len(entries))
+	for _, entry := range existing {
+		copy := *entry
+		all = append(all, &copy)
+	}
+	all = append(all, entries...)
+	projection, err := ledger.BuildProjection(current.Budget.Currency, current.Budget.BudgetLimitMinor, current.Budget.RefundReusable, all)
+	if err != nil {
+		return err
+	}
+	if projection.ToEpisodeBudget() != next.Budget {
+		return ledger.ErrProjectionInvariant
+	}
+	return nil
+}
+
+func (s *InMemoryStore) validateIntentCreateLocked(value *payment.PaymentIntent) error {
+	if _, ok := s.intents[value.IntentID]; ok {
+		return ErrPaymentIntentConflict
+	}
+	if existingID, ok := s.intentByIdempotency[value.EpisodeID+"\x00"+value.IdempotencyKey]; ok && existingID != value.IntentID {
+		return ErrPaymentIntentConflict
+	}
+	if existingID, ok := s.intentByEconomicKey[value.EpisodeID+"\x00"+value.EconomicKey]; ok && existingID != value.IntentID {
+		return ErrPaymentIntentConflict
+	}
+	return nil
+}
+
+func samePaymentIntentIdentity(left, right *payment.PaymentIntent) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
+		left.CapabilityID == right.CapabilityID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID && left.BudgetReservation == right.BudgetReservation &&
+		left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.ExpiresAt.Equal(right.ExpiresAt) &&
+		left.CreatedAt.Equal(right.CreatedAt)
 }
 
 func (s *InMemoryStore) updateLocked(episodeID string, expectedVersion uint64, next *episode.CommerceEpisode) error {

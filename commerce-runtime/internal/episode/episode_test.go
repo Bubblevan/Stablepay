@@ -133,7 +133,7 @@ func TestBudgetRefundSemanticsAreExplicit(t *testing.T) {
 	}
 
 	budget.RefundReusable = true
-	budget.RefundedAmount = 90
+	budget.RefundedAmount = 70
 	if err := budget.Recalculate(); err != nil {
 		t.Fatal(err)
 	}

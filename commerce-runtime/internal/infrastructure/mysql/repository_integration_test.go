@@ -54,6 +54,8 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 	}
 	episodeID := created.Episode.EpisodeID
 	t.Cleanup(func() {
+		db.Exec("DELETE FROM payment_intents WHERE episode_id = ?", episodeID)
+		db.Exec("DELETE FROM ledger_entries WHERE episode_id = ?", episodeID)
 		db.Exec("DELETE FROM episode_events WHERE episode_id = ?", episodeID)
 		db.Exec("DELETE FROM commerce_episodes WHERE episode_id = ?", episodeID)
 	})
@@ -66,7 +68,6 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		{trace.ActionDiscover, trace.ObservationCandidatesFound, "mysql-discover"},
 		{trace.ActionInvoke, trace.ObservationCandidatesFound, "mysql-invoke"},
 		{trace.ActionParse402, trace.ObservationHTTP402, "mysql-parse-402"},
-		{trace.ActionReserveBudget, trace.ObservationQuoteValid, "mysql-reserve"},
 	} {
 		current, err := service.GetEpisode(ctx, episodeID)
 		if err != nil {
@@ -81,11 +82,18 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
 	current, err := service.GetEpisode(ctx, episodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	reserved, err := service.ReservePaymentIntent(ctx, application.ReservePaymentIntentRequest{EpisodeID: episodeID,
+		Quote: application.TrustedPaymentQuote{MerchantDID: "did:merchant:mysql", CapabilityID: "capability:mysql", QuoteHash: "sha256:mysql-quote",
+			AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}, IdempotencyKey: "mysql-reserve", TraceID: "mysql-reserve-trace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = reserved.Episode
+
 	if current.State != episode.StatePaying || current.Version != 5 {
 		t.Fatalf("unexpected pre-concurrency projection: %#v", current)
 	}

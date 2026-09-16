@@ -1,7 +1,8 @@
--- S1 minimum persistence. No catalog, memory, retrieval, workflow or ledger tables.
+-- S2 runtime persistence. No catalog, memory, retrieval, workflow or vector tables.
 CREATE TABLE IF NOT EXISTS commerce_episodes (
     episode_id                 VARCHAR(128) NOT NULL PRIMARY KEY,
     request_id                 VARCHAR(128) NOT NULL,
+    requester_did              VARCHAR(128) NOT NULL,
     session_id                 VARCHAR(128) NULL,
     state                      VARCHAR(32) NOT NULL,
     terminal_reason            VARCHAR(128) NULL,
@@ -56,5 +57,56 @@ CREATE TABLE IF NOT EXISTS episode_events (
     UNIQUE KEY uk_episode_sequence (episode_id, sequence),
     UNIQUE KEY uk_episode_idempotency (episode_id, idempotency_key),
     CONSTRAINT fk_episode_events_episode FOREIGN KEY (episode_id)
+        REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    entry_id                   VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id                 VARCHAR(128) NOT NULL,
+    sequence                   BIGINT UNSIGNED NOT NULL,
+    type                       VARCHAR(40) NOT NULL,
+    currency                   VARCHAR(16) NOT NULL,
+    amount_minor               BIGINT NOT NULL,
+    payment_intent_id          VARCHAR(128) NULL,
+    tx_id                      VARCHAR(128) NULL,
+    refund_id                  VARCHAR(128) NULL,
+    idempotency_key            VARCHAR(128) NOT NULL,
+    occurred_at                DATETIME(6) NOT NULL,
+    trace_id                   VARCHAR(128) NULL,
+    reference_hash             CHAR(71) NOT NULL,
+    metadata_hash              CHAR(71) NULL,
+    UNIQUE KEY uk_ledger_sequence (episode_id, sequence),
+    UNIQUE KEY uk_ledger_idempotency (episode_id, idempotency_key),
+    KEY idx_ledger_intent (payment_intent_id),
+    KEY idx_ledger_tx (tx_id),
+    CONSTRAINT fk_ledger_entries_episode FOREIGN KEY (episode_id)
+        REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_intents (
+    intent_id                  VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id                 VARCHAR(128) NOT NULL,
+    merchant_did               VARCHAR(128) NOT NULL,
+    capability_id              VARCHAR(128) NOT NULL,
+    quote_hash                 CHAR(71) NOT NULL,
+    amount_minor               BIGINT NOT NULL,
+    currency                   VARCHAR(16) NOT NULL,
+    requester_did              VARCHAR(128) NOT NULL,
+    episode_version            BIGINT UNSIGNED NOT NULL,
+    budget_reservation         BIGINT NOT NULL,
+    idempotency_key            VARCHAR(128) NOT NULL,
+    economic_key               CHAR(71) NOT NULL,
+    expires_at                 DATETIME(6) NOT NULL,
+    status                     VARCHAR(24) NOT NULL,
+    tx_id                      VARCHAR(128) NULL,
+    tx_hash                    VARCHAR(128) NULL,
+    authorization_ref          VARCHAR(128) NULL,
+    failure_code               VARCHAR(128) NULL,
+    created_at                 DATETIME(6) NOT NULL,
+    updated_at                 DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_intent_idempotency (episode_id, idempotency_key),
+    UNIQUE KEY uk_intent_economic (episode_id, economic_key),
+    KEY idx_intent_episode (episode_id),
+    CONSTRAINT fk_payment_intents_episode FOREIGN KEY (episode_id)
         REFERENCES commerce_episodes (episode_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

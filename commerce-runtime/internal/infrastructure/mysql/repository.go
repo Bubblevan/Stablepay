@@ -11,6 +11,8 @@ import (
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/ledger"
+	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 	"gorm.io/driver/mysql"
@@ -21,6 +23,7 @@ import (
 type EpisodeModel struct {
 	EpisodeID               string    `gorm:"column:episode_id;type:varchar(128);primaryKey"`
 	RequestID               string    `gorm:"column:request_id;type:varchar(128);not null;uniqueIndex:uk_commerce_episode_request_id"`
+	RequesterDID            string    `gorm:"column:requester_did;type:varchar(128);not null"`
 	SessionID               string    `gorm:"column:session_id;type:varchar(128)"`
 	State                   string    `gorm:"column:state;type:varchar(32);not null"`
 	TerminalReason          string    `gorm:"column:terminal_reason;type:varchar(128)"`
@@ -77,6 +80,50 @@ type EventModel struct {
 
 func (EventModel) TableName() string { return "episode_events" }
 
+type LedgerEntryModel struct {
+	EntryID         string    `gorm:"column:entry_id;type:varchar(128);primaryKey"`
+	EpisodeID       string    `gorm:"column:episode_id;type:varchar(128);not null;uniqueIndex:uk_ledger_sequence;index:idx_ledger_episode"`
+	Sequence        uint64    `gorm:"column:sequence;not null;uniqueIndex:uk_ledger_sequence"`
+	Type            string    `gorm:"column:type;type:varchar(40);not null"`
+	Currency        string    `gorm:"column:currency;type:varchar(16);not null"`
+	AmountMinor     int64     `gorm:"column:amount_minor;not null"`
+	PaymentIntentID string    `gorm:"column:payment_intent_id;type:varchar(128);index:idx_ledger_intent"`
+	TxID            string    `gorm:"column:tx_id;type:varchar(128);index:idx_ledger_tx"`
+	RefundID        string    `gorm:"column:refund_id;type:varchar(128)"`
+	IdempotencyKey  string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_ledger_idempotency"`
+	OccurredAt      time.Time `gorm:"column:occurred_at;not null"`
+	TraceID         string    `gorm:"column:trace_id;type:varchar(128)"`
+	ReferenceHash   string    `gorm:"column:reference_hash;type:char(71);not null"`
+	MetadataHash    string    `gorm:"column:metadata_hash;type:char(71)"`
+}
+
+func (LedgerEntryModel) TableName() string { return "ledger_entries" }
+
+type PaymentIntentModel struct {
+	IntentID          string    `gorm:"column:intent_id;type:varchar(128);primaryKey"`
+	EpisodeID         string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_intent_episode"`
+	MerchantDID       string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID      string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	QuoteHash         string    `gorm:"column:quote_hash;type:char(71);not null"`
+	AmountMinor       int64     `gorm:"column:amount_minor;not null"`
+	Currency          string    `gorm:"column:currency;type:varchar(16);not null"`
+	RequesterDID      string    `gorm:"column:requester_did;type:varchar(128);not null"`
+	EpisodeVersion    uint64    `gorm:"column:episode_version;not null"`
+	BudgetReservation int64     `gorm:"column:budget_reservation;not null"`
+	IdempotencyKey    string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_intent_idempotency"`
+	EconomicKey       string    `gorm:"column:economic_key;type:char(71);not null;uniqueIndex:uk_intent_economic"`
+	ExpiresAt         time.Time `gorm:"column:expires_at;not null"`
+	Status            string    `gorm:"column:status;type:varchar(24);not null"`
+	TxID              string    `gorm:"column:tx_id;type:varchar(128)"`
+	TxHash            string    `gorm:"column:tx_hash;type:varchar(128)"`
+	AuthorizationRef  string    `gorm:"column:authorization_ref;type:varchar(128)"`
+	FailureCode       string    `gorm:"column:failure_code;type:varchar(128)"`
+	CreatedAt         time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (PaymentIntentModel) TableName() string { return "payment_intents" }
+
 type Store struct{ db *gorm.DB }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -92,7 +139,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{})
+	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{})
 }
 
 func (s *Store) Create(ctx context.Context, value *episode.CommerceEpisode) error {
@@ -201,6 +248,161 @@ func (s *Store) FindByIdempotencyKey(ctx context.Context, episodeID, key string)
 	return modelToEvent(row)
 }
 
+func (s *Store) AppendLedgerEntry(ctx context.Context, value *ledger.LedgerEntry) error {
+	model, err := ledgerToModel(value)
+	if err != nil {
+		return err
+	}
+	var episodeRow EpisodeModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", value.EpisodeID).First(&episodeRow).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return repository.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	var existing LedgerEntryModel
+	lookupErr := s.db.WithContext(ctx).Where("episode_id = ? AND idempotency_key = ?", value.EpisodeID, value.IdempotencyKey).First(&existing).Error
+	if lookupErr == nil {
+		previous, decodeErr := modelToLedger(existing)
+		if decodeErr == nil && *previous == *value {
+			return repository.ErrLedgerIdempotentReplay
+		}
+		return repository.ErrLedgerIdempotencyConflict
+	}
+	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return lookupErr
+	}
+	var latest LedgerEntryModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", value.EpisodeID).Order("sequence DESC").First(&latest).Error; err == nil {
+		if value.Sequence != latest.Sequence+1 {
+			return repository.ErrEventSequenceConflict
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	} else if value.Sequence != 1 {
+		return repository.ErrEventSequenceConflict
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrLedgerIdempotencyConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ListLedgerEntries(ctx context.Context, episodeID string) ([]*ledger.LedgerEntry, error) {
+	var rows []LedgerEntryModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", episodeID).Order("sequence ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*ledger.LedgerEntry, 0, len(rows))
+	for _, row := range rows {
+		value, err := modelToLedger(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+func (s *Store) FindLedgerByIdempotencyKey(ctx context.Context, episodeID, key string) (*ledger.LedgerEntry, error) {
+	var row LedgerEntryModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND idempotency_key = ?", episodeID, key).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToLedger(row)
+}
+
+func (s *Store) CreatePaymentIntent(ctx context.Context, value *payment.PaymentIntent) error {
+	model, err := paymentIntentToModel(value)
+	if err != nil {
+		return err
+	}
+	var episodeRow EpisodeModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", value.EpisodeID).First(&episodeRow).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return repository.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrPaymentIntentConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetPaymentIntent(ctx context.Context, intentID string) (*payment.PaymentIntent, error) {
+	var row PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("intent_id = ?", intentID).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrPaymentIntentNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentIntent(row)
+}
+
+func (s *Store) FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error) {
+	var row PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND idempotency_key = ?", episodeID, key).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrPaymentIntentNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentIntent(row)
+}
+
+func (s *Store) FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error) {
+	var row PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND economic_key = ?", episodeID, key).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrPaymentIntentNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentIntent(row)
+}
+
+func (s *Store) UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error {
+	if next == nil || next.IntentID != intentID {
+		return payment.ErrInvalidIntent
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	var current PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("intent_id = ?", intentID).First(&current).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return repository.ErrPaymentIntentNotFound
+	} else if err != nil {
+		return err
+	}
+	previous, err := modelToPaymentIntent(current)
+	if err != nil {
+		return err
+	}
+	if expectedStatus != "" && previous.Status != expectedStatus {
+		return repository.ErrPaymentIntentStateConflict
+	}
+	if !sameIntentIdentity(previous, next) {
+		return payment.ErrIntentConflict
+	}
+	query := s.db.WithContext(ctx).Model(&PaymentIntentModel{}).Where("intent_id = ?", intentID)
+	if expectedStatus != "" {
+		query = query.Where("status = ?", string(expectedStatus))
+	}
+	result := query.Updates(paymentIntentUpdates(next))
+	if result.Error != nil {
+		return result.Error
+	}
+	if expectedStatus != "" && result.RowsAffected != 1 {
+		return repository.ErrPaymentIntentStateConflict
+	}
+	return nil
+}
+
 func (s *Store) CommitTransition(ctx context.Context, episodeID string, expectedVersion uint64, next *episode.CommerceEpisode, event *episode.EpisodeEvent) error {
 	if next == nil || event == nil || next.EpisodeID != episodeID || event.EpisodeID != episodeID {
 		return errors.New("transition records do not refer to the same episode")
@@ -262,6 +464,195 @@ func (s *Store) CommitTransition(ctx context.Context, episodeID string, expected
 	})
 }
 
+func (s *Store) CommitFinanceTransition(ctx context.Context, transition repository.FinanceTransition) error {
+	if transition.NextEpisode == nil || transition.Event == nil || transition.NextEpisode.EpisodeID != transition.EpisodeID || transition.Event.EpisodeID != transition.EpisodeID {
+		return errors.New("finance transition records do not refer to the same episode")
+	}
+	if err := transition.NextEpisode.Validate(); err != nil {
+		return err
+	}
+	if err := transition.Event.Validate(); err != nil {
+		return err
+	}
+	if transition.ExpectedEpisodeVersion == 0 || transition.Event.Sequence != transition.ExpectedEpisodeVersion || transition.NextEpisode.Version != transition.ExpectedEpisodeVersion+1 {
+		return repository.ErrVersionConflict
+	}
+	for _, entry := range transition.LedgerEntries {
+		if entry == nil {
+			return ledger.ErrInvalidEntry
+		}
+		if entry.EpisodeID != transition.EpisodeID {
+			return ledger.ErrInvalidEntry
+		}
+		if err := entry.Validate(); err != nil {
+			return err
+		}
+	}
+	if transition.IntentCreate != nil && transition.IntentUpdate != nil {
+		return errors.New("finance transition cannot create and update an intent together")
+	}
+	if transition.IntentCreate != nil && transition.IntentCreate.EpisodeID != transition.EpisodeID {
+		return payment.ErrIntentConflict
+	}
+	eventModel, err := eventToModel(transition.Event)
+	if err != nil {
+		return err
+	}
+	ledgerModels := make([]*LedgerEntryModel, 0, len(transition.LedgerEntries))
+	for _, entry := range transition.LedgerEntries {
+		model, err := ledgerToModel(entry)
+		if err != nil {
+			return err
+		}
+		ledgerModels = append(ledgerModels, model)
+	}
+	var intentCreateModel *PaymentIntentModel
+	if transition.IntentCreate != nil {
+		intentCreateModel, err = paymentIntentToModel(transition.IntentCreate)
+		if err != nil {
+			return err
+		}
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current EpisodeModel
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("episode_id = ?", transition.EpisodeID).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return repository.ErrNotFound
+			}
+			return err
+		}
+		if current.Version != transition.ExpectedEpisodeVersion {
+			return repository.ErrVersionConflict
+		}
+		if episode.State(current.State) != transition.Event.StateBefore || transition.NextEpisode.State != transition.Event.StateAfter {
+			return errors.New("finance event does not match episode projection")
+		}
+		if current.ContractSnapshotHash != transition.NextEpisode.ContractSnapshotHash || !bytes.Equal(current.ContractSnapshot, transition.NextEpisode.ContractSnapshot) {
+			return episode.ErrImmutableContract
+		}
+		var existingEvent EventModel
+		if err := tx.Where("episode_id = ? AND idempotency_key = ?", transition.EpisodeID, transition.Event.Action.IdempotencyKey).First(&existingEvent).Error; err == nil {
+			return repository.ErrIdempotentReplay
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		var latest LedgerEntryModel
+		ledgerSequence := uint64(1)
+		if err := tx.Where("episode_id = ?", transition.EpisodeID).Order("sequence DESC").First(&latest).Error; err == nil {
+			ledgerSequence = latest.Sequence + 1
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		for index, model := range ledgerModels {
+			if model.Sequence != ledgerSequence+uint64(index) {
+				return repository.ErrEventSequenceConflict
+			}
+			var existingLedger LedgerEntryModel
+			if err := tx.Where("episode_id = ? AND (idempotency_key = ? OR entry_id = ?)", transition.EpisodeID, model.IdempotencyKey, model.EntryID).First(&existingLedger).Error; err == nil {
+				previous, decodeErr := modelToLedger(existingLedger)
+				candidate, candidateErr := modelToLedger(*model)
+				if decodeErr == nil && candidateErr == nil && *previous == *candidate {
+					return repository.ErrLedgerIdempotentReplay
+				}
+				return repository.ErrLedgerIdempotencyConflict
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		var existingLedgerRows []LedgerEntryModel
+		if err := tx.Where("episode_id = ?", transition.EpisodeID).Order("sequence ASC").Find(&existingLedgerRows).Error; err != nil {
+			return err
+		}
+		allLedgerEntries := make([]*ledger.LedgerEntry, 0, len(existingLedgerRows)+len(ledgerModels))
+		for _, row := range existingLedgerRows {
+			entry, err := modelToLedger(row)
+			if err != nil {
+				return err
+			}
+			allLedgerEntries = append(allLedgerEntries, entry)
+		}
+		for _, model := range ledgerModels {
+			entry, err := modelToLedger(*model)
+			if err != nil {
+				return err
+			}
+			allLedgerEntries = append(allLedgerEntries, entry)
+		}
+		projection, err := ledger.BuildProjection(current.BudgetCurrency, current.BudgetLimitMinor, current.RefundReusable, allLedgerEntries)
+		if err != nil {
+			return err
+		}
+		if projection.ToEpisodeBudget() != transition.NextEpisode.Budget {
+			return ledger.ErrProjectionInvariant
+		}
+		if transition.IntentCreate != nil {
+			if err := tx.Where("intent_id = ? OR (episode_id = ? AND idempotency_key = ?) OR (episode_id = ? AND economic_key = ?)", intentCreateModel.IntentID, transition.EpisodeID, intentCreateModel.IdempotencyKey, transition.EpisodeID, intentCreateModel.EconomicKey).First(&PaymentIntentModel{}).Error; err == nil {
+				return repository.ErrPaymentIntentConflict
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		if transition.IntentUpdate != nil {
+			var currentIntent PaymentIntentModel
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", transition.IntentUpdate.IntentID).First(&currentIntent).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				return repository.ErrPaymentIntentNotFound
+			} else if err != nil {
+				return err
+			}
+			previous, err := modelToPaymentIntent(currentIntent)
+			if err != nil {
+				return err
+			}
+			if transition.ExpectedIntentStatus != "" && previous.Status != transition.ExpectedIntentStatus {
+				return repository.ErrPaymentIntentStateConflict
+			}
+			if !sameIntentIdentity(previous, transition.IntentUpdate) {
+				return payment.ErrIntentConflict
+			}
+		}
+		updates, err := episodeUpdates(transition.NextEpisode)
+		if err != nil {
+			return err
+		}
+		if result := tx.Model(&EpisodeModel{}).Where("episode_id = ? AND version = ?", transition.EpisodeID, transition.ExpectedEpisodeVersion).Updates(updates); result.Error != nil {
+			return result.Error
+		} else if result.RowsAffected != 1 {
+			return repository.ErrVersionConflict
+		}
+		if err := tx.Create(eventModel).Error; err != nil {
+			return err
+		}
+		for _, model := range ledgerModels {
+			if err := tx.Create(model).Error; err != nil {
+				if isDuplicateKey(err) {
+					return repository.ErrLedgerIdempotencyConflict
+				}
+				return err
+			}
+		}
+		if intentCreateModel != nil {
+			if err := tx.Create(intentCreateModel).Error; err != nil {
+				if isDuplicateKey(err) {
+					return repository.ErrPaymentIntentConflict
+				}
+				return err
+			}
+		}
+		if transition.IntentUpdate != nil {
+			query := tx.Model(&PaymentIntentModel{}).Where("intent_id = ?", transition.IntentUpdate.IntentID)
+			if transition.ExpectedIntentStatus != "" {
+				query = query.Where("status = ?", string(transition.ExpectedIntentStatus))
+			}
+			if result := query.Updates(paymentIntentUpdates(transition.IntentUpdate)); result.Error != nil {
+				return result.Error
+			} else if result.RowsAffected != 1 {
+				return repository.ErrPaymentIntentStateConflict
+			}
+		}
+		return nil
+	})
+}
+
 func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 	if value == nil {
 		return nil, errors.New("episode is required")
@@ -292,7 +683,7 @@ func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 		return nil, err
 	}
 	return &EpisodeModel{
-		EpisodeID: value.EpisodeID, RequestID: value.RequestID, SessionID: value.SessionID,
+		EpisodeID: value.EpisodeID, RequestID: value.RequestID, RequesterDID: value.RequesterDID, SessionID: value.SessionID,
 		State: string(value.State), TerminalReason: value.TerminalReason,
 		ContractSnapshotHash: value.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), value.ContractSnapshot...),
 		SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID,
@@ -337,7 +728,7 @@ func modelToEpisode(row EpisodeModel) (*episode.CommerceEpisode, error) {
 		return nil, err
 	}
 	value := &episode.CommerceEpisode{
-		EpisodeID: row.EpisodeID, RequestID: row.RequestID, SessionID: row.SessionID,
+		EpisodeID: row.EpisodeID, RequestID: row.RequestID, RequesterDID: row.RequesterDID, SessionID: row.SessionID,
 		State: episode.State(row.State), TerminalReason: row.TerminalReason,
 		ContractSnapshotHash: row.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), row.ContractSnapshot...),
 		SelectedMerchantDID: row.SelectedMerchantDID, SelectedCapabilityID: row.SelectedCapabilityID,
@@ -435,6 +826,82 @@ func modelToEvent(row EventModel) (*episode.EpisodeEvent, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+func ledgerToModel(value *ledger.LedgerEntry) (*LedgerEntryModel, error) {
+	if value == nil {
+		return nil, ledger.ErrInvalidEntry
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return &LedgerEntryModel{
+		EntryID: value.EntryID, EpisodeID: value.EpisodeID, Sequence: value.Sequence, Type: string(value.Type), Currency: value.Currency,
+		AmountMinor: value.AmountMinor, PaymentIntentID: value.PaymentIntentID, TxID: value.TxID, RefundID: value.RefundID,
+		IdempotencyKey: value.IdempotencyKey, OccurredAt: value.OccurredAt, TraceID: value.TraceID,
+		ReferenceHash: value.ReferenceHash, MetadataHash: value.MetadataHash,
+	}, nil
+}
+
+func modelToLedger(row LedgerEntryModel) (*ledger.LedgerEntry, error) {
+	value := &ledger.LedgerEntry{
+		EntryID: row.EntryID, EpisodeID: row.EpisodeID, Sequence: row.Sequence, Type: ledger.EntryType(row.Type), Currency: row.Currency,
+		AmountMinor: row.AmountMinor, PaymentIntentID: row.PaymentIntentID, TxID: row.TxID, RefundID: row.RefundID,
+		IdempotencyKey: row.IdempotencyKey, OccurredAt: row.OccurredAt, TraceID: row.TraceID,
+		ReferenceHash: row.ReferenceHash, MetadataHash: row.MetadataHash,
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func paymentIntentToModel(value *payment.PaymentIntent) (*PaymentIntentModel, error) {
+	if value == nil {
+		return nil, payment.ErrInvalidIntent
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return &PaymentIntentModel{
+		IntentID: value.IntentID, EpisodeID: value.EpisodeID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID,
+		QuoteHash: value.QuoteHash, AmountMinor: value.AmountMinor, Currency: value.Currency, RequesterDID: value.RequesterDID,
+		EpisodeVersion: value.EpisodeVersion, BudgetReservation: value.BudgetReservation, IdempotencyKey: value.IdempotencyKey,
+		EconomicKey: value.EconomicKey, ExpiresAt: value.ExpiresAt, Status: string(value.Status), TxID: value.TxID, TxHash: value.TxHash,
+		AuthorizationRef: value.AuthorizationRef, FailureCode: value.FailureCode, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+	}, nil
+}
+
+func modelToPaymentIntent(row PaymentIntentModel) (*payment.PaymentIntent, error) {
+	value := &payment.PaymentIntent{
+		IntentID: row.IntentID, EpisodeID: row.EpisodeID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID,
+		QuoteHash: row.QuoteHash, AmountMinor: row.AmountMinor, Currency: row.Currency, RequesterDID: row.RequesterDID,
+		EpisodeVersion: row.EpisodeVersion, BudgetReservation: row.BudgetReservation, IdempotencyKey: row.IdempotencyKey,
+		EconomicKey: row.EconomicKey, ExpiresAt: row.ExpiresAt, Status: payment.IntentStatus(row.Status), TxID: row.TxID, TxHash: row.TxHash,
+		AuthorizationRef: row.AuthorizationRef, FailureCode: row.FailureCode, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func paymentIntentUpdates(value *payment.PaymentIntent) map[string]any {
+	return map[string]any{
+		"episode_version": value.EpisodeVersion, "status": string(value.Status), "tx_id": value.TxID, "tx_hash": value.TxHash,
+		"authorization_ref": value.AuthorizationRef, "failure_code": value.FailureCode, "updated_at": value.UpdatedAt,
+	}
+}
+
+func sameIntentIdentity(left, right *payment.PaymentIntent) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
+		left.CapabilityID == right.CapabilityID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID &&
+		left.BudgetReservation == right.BudgetReservation && left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey &&
+		left.ExpiresAt.Equal(right.ExpiresAt) && left.CreatedAt.Equal(right.CreatedAt)
 }
 
 func isDuplicateKey(err error) bool {

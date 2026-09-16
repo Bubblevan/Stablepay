@@ -66,7 +66,7 @@ type BudgetSnapshot struct {
 // When RefundReusable is false, refunds remain accounting evidence but do not
 // return capacity to available budget; consumed is settled amount.
 func (b *BudgetSnapshot) Recalculate() error {
-	if b == nil || strings.TrimSpace(b.Currency) == "" || b.BudgetLimitMinor < 0 || b.ReservedAmount < 0 || b.SettledAmount < 0 || b.RefundedAmount < 0 {
+	if b == nil || strings.TrimSpace(b.Currency) == "" || b.BudgetLimitMinor < 0 || b.ReservedAmount < 0 || b.SettledAmount < 0 || b.RefundedAmount < 0 || b.RefundedAmount > b.SettledAmount {
 		return ErrInvalidEpisode
 	}
 	consumed := maxInt64(0, b.SettledAmount-b.RefundedAmount)
@@ -96,6 +96,7 @@ func (b BudgetSnapshot) Validate() error {
 type CommerceEpisode struct {
 	EpisodeID               string         `json:"episode_id"`
 	RequestID               string         `json:"request_id"`
+	RequesterDID            string         `json:"requester_did"`
 	SessionID               string         `json:"session_id,omitempty"`
 	State                   State          `json:"state"`
 	TerminalReason          string         `json:"terminal_reason,omitempty"`
@@ -143,6 +144,7 @@ func New(episodeID string, request contract.AcquireCapabilityRequest, now time.T
 	return &CommerceEpisode{
 		EpisodeID:            episodeID,
 		RequestID:            normalized.RequestID,
+		RequesterDID:         normalized.RequesterDID,
 		SessionID:            normalized.ParentSessionID,
 		State:                StateAccepted,
 		ContractSnapshotHash: hash,
@@ -297,10 +299,15 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		return StatePaying, from == StateNegotiating
 	case trace.ActionCreatePayment:
 		return StateClaiming, from == StatePaying
-	case trace.ActionPaymentSubmitted, trace.ActionPaymentPending, trace.ActionPaymentStatusQueried:
+	case trace.ActionPaymentAuthorizationChecked, trace.ActionPaymentSubmitted, trace.ActionPaymentPending, trace.ActionPaymentStatusQueried, trace.ActionPaymentFailed, trace.ActionPaymentUnknown:
 		return StatePaying, from == StatePaying
+	case trace.ActionPaymentConfirmed:
+		return StateClaiming, from == StatePaying
 	case trace.ActionVerifyEntitlement:
-		return StateInvokingDelivery, from == StateClaiming
+		if observation == trace.ObservationEntitlementInvalid {
+			return StateClaiming, from == StateClaiming
+		}
+		return StateInvokingDelivery, from == StateClaiming && observation == trace.ObservationEntitlementValid
 	case trace.ActionValidateDelivery:
 		switch observation {
 		case trace.ObservationDeliveryValid:

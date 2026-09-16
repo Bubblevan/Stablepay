@@ -27,6 +27,7 @@ type Service struct {
 	idGenerator    func(prefix string) string
 	runtimeVersion string
 	guard          decision.RuntimeGuard
+	paymentDeps    PaymentDependencies
 }
 
 type Option func(*Service)
@@ -168,6 +169,9 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if !errors.Is(err, repository.ErrNotFound) {
 		return CommitResult{}, err
 	}
+	if runtimeOwnedProposalAction(request.Action.Type) {
+		return CommitResult{}, decision.ErrActionNotAllowed
+	}
 
 	current, err := s.store.Get(ctx, request.Proposal.EpisodeID)
 	if err != nil {
@@ -241,6 +245,20 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		return CommitResult{}, err
 	}
 	return CommitResult{Episode: next, Event: event}, nil
+}
+
+// Payment, budget and entitlement facts are committed by the deterministic
+// runtime methods, never by a DecisionProvider proposal. This keeps proposal
+// handling useful for orchestration while preventing a model from asserting a
+// reservation, settlement or entitlement as if it were a trusted fact.
+func runtimeOwnedProposalAction(action trace.ActionType) bool {
+	switch action {
+	case trace.ActionReserveBudget, trace.ActionNegotiateAndPay, trace.ActionCreatePayment,
+		trace.ActionVerifyEntitlement, trace.ActionPaymentConfirmed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) replayIfCommitted(ctx context.Context, episodeID string, request CommitRequest) (CommitResult, error) {

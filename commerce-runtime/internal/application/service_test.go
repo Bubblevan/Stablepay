@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
@@ -31,7 +33,7 @@ func requestFixture(now time.Time) contract.AcquireCapabilityRequest {
 		RequestID: "acr_service", ParentSessionID: "session_service", RequesterDID: "did:stablepay:agent",
 		AcquisitionGoal: contract.AcquisitionGoal{TaskType: "transcription", Description: "transcribe audio"},
 		Input:           contract.Input{URI: "object://audio/1.mp3", ContentType: "audio/mpeg"},
-		Constraints:     contract.Constraints{BudgetLimitMinor: 1000, Currency: "USDC", DeadlineAt: now.Add(time.Hour), MaxTotalAttempts: 10, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2},
+		Constraints:     contract.Constraints{BudgetLimitMinor: 1000, Currency: "USDC", DeadlineAt: now.Add(time.Hour), MaxTotalAttempts: 20, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2},
 		ExpectedOutput:  contract.ExpectedOutput{Schema: "transcript", ContentType: "text/plain"},
 		Validator:       contract.ValidatorRef{Kind: "builtin", Name: "transcript_validator", Version: "v1"},
 	}
@@ -90,43 +92,61 @@ func TestCreateAndCommitProposalProducesStructuredEvent(t *testing.T) {
 
 func TestDeterministicS1FlowReachesFulfilledWithoutLLM(t *testing.T) {
 	service, store, now, created := createFixture(t)
-	steps := []struct {
+	current := advanceToNegotiating(t, service, created, now)
+	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:s1", CapabilityID: "capability:s1", QuoteHash: "s1-quote", AmountMinor: 300,
+		Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}
+	_, paymentAdapter, status, entitlement, dependencies := newS2Dependencies(quote)
+	service.paymentDeps = dependencies
+	entitlement.result.Status = adapters.EntitlementUnknown
+	reserved, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: quote, IdempotencyKey: "s1-runtime-payment", TraceID: "s1-runtime"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeAndSubmitPayment(context.Background(), reserved.Intent.IntentID, "s1-submit"); err != nil {
+		t.Fatal(err)
+	}
+	status.outcomes = []payment.PaymentOutcome{{Status: payment.OutcomeConfirmed, TxID: "tx-1", TxHash: "hash-1", AmountMinor: 300, Currency: "USDC"}}
+	if _, err := service.ReconcilePayment(context.Background(), reserved.Intent.IntentID, "s1-confirm"); err != nil {
+		t.Fatal(err)
+	}
+	entitlement.result.Status = adapters.EntitlementValid
+	claimed, err := service.VerifyPaymentEntitlement(context.Background(), reserved.Intent.IntentID, "s1-entitlement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = claimed.Episode
+	for index, step := range []struct {
 		action      trace.ActionType
 		observation trace.ObservationType
 		key         string
 	}{
-		{trace.ActionDiscover, trace.ObservationCandidatesFound, "flow-1"},
-		{trace.ActionSelectMerchant, trace.ObservationCandidatesFound, "flow-2"},
-		{trace.ActionParse402, trace.ObservationHTTP402, "flow-3"},
-		{trace.ActionReserveBudget, trace.ObservationQuoteValid, "flow-4"},
-		{trace.ActionCreatePayment, trace.ObservationPaymentSettled, "flow-5"},
-		{trace.ActionVerifyEntitlement, trace.ObservationEntitlementValid, "flow-6"},
-		{trace.ActionInvoke, trace.ObservationDeliveryValid, "flow-7"},
-		{trace.ActionValidateDelivery, trace.ObservationDeliveryValid, "flow-8"},
-	}
-	current := created
-	for index, step := range steps {
-		proposal := makeProposal(current.EpisodeID, uint64(index), step.action, now)
+		{trace.ActionInvoke, trace.ObservationDeliveryValid, "s1-delivery-invoke"},
+		{trace.ActionValidateDelivery, trace.ObservationDeliveryValid, "s1-delivery-validate"},
+	} {
+		proposal := makeProposal(current.EpisodeID, current.Version-1, step.action, now)
 		result, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, step.key, trace.Observation{Type: step.observation}))
 		if err != nil {
-			t.Fatalf("step %d (%s): %v", index+1, step.action, err)
+			t.Fatalf("delivery step %d (%s): %v", index+1, step.action, err)
 		}
 		current = result.Episode
 	}
-	if current.State != episode.StateFulfilled || current.Version != 9 || current.ActionCount != 8 || current.PaymentAttemptCount != 1 || current.DeliveryAttemptCount != 1 {
+	if current.State != episode.StateFulfilled || current.PaymentAttemptCount != 1 || current.DeliveryAttemptCount != 1 {
 		t.Fatalf("unexpected fulfilled projection: %#v", current)
 	}
 	events, err := store.ListByEpisode(context.Background(), current.EpisodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != len(steps) {
-		t.Fatalf("expected %d events, got %d", len(steps), len(events))
+	if len(events) != 11 {
+		t.Fatalf("expected 11 events, got %d", len(events))
 	}
 	for index, event := range events {
 		if event.Sequence != uint64(index+1) {
 			t.Fatalf("event sequence %d is %d", index+1, event.Sequence)
 		}
+	}
+	if paymentAdapter.callCount() != 1 {
+		t.Fatalf("runtime submitted payment more than once: %d", paymentAdapter.callCount())
 	}
 }
 
@@ -191,7 +211,6 @@ func TestSameStatePaymentStepIsCommittedWithoutNewEpisodeState(t *testing.T) {
 		{trace.ActionDiscover, trace.ObservationCandidatesFound},
 		{trace.ActionInvoke, trace.ObservationCandidatesFound},
 		{trace.ActionParse402, trace.ObservationHTTP402},
-		{trace.ActionReserveBudget, trace.ObservationQuoteValid},
 	}
 	for index, step := range steps {
 		proposal := makeProposal(created.EpisodeID, uint64(index), step.action, now)
@@ -201,13 +220,31 @@ func TestSameStatePaymentStepIsCommittedWithoutNewEpisodeState(t *testing.T) {
 		}
 		created = result.Episode
 	}
-	proposal := makeProposal(created.EpisodeID, created.Version-1, trace.ActionPaymentSubmitted, now)
-	result, err := service.CommitProposal(context.Background(), commitRequest(proposal, trace.ActionPaymentSubmitted, "payment-submitted", trace.Observation{Type: trace.ObservationPaymentSubmitted}))
+	reserved, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: created.EpisodeID,
+		Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:same-state", CapabilityID: "capability:same-state", QuoteHash: "same-state-quote", AmountMinor: 100,
+			Currency: "USDC", RequesterDID: created.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}, IdempotencyKey: "same-state-reserve", TraceID: "same-state-trace"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Episode.State != episode.StatePaying || result.Episode.Version != 6 || result.Episode.ActionCount != 5 {
-		t.Fatalf("same-state payment event changed projection unexpectedly: %#v", result.Episode)
+	created = reserved.Episode
+	next := created.Clone()
+	next.ActionCount++
+	if err := next.ApplyCommittedState(episode.StatePaying, now, ""); err != nil {
+		t.Fatal(err)
+	}
+	event, err := episode.NewEvent("evt-same-state-runtime", created.EpisodeID, created.Version, now, episode.StatePaying,
+		trace.Action{Type: trace.ActionPaymentSubmitted, IdempotencyKey: "payment-submitted"}, trace.Observation{Type: trace.ObservationPaymentSubmitted},
+		trace.Decision{ProposedAction: trace.ActionPaymentSubmitted, ProposalID: "runtime-payment-submitted", Reason: "deterministic runtime test"},
+		trace.RuntimeVerdict{Allowed: true}, episode.StatePaying, "runtime", "same-state-trace", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitFinanceTransition(context.Background(), repository.FinanceTransition{EpisodeID: created.EpisodeID,
+		ExpectedEpisodeVersion: created.Version, NextEpisode: next, Event: event}); err != nil {
+		t.Fatal(err)
+	}
+	if next.State != episode.StatePaying || next.Version != 6 || next.ActionCount != 5 {
+		t.Fatalf("same-state payment event changed projection unexpectedly: %#v", next)
 	}
 	events, err := store.ListByEpisode(context.Background(), created.EpisodeID)
 	if err != nil {
@@ -316,5 +353,26 @@ func TestStaticProviderHasNoCommitAuthority(t *testing.T) {
 	}
 	if proposal.ProposalID == "" {
 		t.Fatal("static provider did not return proposal")
+	}
+}
+
+func TestDecisionProposalCannotCommitPaymentFacts(t *testing.T) {
+	service, store, now, created := createFixture(t)
+	current := advanceToNegotiating(t, service, created, now)
+	for index, action := range []trace.ActionType{trace.ActionReserveBudget, trace.ActionCreatePayment, trace.ActionPaymentConfirmed, trace.ActionVerifyEntitlement} {
+		proposal := makeProposal(current.EpisodeID, current.Version-1, action, now)
+		if _, err := service.CommitProposal(context.Background(), commitRequest(proposal, action, "blocked-payment-action-"+string(rune('a'+index)), trace.Observation{Type: trace.ObservationPaymentConfirmed})); !errors.Is(err, decision.ErrActionNotAllowed) {
+			t.Fatalf("expected runtime-owned action %s to be blocked, got %v", action, err)
+		}
+	}
+	if current.State != episode.StateNegotiating {
+		t.Fatalf("blocked proposal changed state: %s", current.State)
+	}
+	entries, err := store.ListLedgerEntries(context.Background(), current.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("decision proposal created ledger facts: %#v", entries)
 	}
 }
