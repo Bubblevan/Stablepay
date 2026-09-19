@@ -20,6 +20,8 @@ $env:MERCHANT_PROOF_SECRET = 'blackbox-test-secret'
 $env:SOLANA_NETWORK = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
 $env:USDC_MINT = 'EPjFWdd5AufQSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 
+$env:MERCHANT_TEST_MODE = 'true'
+
 $serverScript = {
     $env:GOCACHE = Join-Path $using:runRoot 'go-cache'
     $env:GOMODCACHE = Join-Path $using:runRoot 'go-mod-cache'
@@ -34,6 +36,7 @@ $serverScript = {
     $env:MERCHANT_PROOF_SECRET = 'blackbox-test-secret'
     $env:SOLANA_NETWORK = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
     $env:USDC_MINT = 'EPjFWdd5AufQSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+    $env:MERCHANT_TEST_MODE = 'true'
     Set-Location $using:merchantRoot
     & go run ./cmd/merchant-server
 }

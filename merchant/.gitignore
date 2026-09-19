@@ -24,6 +24,11 @@ merchant-server.exe
 merchant-server
 *.exe
 
+# The runnable composition root is source, not a generated server binary.
+!cmd/
+!cmd/merchant-server/
+!cmd/merchant-server/main.go
+
 _adapter_patch/
 _application_patch/
 _domain_patch/

@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Build Go binary
 # ============================================================
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o merchant-server ./cmd/
 # ============================================================
 # Stage 2: Minimal runtime image
 # ============================================================
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
+FROM alpine:3.21
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
