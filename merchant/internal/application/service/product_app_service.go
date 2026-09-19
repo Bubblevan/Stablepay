@@ -40,6 +40,7 @@ type ProductAppService struct {
 	usdcMint              string
 	solanaNetwork         string
 	invocationStore       repository.InvocationReceiptRepository
+	deliveryStore         repository.DeliveryResultRepository
 	idempotencyMu         sync.Mutex
 }
 
@@ -50,6 +51,15 @@ type ProductAppService struct {
 func (s *ProductAppService) SetInvocationReceiptRepository(store repository.InvocationReceiptRepository) {
 	if s != nil {
 		s.invocationStore = store
+	}
+}
+
+// SetDeliveryResultRepository attaches the durable atomic delivery store. It
+// is the production path: gift-code allocation and invocation receipt
+// persistence share one SQLite transaction.
+func (s *ProductAppService) SetDeliveryResultRepository(store repository.DeliveryResultRepository) {
+	if s != nil {
+		s.deliveryStore = store
 	}
 }
 
@@ -135,14 +145,15 @@ type ExecutePurchaseCommand struct {
 // Adapter decides how to translate this result into HTTP 200 or HTTP 402. The
 // Application layer does not know about Hertz's RequestContext.
 type ExecutePurchaseResult struct {
-	Purchased       bool
-	Product         *ProductListItem
-	PaymentRequired *domainSvc.X402PaymentRequired
-	MerchantProof   *domainSvc.PurchaseProof
-	GatewayProof    map[string]any
-	TxID            string
-	TxHash          string
-	Content         map[string]any
+	Purchased         bool
+	Product           *ProductListItem
+	PaymentRequired   *domainSvc.X402PaymentRequired
+	MerchantProof     *domainSvc.PurchaseProof
+	GatewayProof      map[string]any
+	TxID              string
+	TxHash            string
+	Content           map[string]any
+	ResponseTimestamp string `json:"response_timestamp,omitempty"`
 }
 
 // ExecutePurchase orchestrates the paid-product access flow.
@@ -165,7 +176,7 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 	if cmd.AgentDID == "" {
 		return nil, fmt.Errorf("execute purchase: agent_did is required")
 	}
-	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
+	if s.deliveryStore == nil && s.invocationStore != nil && cmd.IdempotencyKey != "" {
 		s.idempotencyMu.Lock()
 		defer s.idempotencyMu.Unlock()
 	}
@@ -177,8 +188,14 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 	if err := s.domainService.CanPurchase(product); err != nil {
 		return nil, fmt.Errorf("execute purchase: %w", err)
 	}
-	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
-		receipt, receiptErr := s.invocationStore.GetInvocationReceipt(ctx, cmd.IdempotencyKey, cmd.AgentDID, cmd.SKUID)
+	if cmd.IdempotencyKey != "" && (s.deliveryStore != nil || s.invocationStore != nil) {
+		var receipt *repository.InvocationReceipt
+		var receiptErr error
+		if s.deliveryStore != nil {
+			receipt, receiptErr = s.deliveryStore.GetInvocationReceipt(ctx, cmd.IdempotencyKey, cmd.AgentDID, cmd.SKUID)
+		} else {
+			receipt, receiptErr = s.invocationStore.GetInvocationReceipt(ctx, cmd.IdempotencyKey, cmd.AgentDID, cmd.SKUID)
+		}
 		if receiptErr == nil {
 			var replay ExecutePurchaseResult
 			if err := json.Unmarshal(receipt.ResponseJSON, &replay); err != nil {
@@ -212,21 +229,41 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 		return nil, fmt.Errorf("execute purchase: build merchant proof: %w", err)
 	}
 
-	// Allocate a gift code from the pool (if any remaining).
+	buildResult := func(giftCode string) *ExecutePurchaseResult {
+		return &ExecutePurchaseResult{
+			Purchased:         true,
+			Product:           productToListItem(product),
+			MerchantProof:     proof,
+			GatewayProof:      verification.Proof,
+			TxID:              verification.TxID,
+			TxHash:            verification.TxHash,
+			Content:           buildUnlockedContent(product, proof, verification, giftCode),
+			ResponseTimestamp: time.Now().Format(time.RFC3339),
+		}
+	}
+
+	if s.deliveryStore != nil && cmd.IdempotencyKey != "" {
+		receipt, err := s.deliveryStore.GetOrCreateDeliveryResult(ctx, cmd.IdempotencyKey, cmd.AgentDID, cmd.SKUID, func(giftCode string) ([]byte, error) {
+			return json.Marshal(buildResult(giftCode))
+		})
+		if err != nil {
+			return nil, fmt.Errorf("execute purchase: persist atomic delivery result: %w", err)
+		}
+		var result ExecutePurchaseResult
+		if err := json.Unmarshal(receipt.ResponseJSON, &result); err != nil {
+			return nil, fmt.Errorf("execute purchase: decode atomic delivery result: %w", err)
+		}
+		return &result, nil
+	}
+
+	// Legacy in-process fixtures may still provide only the JSON-backed gift
+	// pool. Production composition roots must use deliveryStore above.
 	giftCode := ""
 	if s.giftCodeSvc != nil {
 		giftCode = s.giftCodeSvc.Allocate()
 	}
 
-	result := &ExecutePurchaseResult{
-		Purchased:     true,
-		Product:       productToListItem(product),
-		MerchantProof: proof,
-		GatewayProof:  verification.Proof,
-		TxID:          verification.TxID,
-		TxHash:        verification.TxHash,
-		Content:       buildUnlockedContent(product, proof, verification, giftCode),
-	}
+	result := buildResult(giftCode)
 	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
 		payload, err := json.Marshal(result)
 		if err != nil {

@@ -627,10 +627,7 @@ func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capab
 	if parsed.Scheme != "exact" || !protocolSupported(capability.SupportedProtocolVersions, parsed.ProtocolVersion) || !strings.EqualFold(parsed.Currency, current.Budget.Currency) || parsed.BusinessAmountMinor > current.Budget.AvailableBudget {
 		return decision.ErrPaymentBindingMismatch
 	}
-	if policy := s.settlementPolicy; policy.Network != "" && !strings.EqualFold(policy.Network, parsed.Network) {
-		return decision.ErrPaymentBindingMismatch
-	}
-	if expectedAsset, ok := policyAsset(s.settlementPolicy, parsed.Currency); ok && !strings.EqualFold(expectedAsset, parsed.Asset) {
+	if err := s.settlementPolicy.Validate(parsed); err != nil {
 		return decision.ErrPaymentBindingMismatch
 	}
 	if !x402.EqualResourceURL(parsed.ResourceURL, capability.InvokeEndpoint.Endpoint) {
@@ -644,6 +641,26 @@ func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capab
 		return decision.ErrPaymentBindingMismatch
 	}
 	if parsed.SkillDID != "" && !strings.EqualFold(parsed.SkillDID, capability.PayeeDID) {
+		return decision.ErrPaymentBindingMismatch
+	}
+	return nil
+}
+
+// Validate applies the settlement policy to an x402 payment challenge. It is
+// public so an integration/black-box composition root can prove that the
+// exact production network, asset and currency configuration is in force.
+func (policy SettlementPolicy) Validate(parsed x402.ParsedRequirement) error {
+	if strings.TrimSpace(policy.Network) == "" && !policy.AllowUnconstrainedForTests {
+		return decision.ErrPaymentBindingMismatch
+	}
+	if policy.Network != "" && !strings.EqualFold(policy.Network, parsed.Network) {
+		return decision.ErrPaymentBindingMismatch
+	}
+	expectedAsset, configuredAsset := policyAsset(policy, parsed.Currency)
+	if !configuredAsset && !policy.AllowUnconstrainedForTests {
+		return decision.ErrPaymentBindingMismatch
+	}
+	if configuredAsset && (expectedAsset == "" || !strings.EqualFold(expectedAsset, parsed.Asset)) {
 		return decision.ErrPaymentBindingMismatch
 	}
 	return nil

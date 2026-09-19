@@ -42,11 +42,13 @@ type Service struct {
 }
 
 // SettlementPolicy binds merchant challenges to the configured payment
-// environment. Empty fields keep local unit fixtures unconstrained; deployed
-// runtimes should configure the network and exact asset per currency.
+// environment. Production services reject payment quotes when Network or the
+// currency-specific asset is missing. Tests/local fixtures must explicitly
+// opt into an unconstrained policy.
 type SettlementPolicy struct {
-	Network string
-	Assets  map[string]string
+	Network                    string
+	Assets                     map[string]string
+	AllowUnconstrainedForTests bool
 }
 
 type Option func(*Service)
@@ -97,7 +99,16 @@ func WithValidatorRegistry(registry *validator.Registry) Option {
 
 func WithSettlementPolicy(policy SettlementPolicy) Option {
 	return func(s *Service) {
-		s.settlementPolicy = SettlementPolicy{Network: strings.TrimSpace(policy.Network), Assets: copyStringMap(policy.Assets)}
+		s.settlementPolicy = SettlementPolicy{Network: strings.TrimSpace(policy.Network), Assets: copyStringMap(policy.Assets), AllowUnconstrainedForTests: policy.AllowUnconstrainedForTests}
+	}
+}
+
+// WithUnconstrainedSettlementPolicyForTests is intentionally explicit. It is
+// suitable for unit fixtures that do not model a real settlement environment;
+// production composition roots must provide Network and every quote asset.
+func WithUnconstrainedSettlementPolicyForTests() Option {
+	return func(s *Service) {
+		s.settlementPolicy.AllowUnconstrainedForTests = true
 	}
 }
 

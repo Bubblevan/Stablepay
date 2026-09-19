@@ -111,9 +111,47 @@ func (r *ProductRepoImpl) Migrate(ctx context.Context) error {
 		sku_id TEXT NOT NULL,
 		response_json BLOB NOT NULL,
 		created_at TEXT NOT NULL
-	);`
+	);
+	CREATE TABLE IF NOT EXISTS gift_codes (
+		code TEXT PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'unused',
+		allocated_idempotency_key TEXT,
+		allocated_agent_did TEXT,
+		allocated_sku_id TEXT,
+		allocated_at TEXT
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_gift_codes_allocated_key
+		ON gift_codes(allocated_idempotency_key)
+		WHERE allocated_idempotency_key IS NOT NULL;`
 	if _, err := r.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("sqlite product repo: migrate: %w", err)
+	}
+	return nil
+}
+
+// SeedGiftCodes imports the configured gift-code pool without changing any
+// already allocated row. The JSON file is only a seed source; all allocation
+// state thereafter lives in SQLite.
+func (r *ProductRepoImpl) SeedGiftCodes(ctx context.Context, codes []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlite gift codes: begin seed: %w", err)
+	}
+	defer tx.Rollback()
+	for _, raw := range codes {
+		code := strings.TrimSpace(raw)
+		if code == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO gift_codes (code, status) VALUES (?, 'unused')`, code); err != nil {
+			return fmt.Errorf("sqlite gift codes: seed %q: %w", code, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite gift codes: commit seed: %w", err)
 	}
 	return nil
 }
@@ -160,6 +198,107 @@ func (r *ProductRepoImpl) SaveInvocationReceipt(ctx context.Context, receipt *re
 		return fmt.Errorf("sqlite invocation receipt: save: %w", err)
 	}
 	return nil
+}
+
+// GetOrCreateDeliveryResult atomically reserves one unused gift code and
+// persists the immutable delivery response and invocation receipt. BEGIN
+// IMMEDIATE makes SQLite acquire the write reservation before the receipt and
+// gift-code reads, so separate merchant processes cannot allocate the same
+// operation twice.
+func (r *ProductRepoImpl) GetOrCreateDeliveryResult(ctx context.Context, key, agentDID, skuID string, build func(string) ([]byte, error)) (*repository.InvocationReceipt, error) {
+	key = strings.TrimSpace(key)
+	agentDID = strings.TrimSpace(agentDID)
+	skuID = strings.TrimSpace(skuID)
+	if key == "" || agentDID == "" || skuID == "" || build == nil {
+		return nil, repository.ErrInvocationReceiptConflict
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite delivery result: acquire connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return nil, fmt.Errorf("sqlite delivery result: begin immediate: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+
+	existing, err := scanInvocationReceipt(conn, key)
+	if err == nil {
+		if existing.AgentDID != agentDID || existing.SKUID != skuID {
+			return nil, repository.ErrInvocationReceiptConflict
+		}
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			return nil, fmt.Errorf("sqlite delivery result: commit replay: %w", err)
+		}
+		committed = true
+		return existing, nil
+	}
+	if err != repository.ErrInvocationReceiptNotFound {
+		return nil, err
+	}
+
+	var giftCode string
+	err = conn.QueryRowContext(ctx, `SELECT code FROM gift_codes WHERE status = 'unused' ORDER BY code LIMIT 1`).Scan(&giftCode)
+	if err == sql.ErrNoRows {
+		giftCode = ""
+	} else if err != nil {
+		return nil, fmt.Errorf("sqlite delivery result: select gift code: %w", err)
+	} else {
+		result, err := conn.ExecContext(ctx, `UPDATE gift_codes SET status = 'allocated', allocated_idempotency_key = ?, allocated_agent_did = ?, allocated_sku_id = ?, allocated_at = ? WHERE code = ? AND status = 'unused'`, key, agentDID, skuID, formatTime(time.Now().UTC()), giftCode)
+		if err != nil {
+			return nil, fmt.Errorf("sqlite delivery result: allocate gift code: %w", err)
+		}
+		if rows, err := result.RowsAffected(); err != nil {
+			return nil, fmt.Errorf("sqlite delivery result: allocation rows: %w", err)
+		} else if rows != 1 {
+			return nil, fmt.Errorf("sqlite delivery result: gift code allocation lost race")
+		}
+	}
+
+	payload, err := build(giftCode)
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) == 0 {
+		return nil, repository.ErrInvocationReceiptConflict
+	}
+	created := time.Now().UTC()
+	if _, err := conn.ExecContext(ctx, `INSERT INTO invocation_receipts (idempotency_key, agent_did, sku_id, response_json, created_at) VALUES (?, ?, ?, ?, ?)`, key, agentDID, skuID, payload, formatTime(created)); err != nil {
+		return nil, fmt.Errorf("sqlite delivery result: save receipt: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return nil, fmt.Errorf("sqlite delivery result: commit: %w", err)
+	}
+	committed = true
+	return &repository.InvocationReceipt{IdempotencyKey: key, AgentDID: agentDID, SKUID: skuID, ResponseJSON: append([]byte(nil), payload...), CreatedAt: created}, nil
+}
+
+type invocationReceiptScanner interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func scanInvocationReceipt(db invocationReceiptScanner, key string) (*repository.InvocationReceipt, error) {
+	var receipt repository.InvocationReceipt
+	var createdAt string
+	err := db.QueryRowContext(context.Background(), `SELECT idempotency_key, agent_did, sku_id, response_json, created_at FROM invocation_receipts WHERE idempotency_key = ?`, key).Scan(&receipt.IdempotencyKey, &receipt.AgentDID, &receipt.SKUID, &receipt.ResponseJSON, &createdAt)
+	if err == sql.ErrNoRows {
+		return nil, repository.ErrInvocationReceiptNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sqlite invocation receipt: scan: %w", err)
+	}
+	receipt.ResponseJSON = append([]byte(nil), receipt.ResponseJSON...)
+	receipt.CreatedAt, _ = parseTime(createdAt)
+	return &receipt, nil
 }
 
 // Close shuts down the database connection.

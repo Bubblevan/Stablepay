@@ -26,6 +26,7 @@ func serviceFixture() (*Service, *repository.InMemoryStore, time.Time) {
 	service := NewService(store,
 		WithClock(func() time.Time { return now }),
 		WithIDGenerator(func(prefix string) string { nextID++; return prefix + "_" + string(rune('a'+nextID)) }),
+		WithUnconstrainedSettlementPolicyForTests(),
 	)
 	return service, store, now
 }
@@ -194,7 +195,7 @@ func TestRequestAndTransitionIdempotency(t *testing.T) {
 func TestCreateEpisodeUsesInjectedClockForDeadlineSemantics(t *testing.T) {
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
 	store := repository.NewInMemoryStore()
-	service := NewService(store, WithClock(func() time.Time { return now }))
+	service := NewService(store, WithClock(func() time.Time { return now }), WithUnconstrainedSettlementPolicyForTests())
 	request := requestFixture(now)
 	request.Constraints.DeadlineAt = now.Add(-time.Second)
 	if _, err := service.CreateEpisode(context.Background(), request); !errors.Is(err, contract.ErrInvalidDeadline) {
@@ -448,5 +449,28 @@ func TestSettlementPolicyBindsExactProtocolNetworkAssetAndCurrency(t *testing.T)
 	parsed.Network = "solana:mainnet"
 	if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
 		t.Fatalf("arbitrary network was not rejected: %v", err)
+	}
+}
+
+func TestSettlementPolicyFailsClosedWhenProductionBindingIsIncomplete(t *testing.T) {
+	current := &episode.CommerceEpisode{Budget: episode.BudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 1000, AvailableBudget: 1000}}
+	capability := &catalog.MerchantCapability{PayeeDID: "did:merchant:payee", InvokeEndpoint: catalog.EndpointRef{Endpoint: "https://merchant.example/execute"}, SupportedProtocolVersions: []string{"x402-v1"}}
+	parsed := x402.ParsedRequirement{ProtocolVersion: "x402-v1", Scheme: "exact", Network: "solana:devnet", Asset: "mint-1", BusinessAmountMinor: 200, Currency: "USDC", PayTo: "did:merchant:payee", ResourceURL: "https://merchant.example/execute"}
+
+	for name, policy := range map[string]SettlementPolicy{
+		"missing network":    {Assets: map[string]string{"USDC": "mint-1"}},
+		"missing USDC asset": {Network: "solana:devnet", Assets: map[string]string{"USDT": "mint-2"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service := NewService(repository.NewInMemoryStore(), WithSettlementPolicy(policy))
+			if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
+				t.Fatalf("incomplete production policy was accepted: %v", err)
+			}
+		})
+	}
+
+	service := NewService(repository.NewInMemoryStore(), WithUnconstrainedSettlementPolicyForTests())
+	if err := service.bindPaymentRequirement(current, capability, parsed); err != nil {
+		t.Fatalf("explicit test fixture policy should allow unconstrained binding: %v", err)
 	}
 }

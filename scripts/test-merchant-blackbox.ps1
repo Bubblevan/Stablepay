@@ -20,7 +20,7 @@ $env:MERCHANT_PROOF_SECRET = 'blackbox-test-secret'
 $env:SOLANA_NETWORK = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
 $env:USDC_MINT = 'EPjFWdd5AufQSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 
-$serverJob = Start-Job -ScriptBlock {
+$serverScript = {
     $env:GOCACHE = Join-Path $using:runRoot 'go-cache'
     $env:GOMODCACHE = Join-Path $using:runRoot 'go-mod-cache'
     $env:SERVER_HOST = '127.0.0.1'
@@ -38,7 +38,7 @@ $serverJob = Start-Job -ScriptBlock {
     & go run ./cmd/merchant-server
 }
 
-try {
+function Wait-MerchantReady {
     $healthy = $false
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         Start-Sleep -Milliseconds 250
@@ -57,12 +57,29 @@ try {
     if (-not $healthy) {
         throw "merchant-server did not become ready"
     }
+}
 
+$serverJob = Start-Job -ScriptBlock $serverScript
+
+try {
     $env:MERCHANT_BLACKBOX_ENDPOINT = 'http://127.0.0.1:8787/api/v1/products/ai-agent-job-2025/execute'
+    $env:MERCHANT_BLACKBOX_EXPECTED_PATH = Join-Path $runRoot 'paid-response.json'
+    $env:MERCHANT_BLACKBOX_RESTART_REPLAY = 'false'
+    Wait-MerchantReady
     Set-Location $runtimeRoot
     & go run ./cmd/merchant-blackbox
     if ($LASTEXITCODE -ne 0) {
         throw "commerce-runtime merchant black-box command failed"
+    }
+
+    Stop-Job -Id $serverJob.Id -ErrorAction SilentlyContinue
+    Remove-Job -Id $serverJob.Id -ErrorAction SilentlyContinue
+    $serverJob = Start-Job -ScriptBlock $serverScript
+    $env:MERCHANT_BLACKBOX_RESTART_REPLAY = 'true'
+    Wait-MerchantReady
+    & go run ./cmd/merchant-blackbox
+    if ($LASTEXITCODE -ne 0) {
+        throw "commerce-runtime merchant restart black-box command failed"
     }
     Write-Output "merchant actual-server black-box passed; logs and SQLite state: $runRoot"
 } finally {

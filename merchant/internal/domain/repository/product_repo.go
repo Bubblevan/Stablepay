@@ -38,6 +38,14 @@ type InvocationReceiptRepository interface {
 	SaveInvocationReceipt(context.Context, *InvocationReceipt) error
 }
 
+// DeliveryResultRepository atomically binds a paid delivery response to one
+// durable gift-code allocation and its invocation receipt. The builder runs
+// inside the repository transaction after the gift code is reserved.
+type DeliveryResultRepository interface {
+	InvocationReceiptRepository
+	GetOrCreateDeliveryResult(context.Context, string, string, string, func(string) ([]byte, error)) (*InvocationReceipt, error)
+}
+
 // ProductRepository 商品仓储接口
 //
 // 采用 COLA 的 Repository 模式：

@@ -129,7 +129,7 @@ func TestMySQLS3CatalogAndCandidateSetPersistence(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	merchant, capabilityID := "did:merchant:mysql-s3-"+suffix, "transcription-premium"
 	request := integrationRequest(now, "acr-mysql-s3-"+suffix)
-	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }))
+	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests())
 	created, err := service.CreateEpisode(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestMySQLS3CandidateSetToSelectMerchant(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	merchant, capabilityID := "did:merchant:mysql-select-"+suffix, "integration-capability"
 	store := NewStore(db)
-	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests())
 	request := integrationRequest(now, "acr-mysql-select-"+suffix)
 	created, err := service.CreateEpisode(ctx, request)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestMySQLS3DiscoveryReplayUsesSameCandidateSetFact(t *testing.T) {
 	merchant := "did:merchant:mysql-discovery-replay-" + suffix
 	capabilityID := "integration-capability"
 	store := NewStore(db)
-	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests())
 	request := integrationRequest(now, "acr-mysql-discovery-replay-"+suffix)
 	created, err := service.CreateEpisode(ctx, request)
 	if err != nil {

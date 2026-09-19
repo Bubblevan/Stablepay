@@ -92,7 +92,7 @@ func TestMySQLS4CanonicalInnerLoopPersistsFactsAndAvoidsSecondPayment(t *testing
 	request.Constraints.SupportedProtocolVersions = []string{"x402-v2"}
 	merchant := &mysqlS4Merchant{}
 	paymentAdapter := &mysqlS4PaymentAdapter{}
-	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }), application.WithMerchantAdapter(merchant), application.WithPaymentAdapters(application.PaymentDependencies{
+	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests(), application.WithMerchantAdapter(merchant), application.WithPaymentAdapters(application.PaymentDependencies{
 		DID: mysqlS4DIDAdapter{}, Payment: paymentAdapter, Status: mysqlS4StatusAdapter{}, Entitlement: mysqlS4EntitlementAdapter{},
 	}))
 	created, err := service.CreateEpisode(ctx, request)

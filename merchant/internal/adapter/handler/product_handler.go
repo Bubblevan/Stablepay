@@ -205,8 +205,12 @@ func writePurchaseSuccess(c *app.RequestContext, result *appSvc.ExecutePurchaseR
 	}
 
 	product := mapProductItem(result.Product)
+	base := dto.Success("paid content unlocked")
+	if strings.TrimSpace(result.ResponseTimestamp) != "" {
+		base.Timestamp = result.ResponseTimestamp
+	}
 	c.JSON(consts.StatusOK, dto.PurchaseExecuteResp{
-		BaseResponse:  dto.Success("paid content unlocked"),
+		BaseResponse:  base,
 		Product:       &product,
 		MerchantProof: result.MerchantProof,
 		GatewayProof:  result.GatewayProof,

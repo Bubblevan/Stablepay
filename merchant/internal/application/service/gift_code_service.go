@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -25,10 +26,10 @@ type GiftCodeFile struct {
 // GiftCodeService manages a pool of gift codes loaded from a JSON file.
 // When a purchase completes, Allocate() pops an unused code and marks it used.
 type GiftCodeService struct {
-	mu     sync.Mutex
-	path   string
-	codes  []GiftCodeEntry
-	dirty  bool
+	mu    sync.Mutex
+	path  string
+	codes []GiftCodeEntry
+	dirty bool
 }
 
 // NewGiftCodeService loads gift codes from a JSON file.
@@ -72,6 +73,26 @@ func (s *GiftCodeService) CountRemaining() int {
 		}
 	}
 	return count
+}
+
+// Codes returns the configured code pool for one-time import into the
+// merchant's durable SQLite gift_codes table. Allocation itself must happen
+// through the SQLite delivery transaction, never through this JSON-backed
+// loader.
+func (s *GiftCodeService) Codes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	codes := make([]string, 0, len(s.codes))
+	for _, entry := range s.codes {
+		if entry.Used {
+			continue
+		}
+		if code := strings.TrimSpace(entry.Code); code != "" {
+			codes = append(codes, code)
+		}
+	}
+	return codes
 }
 
 // Allocate picks the first unused gift code, marks it used, flushes to disk, and returns it.

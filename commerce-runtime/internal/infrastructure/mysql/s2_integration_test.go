@@ -67,7 +67,7 @@ func TestMySQLS2LedgerPaymentIntegration(t *testing.T) {
 
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
 	status := &mysqlS2StatusAdapter{}
-	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }), application.WithPaymentAdapters(application.PaymentDependencies{
+	service := application.NewService(NewStore(db), application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests(), application.WithPaymentAdapters(application.PaymentDependencies{
 		DID: mysqlS2DIDAdapter{}, Payment: mysqlS2PaymentAdapter{}, Status: status, Entitlement: mysqlS2EntitlementAdapter{},
 	}))
 	created, err := service.CreateEpisode(ctx, integrationRequest(now, integrationRequestID(t)))

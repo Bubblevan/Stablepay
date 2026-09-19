@@ -422,12 +422,12 @@ func TestEntitlementWithConflictingTransactionCannotConfirmIntent(t *testing.T) 
 
 func TestConcurrentPaymentIntentReservationHasSingleEconomicEffect(t *testing.T) {
 	_, store, now, created := createFixture(t)
-	current := advanceToNegotiating(t, NewService(store, WithClock(func() time.Time { return now })), created, now)
+	current := advanceToNegotiating(t, NewService(store, WithClock(func() time.Time { return now }), WithUnconstrainedSettlementPolicyForTests()), created, now)
 	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:race", CapabilityID: "capability:race", PayeeDID: "did:payee:race", QuoteHash: "quote-race", AmountMinor: 300,
 		Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(30 * time.Minute)}
 	services := []*Service{
-		NewService(store, WithClock(func() time.Time { return now })),
-		NewService(store, WithClock(func() time.Time { return now })),
+		NewService(store, WithClock(func() time.Time { return now }), WithUnconstrainedSettlementPolicyForTests()),
+		NewService(store, WithClock(func() time.Time { return now }), WithUnconstrainedSettlementPolicyForTests()),
 	}
 	start := make(chan struct{})
 	results := make(chan PaymentIntentResult, len(services))

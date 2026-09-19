@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
+	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/x402"
@@ -41,6 +43,13 @@ func main() {
 	if parsed.AtomicAmount != 2000000 || parsed.BusinessAmountMinor != 200 || !strings.EqualFold(parsed.Currency, "USDC") {
 		fail("actual merchant amount regression", fmt.Errorf("atomic=%d decimals=%d business=%d currency=%s", parsed.AtomicAmount, parsed.AtomicDecimals, parsed.BusinessAmountMinor, parsed.Currency))
 	}
+	settlementPolicy := application.SettlementPolicy{
+		Network: strings.TrimSpace(os.Getenv("SOLANA_NETWORK")),
+		Assets:  map[string]string{"USDC": strings.TrimSpace(os.Getenv("USDC_MINT"))},
+	}
+	if err := settlementPolicy.Validate(parsed); err != nil {
+		fail("actual merchant settlement binding", err)
+	}
 
 	paidRequest := initialRequest
 	paidRequest.Attempt = 1
@@ -50,12 +59,36 @@ func main() {
 	paidRequest.EntitlementRef = "blackbox-entitlement"
 	paidRequest.PaymentIntentID = "blackbox-intent"
 	paidRequest.PaymentSignature = "blackbox-payment"
+	expectedPath := strings.TrimSpace(os.Getenv("MERCHANT_BLACKBOX_EXPECTED_PATH"))
+	if expectedPath != "" && strings.EqualFold(strings.TrimSpace(os.Getenv("MERCHANT_BLACKBOX_RESTART_REPLAY")), "true") {
+		expected, err := os.ReadFile(expectedPath)
+		if err != nil {
+			fail("read expected restart response", err)
+		}
+		replayed, err := adapter.Invoke(context.Background(), paidRequest)
+		if err != nil {
+			fail("restart paid merchant request", err)
+		}
+		if replayed.HTTPStatus != 200 || !bytes.Equal(replayed.Body, expected) {
+			fail("restart paid merchant request", fmt.Errorf("delivery result changed after merchant restart"))
+		}
+		fmt.Println("merchant restart black-box passed: same SQLite receipt returned exact delivery result")
+		return
+	}
 	paid, err := adapter.Invoke(context.Background(), paidRequest)
 	if err != nil {
 		fail("paid merchant request", err)
 	}
 	if paid.HTTPStatus != 200 {
 		fail("paid merchant request", fmt.Errorf("expected HTTP 200, got %d", paid.HTTPStatus))
+	}
+	if !bytes.Contains(paid.Body, []byte(`"gift_code":"`)) {
+		fail("paid merchant request", fmt.Errorf("expected durable gift code in delivery result"))
+	}
+	if expectedPath != "" {
+		if err := os.WriteFile(expectedPath, paid.Body, 0o600); err != nil {
+			fail("save expected delivery result", err)
+		}
 	}
 	replayed, err := adapter.Invoke(context.Background(), paidRequest)
 	if err != nil {

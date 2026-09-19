@@ -45,7 +45,7 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 
 	store := NewStore(db)
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
-	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests())
 	request := integrationRequest(now, integrationRequestID(t))
 	created, err := service.CreateEpisode(ctx, request)
 	if err != nil {
@@ -238,7 +238,7 @@ func TestMySQLTransitionStoreIdempotencyRaceReplaysOrConflictsDeterministically(
 	}
 	store := NewStore(db)
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
-	service := application.NewService(store, application.WithClock(func() time.Time { return now }))
+	service := application.NewService(store, application.WithClock(func() time.Time { return now }), application.WithUnconstrainedSettlementPolicyForTests())
 	created, err := service.CreateEpisode(ctx, integrationRequest(now, integrationRequestID(t)))
 	if err != nil {
 		t.Fatal(err)
