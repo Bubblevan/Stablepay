@@ -33,14 +33,22 @@ func WithPaymentAdapters(dependencies PaymentDependencies) Option {
 // TrustedPaymentQuote is supplied by a deterministic quote/policy boundary.
 // It is deliberately not a DecisionProposal and has no LLM-controlled fields.
 type TrustedPaymentQuote struct {
-	MerchantDID  string
-	CapabilityID string
-	PayeeDID     string
-	QuoteHash    string
-	AmountMinor  int64
-	Currency     string
-	RequesterDID string
-	ExpiresAt    time.Time
+	MerchantDID           string
+	CapabilityID          string
+	PayeeDID              string
+	QuoteHash             string
+	AmountMinor           int64
+	Currency              string
+	RequesterDID          string
+	ExpiresAt             time.Time
+	ProtocolVersion       string
+	Scheme                string
+	Network               string
+	Asset                 string
+	ResourceURL           string
+	ProductID             string
+	SkillDID              string
+	PaymentRequirementRef string
 }
 
 func (q TrustedPaymentQuote) Validate(now time.Time, deadline time.Time) error {

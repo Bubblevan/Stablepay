@@ -13,25 +13,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
+	"github.com/stablepay/commerce-runtime/internal/validator"
 )
 
 const DefaultRuntimeVersion = "commerce-runtime-mvp.1"
 const DefaultCandidateSetTTL = 5 * time.Minute
 
 type Service struct {
-	store           repository.TransitionStore
-	clock           func() time.Time
-	idGenerator     func(prefix string) string
-	runtimeVersion  string
-	candidateSetTTL time.Duration
-	guard           decision.RuntimeGuard
-	paymentDeps     PaymentDependencies
+	store             repository.TransitionStore
+	clock             func() time.Time
+	idGenerator       func(prefix string) string
+	runtimeVersion    string
+	candidateSetTTL   time.Duration
+	guard             decision.RuntimeGuard
+	paymentDeps       PaymentDependencies
+	merchantAdapter   adapters.MerchantAdapter
+	validatorRegistry *validator.Registry
 }
 
 type Option func(*Service)
@@ -68,14 +72,27 @@ func WithCandidateSetTTL(ttl time.Duration) Option {
 	}
 }
 
+func WithMerchantAdapter(adapter adapters.MerchantAdapter) Option {
+	return func(s *Service) { s.merchantAdapter = adapter }
+}
+
+func WithValidatorRegistry(registry *validator.Registry) Option {
+	return func(s *Service) {
+		if registry != nil {
+			s.validatorRegistry = registry
+		}
+	}
+}
+
 func NewService(store repository.TransitionStore, options ...Option) *Service {
 	service := &Service{
-		store:           store,
-		clock:           func() time.Time { return time.Now().UTC() },
-		idGenerator:     randomID,
-		runtimeVersion:  DefaultRuntimeVersion,
-		candidateSetTTL: DefaultCandidateSetTTL,
-		guard:           decision.NewRuntimeGuard(),
+		store:             store,
+		clock:             func() time.Time { return time.Now().UTC() },
+		idGenerator:       randomID,
+		runtimeVersion:    DefaultRuntimeVersion,
+		candidateSetTTL:   DefaultCandidateSetTTL,
+		guard:             decision.NewRuntimeGuard(),
+		validatorRegistry: validator.NewBuiltinRegistry(),
 	}
 	for _, option := range options {
 		option(service)

@@ -37,6 +37,7 @@ const (
 	ObservationCandidatesFound      ObservationType = "CANDIDATES_FOUND"
 	ObservationNoEligibleCandidate  ObservationType = "NO_ELIGIBLE_CANDIDATE"
 	ObservationHTTP402              ObservationType = "HTTP_402"
+	ObservationMerchantResponse     ObservationType = "MERCHANT_RESPONSE"
 	ObservationQuoteValid           ObservationType = "QUOTE_VALID"
 	ObservationPolicyDenied         ObservationType = "POLICY_DENIED"
 	ObservationPaymentSettled       ObservationType = "PAYMENT_SETTLED"

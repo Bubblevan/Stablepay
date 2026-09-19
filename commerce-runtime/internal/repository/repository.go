@@ -7,6 +7,7 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 )
@@ -26,6 +27,8 @@ var (
 	ErrPaymentIntentStateConflict = errors.New("payment intent state changed concurrently")
 	ErrCatalogVersionConflict     = errors.New("catalog version conflicts with an existing snapshot")
 	ErrCandidateSetConflict       = errors.New("candidate set conflicts with an existing fact")
+	ErrFactNotFound               = errors.New("commerce runtime fact not found")
+	ErrFactConflict               = errors.New("commerce runtime fact conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {
@@ -61,6 +64,7 @@ type PaymentIntentRepository interface {
 	GetPaymentIntent(ctx context.Context, intentID string) (*payment.PaymentIntent, error)
 	FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
 	FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
+	FindPaymentIntentByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*payment.PaymentIntent, error)
 	UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error
 }
 
@@ -104,4 +108,39 @@ type S2Store interface {
 	LedgerRepository
 	PaymentIntentRepository
 	CommitFinanceTransition(ctx context.Context, transition FinanceTransition) error
+}
+
+// S4Store is deliberately separate from S2Store so existing payment-plane
+// adapters do not gain merchant or delivery permissions by implementing the
+// finance repository.
+type MerchantInvocationRepository interface {
+	SaveMerchantInvocation(context.Context, *invocation.MerchantInvocation) error
+	GetMerchantInvocation(context.Context, string) (*invocation.MerchantInvocation, error)
+	FindMerchantInvocationByIdempotencyKey(context.Context, string, string) (*invocation.MerchantInvocation, error)
+	UpdateMerchantInvocation(context.Context, *invocation.MerchantInvocation) error
+}
+
+type PaymentRequirementFactRepository interface {
+	SavePaymentRequirementFact(context.Context, *invocation.PaymentRequirementFact) error
+	GetPaymentRequirementFact(context.Context, string) (*invocation.PaymentRequirementFact, error)
+	FindPaymentRequirementByInvocation(context.Context, string, string) (*invocation.PaymentRequirementFact, error)
+}
+
+type DeliveryArtifactRepository interface {
+	SaveDeliveryArtifact(context.Context, *invocation.DeliveryArtifact) error
+	GetDeliveryArtifact(context.Context, string) (*invocation.DeliveryArtifact, error)
+}
+
+type ValidationEvidenceRepository interface {
+	SaveValidationEvidence(context.Context, *invocation.ValidationEvidence) error
+	GetValidationEvidence(context.Context, string) (*invocation.ValidationEvidence, error)
+	FindValidationEvidenceByDelivery(context.Context, string, string, string) (*invocation.ValidationEvidence, error)
+}
+
+type S4Store interface {
+	S2Store
+	MerchantInvocationRepository
+	PaymentRequirementFactRepository
+	DeliveryArtifactRepository
+	ValidationEvidenceRepository
 }

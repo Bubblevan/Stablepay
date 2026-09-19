@@ -179,3 +179,93 @@ CREATE TABLE IF NOT EXISTS candidate_sets (
     CONSTRAINT fk_candidate_sets_episode FOREIGN KEY (episode_id)
         REFERENCES commerce_episodes (episode_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS merchant_invocations (
+    invocation_id            VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id               VARCHAR(128) NOT NULL,
+    merchant_did             VARCHAR(128) NOT NULL,
+    capability_id            VARCHAR(128) NOT NULL,
+    catalog_version          VARCHAR(64) NOT NULL,
+    catalog_snapshot_hash    CHAR(71) NOT NULL,
+    phase                    VARCHAR(16) NOT NULL,
+    attempt                  INT NOT NULL,
+    request_hash             CHAR(71) NOT NULL,
+    response_status          INT NOT NULL DEFAULT 0,
+    response_content_type    VARCHAR(255) NULL,
+    response_payload_hash    CHAR(71) NULL,
+    response_ref              VARCHAR(255) NULL,
+    selected_headers         JSON NULL,
+    response_body            LONGBLOB NULL,
+    payment_required_ref     VARCHAR(255) NULL,
+    entitlement_ref          VARCHAR(255) NULL,
+    started_at               DATETIME(6) NOT NULL,
+    completed_at             DATETIME(6) NULL,
+    trace_id                 VARCHAR(128) NULL,
+    idempotency_key          VARCHAR(255) NOT NULL,
+    UNIQUE KEY uk_invocation_idempotency (episode_id, idempotency_key),
+    KEY idx_invocation_episode (episode_id),
+    CONSTRAINT fk_invocations_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_requirement_facts (
+    payment_requirement_id   VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id               VARCHAR(128) NOT NULL,
+    invocation_id            VARCHAR(128) NOT NULL,
+    merchant_did             VARCHAR(128) NOT NULL,
+    capability_id            VARCHAR(128) NOT NULL,
+    catalog_version          VARCHAR(64) NOT NULL,
+    catalog_snapshot_hash    CHAR(71) NOT NULL,
+    protocol_version         VARCHAR(32) NOT NULL,
+    scheme                   VARCHAR(32) NOT NULL,
+    network                  VARCHAR(128) NOT NULL,
+    asset                    VARCHAR(128) NOT NULL,
+    amount_minor             BIGINT NOT NULL,
+    currency                 VARCHAR(16) NOT NULL,
+    pay_to                   VARCHAR(128) NOT NULL,
+    payee_did                VARCHAR(128) NOT NULL,
+    resource_url             VARCHAR(1024) NOT NULL,
+    product_id               VARCHAR(255) NULL,
+    skill_did                VARCHAR(255) NULL,
+    max_timeout_seconds      INT NOT NULL,
+    observed_at              DATETIME(6) NOT NULL,
+    expires_at                DATETIME(6) NOT NULL,
+    raw_payload_hash         CHAR(71) NOT NULL,
+    canonical_quote_hash     CHAR(71) NOT NULL,
+    facts_ref                VARCHAR(255) NOT NULL,
+    UNIQUE KEY uk_requirement_invocation (episode_id, invocation_id),
+    CONSTRAINT fk_requirements_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS delivery_artifacts (
+    delivery_id              VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id               VARCHAR(128) NOT NULL,
+    invocation_id            VARCHAR(128) NOT NULL,
+    merchant_did             VARCHAR(128) NOT NULL,
+    capability_id            VARCHAR(128) NOT NULL,
+    content_type             VARCHAR(255) NULL,
+    payload_ref              VARCHAR(255) NOT NULL,
+    payload_hash             CHAR(71) NOT NULL,
+    body                     LONGBLOB NULL,
+    payment_intent_id        VARCHAR(128) NULL,
+    entitlement_ref          VARCHAR(255) NULL,
+    attempt                  INT NOT NULL,
+    http_status              INT NOT NULL,
+    received_at              DATETIME(6) NOT NULL,
+    KEY idx_delivery_episode (episode_id),
+    CONSTRAINT fk_delivery_artifacts_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS validation_evidence (
+    validation_id            VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id               VARCHAR(128) NOT NULL,
+    delivery_id              VARCHAR(128) NOT NULL,
+    validator_name            VARCHAR(255) NOT NULL,
+    validator_version         VARCHAR(64) NOT NULL,
+    valid                     BOOLEAN NOT NULL,
+    reason_code               VARCHAR(128) NOT NULL,
+    evidence_refs             JSON NULL,
+    payload_hash              CHAR(71) NOT NULL,
+    created_at                DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_validation_delivery (delivery_id, validator_name, validator_version),
+    CONSTRAINT fk_validation_evidence_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

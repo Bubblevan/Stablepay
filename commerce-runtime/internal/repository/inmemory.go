@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 )
@@ -17,31 +19,45 @@ import (
 // InMemoryStore is a deterministic repository for unit tests and local
 // demonstrations. The mutex models the atomic boundary of the SQL transaction.
 type InMemoryStore struct {
-	mu                  sync.RWMutex
-	episodes            map[string]*episode.CommerceEpisode
-	byRequest           map[string]string
-	events              map[string][]*episode.EpisodeEvent
-	ledger              map[string][]*ledger.LedgerEntry
-	intents             map[string]*payment.PaymentIntent
-	intentByIdempotency map[string]string
-	intentByEconomicKey map[string]string
-	capabilities        map[string]*catalog.MerchantCapability
-	currentCapabilities map[string]string
-	candidateSets       map[string]*catalog.CandidateSet
+	mu                       sync.RWMutex
+	episodes                 map[string]*episode.CommerceEpisode
+	byRequest                map[string]string
+	events                   map[string][]*episode.EpisodeEvent
+	ledger                   map[string][]*ledger.LedgerEntry
+	intents                  map[string]*payment.PaymentIntent
+	intentByIdempotency      map[string]string
+	intentByEconomicKey      map[string]string
+	capabilities             map[string]*catalog.MerchantCapability
+	currentCapabilities      map[string]string
+	candidateSets            map[string]*catalog.CandidateSet
+	merchantInvocations      map[string]*invocation.MerchantInvocation
+	invocationsByKey         map[string]string
+	paymentRequirements      map[string]*invocation.PaymentRequirementFact
+	requirementsByInvocation map[string]string
+	deliveryArtifacts        map[string]*invocation.DeliveryArtifact
+	validationEvidence       map[string]*invocation.ValidationEvidence
+	validationByDelivery     map[string]string
 }
 
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		episodes:            make(map[string]*episode.CommerceEpisode),
-		byRequest:           make(map[string]string),
-		events:              make(map[string][]*episode.EpisodeEvent),
-		ledger:              make(map[string][]*ledger.LedgerEntry),
-		intents:             make(map[string]*payment.PaymentIntent),
-		intentByIdempotency: make(map[string]string),
-		intentByEconomicKey: make(map[string]string),
-		capabilities:        make(map[string]*catalog.MerchantCapability),
-		currentCapabilities: make(map[string]string),
-		candidateSets:       make(map[string]*catalog.CandidateSet),
+		episodes:                 make(map[string]*episode.CommerceEpisode),
+		byRequest:                make(map[string]string),
+		events:                   make(map[string][]*episode.EpisodeEvent),
+		ledger:                   make(map[string][]*ledger.LedgerEntry),
+		intents:                  make(map[string]*payment.PaymentIntent),
+		intentByIdempotency:      make(map[string]string),
+		intentByEconomicKey:      make(map[string]string),
+		capabilities:             make(map[string]*catalog.MerchantCapability),
+		currentCapabilities:      make(map[string]string),
+		candidateSets:            make(map[string]*catalog.CandidateSet),
+		merchantInvocations:      make(map[string]*invocation.MerchantInvocation),
+		invocationsByKey:         make(map[string]string),
+		paymentRequirements:      make(map[string]*invocation.PaymentRequirementFact),
+		requirementsByInvocation: make(map[string]string),
+		deliveryArtifacts:        make(map[string]*invocation.DeliveryArtifact),
+		validationEvidence:       make(map[string]*invocation.ValidationEvidence),
+		validationByDelivery:     make(map[string]string),
 	}
 }
 
@@ -424,6 +440,21 @@ func (s *InMemoryStore) FindPaymentIntentByEconomicKey(ctx context.Context, epis
 	return s.findPaymentIntent(ctx, s.intentByEconomicKey, episodeID+"\x00"+key)
 }
 
+func (s *InMemoryStore) FindPaymentIntentByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*payment.PaymentIntent, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.intents {
+		if value.EpisodeID == episodeID && value.QuoteHash == quoteHash {
+			copy := *value
+			return &copy, nil
+		}
+	}
+	return nil, ErrPaymentIntentNotFound
+}
+
 func (s *InMemoryStore) findPaymentIntent(ctx context.Context, index map[string]string, key string) (*payment.PaymentIntent, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -677,6 +708,227 @@ func (s *InMemoryStore) appendLocked(value *episode.EpisodeEvent) error {
 	}
 	s.events[value.EpisodeID] = append(s.events[value.EpisodeID], value.Clone())
 	return nil
+}
+
+func invocationKey(episodeID, key string) string { return episodeID + "\x00" + key }
+func validationKey(deliveryID, name, version string) string {
+	return deliveryID + "\x00" + name + "\x00" + version
+}
+
+func (s *InMemoryStore) SaveMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := invocationKey(value.EpisodeID, value.IdempotencyKey)
+	if existingID, ok := s.invocationsByKey[key]; ok && existingID != value.InvocationID {
+		return ErrFactConflict
+	}
+	if existing, ok := s.merchantInvocations[value.InvocationID]; ok {
+		if reflect.DeepEqual(existing, value) {
+			return nil
+		}
+		return ErrFactConflict
+	}
+	s.merchantInvocations[value.InvocationID] = value.Clone()
+	s.invocationsByKey[key] = value.InvocationID
+	return nil
+}
+
+func (s *InMemoryStore) GetMerchantInvocation(ctx context.Context, id string) (*invocation.MerchantInvocation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.merchantInvocations[id]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) FindMerchantInvocationByIdempotencyKey(ctx context.Context, episodeID, key string) (*invocation.MerchantInvocation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.invocationsByKey[invocationKey(episodeID, key)]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return s.merchantInvocations[id].Clone(), nil
+}
+
+func (s *InMemoryStore) UpdateMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.merchantInvocations[value.InvocationID]
+	if !ok {
+		return ErrFactNotFound
+	}
+	if existing.EpisodeID != value.EpisodeID || existing.IdempotencyKey != value.IdempotencyKey || existing.RequestHash != value.RequestHash {
+		return ErrFactConflict
+	}
+	s.merchantInvocations[value.InvocationID] = value.Clone()
+	return nil
+}
+
+func (s *InMemoryStore) SavePaymentRequirementFact(ctx context.Context, value *invocation.PaymentRequirementFact) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existingID, ok := s.requirementsByInvocation[invocationKey(value.EpisodeID, value.InvocationID)]; ok && existingID != value.PaymentRequirementID {
+		return ErrFactConflict
+	}
+	if existing, ok := s.paymentRequirements[value.PaymentRequirementID]; ok {
+		if reflect.DeepEqual(existing, value) {
+			return nil
+		}
+		return ErrFactConflict
+	}
+	s.paymentRequirements[value.PaymentRequirementID] = value.Clone()
+	s.requirementsByInvocation[invocationKey(value.EpisodeID, value.InvocationID)] = value.PaymentRequirementID
+	return nil
+}
+
+func (s *InMemoryStore) GetPaymentRequirementFact(ctx context.Context, id string) (*invocation.PaymentRequirementFact, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.paymentRequirements[id]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) FindPaymentRequirementByInvocation(ctx context.Context, episodeID, invocationID string) (*invocation.PaymentRequirementFact, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.requirementsByInvocation[invocationKey(episodeID, invocationID)]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return s.paymentRequirements[id].Clone(), nil
+}
+
+func (s *InMemoryStore) SaveDeliveryArtifact(ctx context.Context, value *invocation.DeliveryArtifact) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.deliveryArtifacts[value.DeliveryID]; ok {
+		if reflect.DeepEqual(existing, value) {
+			return nil
+		}
+		return ErrFactConflict
+	}
+	s.deliveryArtifacts[value.DeliveryID] = value.Clone()
+	return nil
+}
+
+func (s *InMemoryStore) GetDeliveryArtifact(ctx context.Context, id string) (*invocation.DeliveryArtifact, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.deliveryArtifacts[id]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) SaveValidationEvidence(ctx context.Context, value *invocation.ValidationEvidence) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := validationKey(value.DeliveryID, value.ValidatorName, value.ValidatorVersion)
+	if existingID, ok := s.validationByDelivery[key]; ok && existingID != value.ValidationID {
+		return ErrFactConflict
+	}
+	if existing, ok := s.validationEvidence[value.ValidationID]; ok {
+		if reflect.DeepEqual(existing, value) {
+			return nil
+		}
+		return ErrFactConflict
+	}
+	s.validationEvidence[value.ValidationID] = value.Clone()
+	s.validationByDelivery[key] = value.ValidationID
+	return nil
+}
+
+func (s *InMemoryStore) GetValidationEvidence(ctx context.Context, id string) (*invocation.ValidationEvidence, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.validationEvidence[id]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) FindValidationEvidenceByDelivery(ctx context.Context, deliveryID, name, version string) (*invocation.ValidationEvidence, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.validationByDelivery[validationKey(deliveryID, name, version)]
+	if !ok {
+		return nil, ErrFactNotFound
+	}
+	return s.validationEvidence[id].Clone(), nil
 }
 
 func contextErr(ctx context.Context) error {

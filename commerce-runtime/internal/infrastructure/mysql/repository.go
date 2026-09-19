@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/repository"
@@ -193,6 +195,95 @@ type CandidateSetModel struct {
 
 func (CandidateSetModel) TableName() string { return "candidate_sets" }
 
+type MerchantInvocationModel struct {
+	InvocationID        string     `gorm:"column:invocation_id;type:varchar(128);primaryKey"`
+	EpisodeID           string     `gorm:"column:episode_id;type:varchar(128);not null;index:idx_invocation_episode"`
+	MerchantDID         string     `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID        string     `gorm:"column:capability_id;type:varchar(128);not null"`
+	CatalogVersion      string     `gorm:"column:catalog_version;type:varchar(64);not null"`
+	CatalogSnapshotHash string     `gorm:"column:catalog_snapshot_hash;type:char(71);not null"`
+	Phase               string     `gorm:"column:phase;type:varchar(16);not null"`
+	Attempt             int        `gorm:"column:attempt;not null"`
+	RequestHash         string     `gorm:"column:request_hash;type:char(71);not null"`
+	ResponseStatus      int        `gorm:"column:response_status;not null"`
+	ResponseContentType string     `gorm:"column:response_content_type;type:varchar(255)"`
+	ResponsePayloadHash string     `gorm:"column:response_payload_hash;type:char(71)"`
+	ResponseRef         string     `gorm:"column:response_ref;type:varchar(255)"`
+	SelectedHeaders     []byte     `gorm:"column:selected_headers;type:json"`
+	ResponseBody        []byte     `gorm:"column:response_body;type:longblob"`
+	PaymentRequiredRef  string     `gorm:"column:payment_required_ref;type:varchar(255)"`
+	EntitlementRef      string     `gorm:"column:entitlement_ref;type:varchar(255)"`
+	StartedAt           time.Time  `gorm:"column:started_at;not null"`
+	CompletedAt         *time.Time `gorm:"column:completed_at"`
+	TraceID             string     `gorm:"column:trace_id;type:varchar(128)"`
+	IdempotencyKey      string     `gorm:"column:idempotency_key;type:varchar(255);not null;uniqueIndex:uk_invocation_idempotency"`
+}
+
+func (MerchantInvocationModel) TableName() string { return "merchant_invocations" }
+
+type PaymentRequirementFactModel struct {
+	PaymentRequirementID string    `gorm:"column:payment_requirement_id;type:varchar(128);primaryKey"`
+	EpisodeID            string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_requirement_episode"`
+	InvocationID         string    `gorm:"column:invocation_id;type:varchar(128);not null;uniqueIndex:uk_requirement_invocation"`
+	MerchantDID          string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID         string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	CatalogVersion       string    `gorm:"column:catalog_version;type:varchar(64);not null"`
+	CatalogSnapshotHash  string    `gorm:"column:catalog_snapshot_hash;type:char(71);not null"`
+	ProtocolVersion      string    `gorm:"column:protocol_version;type:varchar(32);not null"`
+	Scheme               string    `gorm:"column:scheme;type:varchar(32);not null"`
+	Network              string    `gorm:"column:network;type:varchar(128);not null"`
+	Asset                string    `gorm:"column:asset;type:varchar(128);not null"`
+	AmountMinor          int64     `gorm:"column:amount_minor;not null"`
+	Currency             string    `gorm:"column:currency;type:varchar(16);not null"`
+	PayTo                string    `gorm:"column:pay_to;type:varchar(128);not null"`
+	PayeeDID             string    `gorm:"column:payee_did;type:varchar(128);not null"`
+	ResourceURL          string    `gorm:"column:resource_url;type:varchar(1024);not null"`
+	ProductID            string    `gorm:"column:product_id;type:varchar(255)"`
+	SkillDID             string    `gorm:"column:skill_did;type:varchar(255)"`
+	MaxTimeoutSeconds    int       `gorm:"column:max_timeout_seconds;not null"`
+	ObservedAt           time.Time `gorm:"column:observed_at;not null"`
+	ExpiresAt            time.Time `gorm:"column:expires_at;not null"`
+	RawPayloadHash       string    `gorm:"column:raw_payload_hash;type:char(71);not null"`
+	CanonicalQuoteHash   string    `gorm:"column:canonical_quote_hash;type:char(71);not null"`
+	FactsRef             string    `gorm:"column:facts_ref;type:varchar(255);not null"`
+}
+
+func (PaymentRequirementFactModel) TableName() string { return "payment_requirement_facts" }
+
+type DeliveryArtifactModel struct {
+	DeliveryID      string    `gorm:"column:delivery_id;type:varchar(128);primaryKey"`
+	EpisodeID       string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_delivery_episode"`
+	InvocationID    string    `gorm:"column:invocation_id;type:varchar(128);not null"`
+	MerchantDID     string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID    string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	ContentType     string    `gorm:"column:content_type;type:varchar(255)"`
+	PayloadRef      string    `gorm:"column:payload_ref;type:varchar(255);not null"`
+	PayloadHash     string    `gorm:"column:payload_hash;type:char(71);not null"`
+	Body            []byte    `gorm:"column:body;type:longblob"`
+	PaymentIntentID string    `gorm:"column:payment_intent_id;type:varchar(128)"`
+	EntitlementRef  string    `gorm:"column:entitlement_ref;type:varchar(255)"`
+	Attempt         int       `gorm:"column:attempt;not null"`
+	HTTPStatus      int       `gorm:"column:http_status;not null"`
+	ReceivedAt      time.Time `gorm:"column:received_at;not null"`
+}
+
+func (DeliveryArtifactModel) TableName() string { return "delivery_artifacts" }
+
+type ValidationEvidenceModel struct {
+	ValidationID     string    `gorm:"column:validation_id;type:varchar(128);primaryKey"`
+	EpisodeID        string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_validation_episode"`
+	DeliveryID       string    `gorm:"column:delivery_id;type:varchar(128);not null;uniqueIndex:uk_validation_delivery"`
+	ValidatorName    string    `gorm:"column:validator_name;type:varchar(255);not null;uniqueIndex:uk_validation_delivery"`
+	ValidatorVersion string    `gorm:"column:validator_version;type:varchar(64);not null;uniqueIndex:uk_validation_delivery"`
+	Valid            bool      `gorm:"column:valid;not null"`
+	ReasonCode       string    `gorm:"column:reason_code;type:varchar(128);not null"`
+	EvidenceRefs     []byte    `gorm:"column:evidence_refs;type:json"`
+	PayloadHash      string    `gorm:"column:payload_hash;type:char(71);not null"`
+	CreatedAt        time.Time `gorm:"column:created_at;not null"`
+}
+
+func (ValidationEvidenceModel) TableName() string { return "validation_evidence" }
+
 type Store struct{ db *gorm.DB }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -208,7 +299,197 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{})
+	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{})
+}
+
+func (s *Store) SaveMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
+	model, err := merchantInvocationToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing MerchantInvocationModel
+	lookup := s.db.WithContext(ctx).Where("invocation_id = ?", model.InvocationID).First(&existing).Error
+	if lookup == nil {
+		previous, decodeErr := modelToMerchantInvocation(existing)
+		if decodeErr == nil && reflect.DeepEqual(previous, value) {
+			return nil
+		}
+		return repository.ErrFactConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrFactConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetMerchantInvocation(ctx context.Context, id string) (*invocation.MerchantInvocation, error) {
+	var row MerchantInvocationModel
+	if err := s.db.WithContext(ctx).Where("invocation_id = ?", id).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToMerchantInvocation(row)
+}
+
+func (s *Store) FindMerchantInvocationByIdempotencyKey(ctx context.Context, episodeID, key string) (*invocation.MerchantInvocation, error) {
+	var row MerchantInvocationModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND idempotency_key = ?", episodeID, key).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToMerchantInvocation(row)
+}
+
+func (s *Store) UpdateMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
+	model, err := merchantInvocationToModel(value)
+	if err != nil {
+		return err
+	}
+	var current MerchantInvocationModel
+	if err := s.db.WithContext(ctx).Where("invocation_id = ?", model.InvocationID).First(&current).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return repository.ErrFactNotFound
+	} else if err != nil {
+		return err
+	}
+	if current.EpisodeID != model.EpisodeID || current.IdempotencyKey != model.IdempotencyKey || current.RequestHash != model.RequestHash {
+		return repository.ErrFactConflict
+	}
+	if err := s.db.WithContext(ctx).Model(&MerchantInvocationModel{}).Where("invocation_id = ?", model.InvocationID).Updates(map[string]any{"response_status": model.ResponseStatus, "response_content_type": model.ResponseContentType, "response_payload_hash": model.ResponsePayloadHash, "response_ref": model.ResponseRef, "selected_headers": model.SelectedHeaders, "response_body": model.ResponseBody, "payment_required_ref": model.PaymentRequiredRef, "entitlement_ref": model.EntitlementRef, "completed_at": model.CompletedAt, "trace_id": model.TraceID}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) SavePaymentRequirementFact(ctx context.Context, value *invocation.PaymentRequirementFact) error {
+	model, err := paymentRequirementToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing PaymentRequirementFactModel
+	lookup := s.db.WithContext(ctx).Where("payment_requirement_id = ?", model.PaymentRequirementID).First(&existing).Error
+	if lookup == nil {
+		previous, decodeErr := modelToPaymentRequirement(existing)
+		if decodeErr == nil && reflect.DeepEqual(previous, value) {
+			return nil
+		}
+		return repository.ErrFactConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrFactConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetPaymentRequirementFact(ctx context.Context, id string) (*invocation.PaymentRequirementFact, error) {
+	var row PaymentRequirementFactModel
+	if err := s.db.WithContext(ctx).Where("payment_requirement_id = ?", id).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentRequirement(row)
+}
+func (s *Store) FindPaymentRequirementByInvocation(ctx context.Context, episodeID, invocationID string) (*invocation.PaymentRequirementFact, error) {
+	var row PaymentRequirementFactModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND invocation_id = ?", episodeID, invocationID).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentRequirement(row)
+}
+
+func (s *Store) SaveDeliveryArtifact(ctx context.Context, value *invocation.DeliveryArtifact) error {
+	model, err := deliveryArtifactToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing DeliveryArtifactModel
+	lookup := s.db.WithContext(ctx).Where("delivery_id = ?", model.DeliveryID).First(&existing).Error
+	if lookup == nil {
+		previous, decodeErr := modelToDeliveryArtifact(existing)
+		if decodeErr == nil && reflect.DeepEqual(previous, value) {
+			return nil
+		}
+		return repository.ErrFactConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrFactConflict
+		}
+		return err
+	}
+	return nil
+}
+func (s *Store) GetDeliveryArtifact(ctx context.Context, id string) (*invocation.DeliveryArtifact, error) {
+	var row DeliveryArtifactModel
+	if err := s.db.WithContext(ctx).Where("delivery_id = ?", id).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToDeliveryArtifact(row)
+}
+
+func (s *Store) SaveValidationEvidence(ctx context.Context, value *invocation.ValidationEvidence) error {
+	model, err := validationEvidenceToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing ValidationEvidenceModel
+	lookup := s.db.WithContext(ctx).Where("validation_id = ?", model.ValidationID).First(&existing).Error
+	if lookup == nil {
+		previous, decodeErr := modelToValidationEvidence(existing)
+		if decodeErr == nil && reflect.DeepEqual(previous, value) {
+			return nil
+		}
+		return repository.ErrFactConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrFactConflict
+		}
+		return err
+	}
+	return nil
+}
+func (s *Store) GetValidationEvidence(ctx context.Context, id string) (*invocation.ValidationEvidence, error) {
+	var row ValidationEvidenceModel
+	if err := s.db.WithContext(ctx).Where("validation_id = ?", id).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToValidationEvidence(row)
+}
+func (s *Store) FindValidationEvidenceByDelivery(ctx context.Context, deliveryID, name, version string) (*invocation.ValidationEvidence, error) {
+	var row ValidationEvidenceModel
+	if err := s.db.WithContext(ctx).Where("delivery_id = ? AND validator_name = ? AND validator_version = ?", deliveryID, name, version).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToValidationEvidence(row)
 }
 
 func (s *Store) Create(ctx context.Context, value *episode.CommerceEpisode) error {
@@ -576,6 +857,16 @@ func (s *Store) FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID
 func (s *Store) FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error) {
 	var row PaymentIntentModel
 	if err := s.db.WithContext(ctx).Where("episode_id = ? AND economic_key = ?", episodeID, key).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrPaymentIntentNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentIntent(row)
+}
+
+func (s *Store) FindPaymentIntentByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*payment.PaymentIntent, error) {
+	var row PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND quote_hash = ?", episodeID, quoteHash).Order("created_at ASC").First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, repository.ErrPaymentIntentNotFound
 	} else if err != nil {
 		return nil, err
@@ -991,6 +1282,102 @@ func modelToCandidateSet(row CandidateSetModel) (*catalog.CandidateSet, error) {
 	}
 	if len(row.Candidates) > 0 {
 		if err := json.Unmarshal(row.Candidates, &value.Candidates); err != nil {
+			return nil, err
+		}
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func merchantInvocationToModel(value *invocation.MerchantInvocation) (*MerchantInvocationModel, error) {
+	if value == nil {
+		return nil, invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	headers, err := json.Marshal(value.SelectedHeaders)
+	if err != nil {
+		return nil, err
+	}
+	var completed *time.Time
+	if !value.CompletedAt.IsZero() {
+		timestamp := value.CompletedAt
+		completed = &timestamp
+	}
+	return &MerchantInvocationModel{InvocationID: value.InvocationID, EpisodeID: value.EpisodeID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, Phase: string(value.Phase), Attempt: value.Attempt, RequestHash: value.RequestHash, ResponseStatus: value.ResponseStatus, ResponseContentType: value.ResponseContentType, ResponsePayloadHash: value.ResponsePayloadHash, ResponseRef: value.ResponseRef, SelectedHeaders: headers, ResponseBody: append([]byte(nil), value.ResponseBody...), PaymentRequiredRef: value.PaymentRequiredRef, EntitlementRef: value.EntitlementRef, StartedAt: value.StartedAt, CompletedAt: completed, TraceID: value.TraceID, IdempotencyKey: value.IdempotencyKey}, nil
+}
+
+func modelToMerchantInvocation(row MerchantInvocationModel) (*invocation.MerchantInvocation, error) {
+	value := &invocation.MerchantInvocation{InvocationID: row.InvocationID, EpisodeID: row.EpisodeID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, Phase: invocation.Phase(row.Phase), Attempt: row.Attempt, RequestHash: row.RequestHash, ResponseStatus: row.ResponseStatus, ResponseContentType: row.ResponseContentType, ResponsePayloadHash: row.ResponsePayloadHash, ResponseRef: row.ResponseRef, ResponseBody: append([]byte(nil), row.ResponseBody...), PaymentRequiredRef: row.PaymentRequiredRef, EntitlementRef: row.EntitlementRef, StartedAt: row.StartedAt, TraceID: row.TraceID, IdempotencyKey: row.IdempotencyKey}
+	if row.CompletedAt != nil {
+		value.CompletedAt = *row.CompletedAt
+	}
+	if len(row.SelectedHeaders) > 0 {
+		if err := json.Unmarshal(row.SelectedHeaders, &value.SelectedHeaders); err != nil {
+			return nil, err
+		}
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func paymentRequirementToModel(value *invocation.PaymentRequirementFact) (*PaymentRequirementFactModel, error) {
+	if value == nil {
+		return nil, invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return &PaymentRequirementFactModel{PaymentRequirementID: value.PaymentRequirementID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, AmountMinor: value.AmountMinor, Currency: value.Currency, PayTo: value.PayTo, PayeeDID: value.PayeeDID, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, MaxTimeoutSeconds: value.MaxTimeoutSeconds, ObservedAt: value.ObservedAt, ExpiresAt: value.ExpiresAt, RawPayloadHash: value.RawPayloadHash, CanonicalQuoteHash: value.CanonicalQuoteHash, FactsRef: value.FactsRef}, nil
+}
+
+func modelToPaymentRequirement(row PaymentRequirementFactModel) (*invocation.PaymentRequirementFact, error) {
+	value := &invocation.PaymentRequirementFact{PaymentRequirementID: row.PaymentRequirementID, EpisodeID: row.EpisodeID, InvocationID: row.InvocationID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, ProtocolVersion: row.ProtocolVersion, Scheme: row.Scheme, Network: row.Network, Asset: row.Asset, AmountMinor: row.AmountMinor, Currency: row.Currency, PayTo: row.PayTo, PayeeDID: row.PayeeDID, ResourceURL: row.ResourceURL, ProductID: row.ProductID, SkillDID: row.SkillDID, MaxTimeoutSeconds: row.MaxTimeoutSeconds, ObservedAt: row.ObservedAt, ExpiresAt: row.ExpiresAt, RawPayloadHash: row.RawPayloadHash, CanonicalQuoteHash: row.CanonicalQuoteHash, FactsRef: row.FactsRef}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func deliveryArtifactToModel(value *invocation.DeliveryArtifact) (*DeliveryArtifactModel, error) {
+	if value == nil {
+		return nil, invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return &DeliveryArtifactModel{DeliveryID: value.DeliveryID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, ContentType: value.ContentType, PayloadRef: value.PayloadRef, PayloadHash: value.PayloadHash, Body: append([]byte(nil), value.Body...), PaymentIntentID: value.PaymentIntentID, EntitlementRef: value.EntitlementRef, Attempt: value.Attempt, HTTPStatus: value.HTTPStatus, ReceivedAt: value.ReceivedAt}, nil
+}
+func modelToDeliveryArtifact(row DeliveryArtifactModel) (*invocation.DeliveryArtifact, error) {
+	value := &invocation.DeliveryArtifact{DeliveryID: row.DeliveryID, EpisodeID: row.EpisodeID, InvocationID: row.InvocationID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, ContentType: row.ContentType, PayloadRef: row.PayloadRef, PayloadHash: row.PayloadHash, Body: append([]byte(nil), row.Body...), PaymentIntentID: row.PaymentIntentID, EntitlementRef: row.EntitlementRef, Attempt: row.Attempt, HTTPStatus: row.HTTPStatus, ReceivedAt: row.ReceivedAt}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func validationEvidenceToModel(value *invocation.ValidationEvidence) (*ValidationEvidenceModel, error) {
+	if value == nil {
+		return nil, invocation.ErrInvalidFact
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	refs, err := json.Marshal(value.EvidenceRefs)
+	if err != nil {
+		return nil, err
+	}
+	return &ValidationEvidenceModel{ValidationID: value.ValidationID, EpisodeID: value.EpisodeID, DeliveryID: value.DeliveryID, ValidatorName: value.ValidatorName, ValidatorVersion: value.ValidatorVersion, Valid: value.Valid, ReasonCode: value.ReasonCode, EvidenceRefs: refs, PayloadHash: value.PayloadHash, CreatedAt: value.CreatedAt}, nil
+}
+func modelToValidationEvidence(row ValidationEvidenceModel) (*invocation.ValidationEvidence, error) {
+	value := &invocation.ValidationEvidence{ValidationID: row.ValidationID, EpisodeID: row.EpisodeID, DeliveryID: row.DeliveryID, ValidatorName: row.ValidatorName, ValidatorVersion: row.ValidatorVersion, Valid: row.Valid, ReasonCode: row.ReasonCode, PayloadHash: row.PayloadHash, CreatedAt: row.CreatedAt}
+	if len(row.EvidenceRefs) > 0 {
+		if err := json.Unmarshal(row.EvidenceRefs, &value.EvidenceRefs); err != nil {
 			return nil, err
 		}
 	}

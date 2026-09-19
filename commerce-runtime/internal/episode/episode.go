@@ -300,6 +300,9 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		if action == trace.ActionInvoke && from == StateInvokingDelivery {
 			return StateValidatingDelivery, true
 		}
+		if action == trace.ActionInvoke && from == StateInvoking {
+			return StateInvoking, true
+		}
 		return StateInvoking, from == StateDiscovering
 	case trace.ActionParse402:
 		return StateNegotiating, from == StateInvoking
