@@ -24,7 +24,7 @@ func (m *mysqlS4Merchant) Invoke(_ context.Context, request adapters.MerchantInv
 	m.calls++
 	if request.Phase == "INITIAL" {
 		payload := map[string]any{"x402Version": 2, "resource": map[string]any{"url": request.Endpoint.Endpoint}, "accepts": []any{map[string]any{
-			"scheme": "exact", "network": "devnet", "amount": "300", "asset": "USDC", "payTo": "11111111111111111111111111111111", "maxTimeoutSeconds": 300,
+			"scheme": "exact", "network": "devnet", "amount": "3000000", "asset": "USDC", "payTo": "11111111111111111111111111111111", "maxTimeoutSeconds": 300,
 			"extra": map[string]any{"currency": "USDC", "productId": "mysql-s4-product", "skillDid": "did:solana:11111111111111111111111111111111"},
 		}}}
 		body, _ := json.Marshal(payload)

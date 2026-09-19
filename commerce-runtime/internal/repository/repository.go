@@ -143,4 +143,20 @@ type S4Store interface {
 	PaymentRequirementFactRepository
 	DeliveryArtifactRepository
 	ValidationEvidenceRepository
+	CommitS4Transition(context.Context, S4Transition) error
+}
+
+// S4Transition is the local atomic boundary for a runtime-owned merchant
+// fact. The merchant HTTP call is deliberately outside this boundary; once it
+// returns, the derived fact, episode projection, and EpisodeEvent are written
+// together so a crash cannot leave an accepted state change without its audit
+// event (or vice versa).
+type S4Transition struct {
+	EpisodeID              string
+	ExpectedEpisodeVersion uint64
+	NextEpisode            *episode.CommerceEpisode
+	Event                  *episode.EpisodeEvent
+	PaymentRequirement     *invocation.PaymentRequirementFact
+	DeliveryArtifact       *invocation.DeliveryArtifact
+	ValidationEvidence     *invocation.ValidationEvidence
 }

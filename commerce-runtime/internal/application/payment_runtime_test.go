@@ -110,6 +110,7 @@ func (f *fakeEntitlementAdapter) callCount() int {
 
 func advanceToNegotiating(t *testing.T, service *Service, current *episode.CommerceEpisode, now time.Time) *episode.CommerceEpisode {
 	t.Helper()
+	_ = now
 	for _, step := range []struct {
 		action      trace.ActionType
 		observation trace.ObservationType
@@ -119,8 +120,7 @@ func advanceToNegotiating(t *testing.T, service *Service, current *episode.Comme
 		{trace.ActionInvoke, trace.ObservationCandidatesFound, "s2-invoke"},
 		{trace.ActionParse402, trace.ObservationHTTP402, "s2-parse-402"},
 	} {
-		proposal := makeProposal(current.EpisodeID, current.Version-1, step.action, now)
-		result, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, step.key, trace.Observation{Type: step.observation}))
+		result, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: current.EpisodeID, Action: trace.Action{Type: step.action, IdempotencyKey: step.key}, Observation: trace.Observation{Type: step.observation}, TraceID: "runtime-test"})
 		if err != nil {
 			t.Fatalf("advance %s: %v", step.action, err)
 		}

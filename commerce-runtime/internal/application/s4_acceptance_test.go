@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
@@ -30,7 +32,7 @@ func (m *s4FaultMerchant) Invoke(_ context.Context, request adapters.MerchantInv
 	m.mu.Unlock()
 	if request.Phase == invocation.PhaseInitial {
 		payload := map[string]any{"x402Version": 2, "resource": map[string]any{"url": request.Endpoint.Endpoint}, "accepts": []any{map[string]any{
-			"scheme": "exact", "network": "devnet", "amount": "300", "asset": "USDC", "payTo": "11111111111111111111111111111111", "maxTimeoutSeconds": 300,
+			"scheme": "exact", "network": "devnet", "amount": "3000000", "asset": "USDC", "payTo": "11111111111111111111111111111111", "maxTimeoutSeconds": 300,
 			"extra": map[string]any{"currency": "USDC", "productId": "transcription-1", "skillDid": "did:solana:11111111111111111111111111111111"},
 		}}}
 		body, _ := json.Marshal(payload)
@@ -97,8 +99,18 @@ func TestS4CanonicalInnerLoopHasOnePaymentAndTwoDeliveryAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	status.outcomes = []payment.PaymentOutcome{{Status: payment.OutcomeConfirmed, TxID: "s4-tx", TxHash: "s4-hash", AmountMinor: quote.AmountMinor, Currency: quote.Currency}}
-	if _, err := service.ReconcilePayment(context.Background(), reserved.Intent.IntentID, "s4-reconcile"); err != nil {
+	reconciled, err := service.ReconcilePayment(context.Background(), reserved.Intent.IntentID, "s4-reconcile")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if reconciled.Episode.State != episode.StateClaiming {
+		t.Fatalf("expected entitlement-claiming state before delivery: %#v", reconciled.Episode)
+	}
+	if _, err := service.InvokeDelivery(context.Background(), InvokeDeliveryRequest{EpisodeID: reconciled.Episode.EpisodeID, TraceID: "s4-delivery-before-entitlement"}); !errors.Is(err, decision.ErrActionNotAllowed) {
+		t.Fatalf("delivery side effect was not guarded in CLAIMING: %v", err)
+	}
+	if _, err := store.FindMerchantInvocationByIdempotencyKey(context.Background(), reconciled.Episode.EpisodeID, "invoke:delivery:"+reconciled.Episode.EpisodeID+":1"); !errors.Is(err, repository.ErrFactNotFound) {
+		t.Fatalf("guarded delivery created an invocation fact: %v", err)
 	}
 	entitlement.result.Status = adapters.EntitlementValid
 	claimed, err := service.VerifyPaymentEntitlement(context.Background(), reserved.Intent.IntentID, "s4-entitlement")

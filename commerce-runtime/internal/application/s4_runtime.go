@@ -183,13 +183,39 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	}
 	if existing, findErr := store.FindPaymentRequirementByInvocation(ctx, current.EpisodeID, fact.InvocationID); findErr == nil {
 		quote := trustedQuoteFromRequirement(*existing)
-		event, _ := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, "parse-402:"+fact.InvocationID)
+		key := "parse-402:" + fact.InvocationID
+		event, eventErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, key)
+		if errors.Is(eventErr, repository.ErrNotFound) {
+			traceID := strings.TrimSpace(request.TraceID)
+			if traceID == "" {
+				traceID = current.EpisodeID + ":parse-402"
+			}
+			next := current.Clone()
+			next.CurrentQuoteHash = existing.CanonicalQuoteHash
+			next.ActionCount++
+			if current.State == episode.StateNegotiating {
+				if err := next.ApplyCommittedState(episode.StateNegotiating, existing.ObservedAt, ""); err != nil {
+					return PaymentRequirementResult{}, err
+				}
+			} else {
+				if err := next.ApplyCommittedState(episode.StateNegotiating, existing.ObservedAt, ""); err != nil {
+					return PaymentRequirementResult{}, err
+				}
+			}
+			var commitErr error
+			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionParse402, IdempotencyKey: key, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: trace.ObservationQuoteValid, Code: existing.CanonicalQuoteHash, FactsRef: existing.FactsRef, PayloadHash: existing.CanonicalQuoteHash}, nil, traceID, nil, nil, nil)
+			if commitErr != nil {
+				return PaymentRequirementResult{}, commitErr
+			}
+		} else if eventErr != nil {
+			return PaymentRequirementResult{}, eventErr
+		}
 		latest, getErr := s.store.Get(ctx, current.EpisodeID)
 		if getErr != nil {
 			return PaymentRequirementResult{}, getErr
 		}
 		quote.RequesterDID = current.RequesterDID
-		return PaymentRequirementResult{Episode: latest, Invocation: fact, Requirement: existing, Quote: quote, Event: event, Replayed: true}, nil
+		return PaymentRequirementResult{Episode: latest, Invocation: fact, Requirement: existing, Quote: quote, Event: event, Replayed: eventErr == nil}, nil
 	} else if !errors.Is(findErr, repository.ErrFactNotFound) {
 		return PaymentRequirementResult{}, findErr
 	}
@@ -201,7 +227,7 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	if err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	if err := bindPaymentRequirement(current, capability, parsed); err != nil {
+	if err := s.bindPaymentRequirement(current, capability, parsed); err != nil {
 		return PaymentRequirementResult{}, err
 	}
 	expiresAt := fact.CompletedAt.Add(time.Duration(parsed.MaxTimeoutSeconds) * time.Second)
@@ -211,12 +237,11 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	if !expiresAt.After(fact.CompletedAt) {
 		return PaymentRequirementResult{}, payment.ErrIntentExpired
 	}
-	requirement := &invocation.PaymentRequirementFact{PaymentRequirementID: "prf:" + fact.InvocationID, EpisodeID: current.EpisodeID, InvocationID: fact.InvocationID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, ProtocolVersion: parsed.ProtocolVersion, Scheme: parsed.Scheme, Network: parsed.Network, Asset: parsed.Asset, AmountMinor: parsed.AmountMinor, Currency: parsed.Currency, PayTo: parsed.PayTo, PayeeDID: capability.PayeeDID, ResourceURL: parsed.ResourceURL, ProductID: parsed.ProductID, SkillDID: parsed.SkillDID, MaxTimeoutSeconds: parsed.MaxTimeoutSeconds, ObservedAt: fact.CompletedAt, ExpiresAt: expiresAt, RawPayloadHash: parsed.RawPayloadHash, CanonicalQuoteHash: parsed.CanonicalHash, FactsRef: "payment-requirement://" + fact.InvocationID}
-	if err := store.SavePaymentRequirementFact(ctx, requirement); err != nil {
+	requirement := &invocation.PaymentRequirementFact{PaymentRequirementID: "prf:" + fact.InvocationID, EpisodeID: current.EpisodeID, InvocationID: fact.InvocationID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, ProtocolVersion: parsed.ProtocolVersion, Scheme: parsed.Scheme, Network: parsed.Network, Asset: parsed.Asset, AtomicAmount: parsed.AtomicAmount, AtomicDecimals: parsed.AtomicDecimals, BusinessAmountMinor: parsed.BusinessAmountMinor, Currency: parsed.Currency, PayTo: parsed.PayTo, PayeeDID: capability.PayeeDID, ResourceURL: parsed.ResourceURL, ProductID: parsed.ProductID, SkillDID: parsed.SkillDID, MaxTimeoutSeconds: parsed.MaxTimeoutSeconds, ObservedAt: fact.CompletedAt, ExpiresAt: expiresAt, RawPayloadHash: parsed.RawPayloadHash, CanonicalQuoteHash: parsed.CanonicalHash, FactsRef: "payment-requirement://" + fact.InvocationID}
+	fact.PaymentRequiredRef = requirement.FactsRef
+	if err := store.UpdateMerchantInvocation(ctx, fact); err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	fact.PaymentRequiredRef = requirement.FactsRef
-	_ = store.UpdateMerchantInvocation(ctx, fact)
 	traceID := strings.TrimSpace(request.TraceID)
 	if traceID == "" {
 		traceID = current.EpisodeID + ":parse-402"
@@ -227,7 +252,7 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	if err := next.ApplyCommittedState(episode.StateNegotiating, fact.CompletedAt, ""); err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	event, replay, err := s.commitS4Event(ctx, current, next, trace.Action{Type: trace.ActionParse402, IdempotencyKey: "parse-402:" + fact.InvocationID, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: trace.ObservationQuoteValid, Code: requirement.CanonicalQuoteHash, FactsRef: requirement.FactsRef, PayloadHash: requirement.CanonicalQuoteHash}, nil, traceID)
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionParse402, IdempotencyKey: "parse-402:" + fact.InvocationID, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: trace.ObservationQuoteValid, Code: requirement.CanonicalQuoteHash, FactsRef: requirement.FactsRef, PayloadHash: requirement.CanonicalQuoteHash}, nil, traceID, requirement, nil, nil)
 	if err != nil {
 		return PaymentRequirementResult{}, err
 	}
@@ -268,9 +293,6 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 	if attempt <= 0 {
 		attempt = current.DeliveryAttemptCount + 1
 	}
-	if attempt > current.MaxDeliveryAttempts {
-		return DeliveryInvocationResult{}, decision.ErrAttemptLimit
-	}
 	traceID := strings.TrimSpace(request.TraceID)
 	if traceID == "" {
 		traceID = fmt.Sprintf("%s:delivery:%d", current.EpisodeID, attempt)
@@ -280,16 +302,30 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 		entitlementRef = current.EntitlementRefs[len(current.EntitlementRefs)-1]
 	}
 	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, Attempt: attempt, Phase: invocation.PhaseDelivery, TraceID: traceID, IdempotencyKey: fmt.Sprintf("invoke:delivery:%s:%d", current.EpisodeID, attempt), Endpoint: capability.InvokeEndpoint, EntitlementRef: entitlementRef, PaymentIntentID: intent.IntentID, PaymentSignature: request.PaymentSignature}
+	existingInvocation, findInvocationErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey)
+	completedInvocation := findInvocationErr == nil && !existingInvocation.CompletedAt.IsZero() && existingInvocation.ResponseStatus != 0
+	if findInvocationErr != nil && !errors.Is(findInvocationErr, repository.ErrFactNotFound) {
+		return DeliveryInvocationResult{}, findInvocationErr
+	}
+	if !completedInvocation {
+		if current.State != episode.StateInvokingDelivery {
+			return DeliveryInvocationResult{}, decision.ErrActionNotAllowed
+		}
+		if attempt > current.MaxDeliveryAttempts {
+			return DeliveryInvocationResult{}, decision.ErrAttemptLimit
+		}
+		if !s.clock().UTC().Before(current.DeadlineAt) {
+			return DeliveryInvocationResult{}, payment.ErrIntentExpired
+		}
+		if strings.TrimSpace(entitlementRef) == "" {
+			return DeliveryInvocationResult{}, decision.ErrPaymentBindingMismatch
+		}
+		if intent.MerchantDID != current.SelectedMerchantDID || intent.CapabilityID != current.SelectedCapabilityID || intent.PayeeDID != capability.PayeeDID {
+			return DeliveryInvocationResult{}, decision.ErrPaymentBindingMismatch
+		}
+	}
 	fact, response, adapterErr, replayed, err := s.executeMerchantInvocation(ctx, store, operation)
 	if err != nil {
-		return DeliveryInvocationResult{}, err
-	}
-	delivery := &invocation.DeliveryArtifact{DeliveryID: "delivery:" + fact.InvocationID, EpisodeID: current.EpisodeID, InvocationID: fact.InvocationID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, ContentType: response.ContentType, PayloadRef: response.PayloadRef, PayloadHash: response.PayloadHash, Body: append([]byte(nil), response.Body...), PaymentIntentID: intent.IntentID, EntitlementRef: entitlementRef, Attempt: attempt, HTTPStatus: response.HTTPStatus, ReceivedAt: response.OccurredAt}
-	if existing, getErr := store.GetDeliveryArtifact(ctx, delivery.DeliveryID); getErr == nil {
-		delivery = existing
-	} else if !errors.Is(getErr, repository.ErrFactNotFound) {
-		return DeliveryInvocationResult{}, getErr
-	} else if err := store.SaveDeliveryArtifact(ctx, delivery); err != nil {
 		return DeliveryInvocationResult{}, err
 	}
 	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); findErr == nil {
@@ -297,19 +333,27 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 		if getErr != nil {
 			return DeliveryInvocationResult{}, getErr
 		}
-		return DeliveryInvocationResult{Episode: latest, Invocation: fact, Artifact: delivery, Response: response, Event: existing, Replayed: true}, adapterErr
-	}
-	if current.State != episode.StateInvokingDelivery {
-		return DeliveryInvocationResult{}, decision.ErrActionNotAllowed
+		artifact, _ := store.GetDeliveryArtifact(ctx, "delivery:"+fact.InvocationID)
+		return DeliveryInvocationResult{Episode: latest, Invocation: fact, Artifact: artifact, Response: response, Event: existing, Replayed: true}, adapterErr
 	}
 	next := current.Clone()
 	next.DeliveryAttemptCount++
-	next.DeliveryRefs = appendUnique(next.DeliveryRefs, delivery.DeliveryID)
 	next.ActionCount++
-	if err := next.ApplyCommittedState(episode.StateValidatingDelivery, response.OccurredAt, ""); err != nil {
+	after := episode.StateValidatingDelivery
+	observationType := trace.ObservationMerchantResponse
+	if response.HTTPStatus == 402 {
+		after = episode.StateRecovering
+		observationType = trace.ObservationHTTP402
+	}
+	if err := next.ApplyCommittedState(after, response.OccurredAt, ""); err != nil {
 		return DeliveryInvocationResult{}, err
 	}
-	event, replay, err := s.commitS4Event(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: operation.IdempotencyKey, InputRef: operation.EntitlementRef, InputHash: operation.InputHash}, trace.Observation{Type: trace.ObservationMerchantResponse, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID)
+	var delivery *invocation.DeliveryArtifact
+	if response.HTTPStatus != 402 {
+		delivery = &invocation.DeliveryArtifact{DeliveryID: "delivery:" + fact.InvocationID, EpisodeID: current.EpisodeID, InvocationID: fact.InvocationID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, ContentType: response.ContentType, PayloadRef: response.PayloadRef, PayloadHash: response.PayloadHash, Body: append([]byte(nil), response.Body...), PaymentIntentID: intent.IntentID, EntitlementRef: entitlementRef, Attempt: attempt, HTTPStatus: response.HTTPStatus, ReceivedAt: response.OccurredAt}
+		next.DeliveryRefs = appendUnique(next.DeliveryRefs, delivery.DeliveryID)
+	}
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: operation.IdempotencyKey, InputRef: operation.EntitlementRef, InputHash: operation.InputHash}, trace.Observation{Type: observationType, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID, nil, delivery, nil)
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
@@ -341,9 +385,35 @@ func (s *Service) ValidateDelivery(ctx context.Context, request ValidateDelivery
 		return DeliveryValidationResult{}, err
 	}
 	if existing, findErr := store.FindValidationEvidenceByDelivery(ctx, artifact.DeliveryID, acquire.Validator.Name, acquire.Validator.Version); findErr == nil {
-		event, _ := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, "validate:"+artifact.DeliveryID+":"+acquire.Validator.Name+":"+acquire.Validator.Version)
-		latest, _ := s.store.Get(ctx, current.EpisodeID)
-		return DeliveryValidationResult{Episode: latest, Artifact: artifact, Evidence: existing, Valid: existing.Valid, Event: event, Replayed: true}, nil
+		key := "validate:" + artifact.DeliveryID + ":" + acquire.Validator.Name + ":" + acquire.Validator.Version
+		event, eventErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, key)
+		if errors.Is(eventErr, repository.ErrNotFound) {
+			now := s.clock().UTC()
+			next := current.Clone()
+			next.ValidationEvidenceRefs = appendUnique(next.ValidationEvidenceRefs, existing.ValidationID)
+			next.ActionCount++
+			after := episode.StateRecovering
+			observation := trace.ObservationDeliveryInvalid
+			if existing.Valid {
+				after = episode.StateFulfilled
+				observation = trace.ObservationDeliveryValid
+			}
+			if err := next.ApplyCommittedState(after, now, existing.ReasonCode); err != nil {
+				return DeliveryValidationResult{}, err
+			}
+			var commitErr error
+			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: existing.ReasonCode, FactsRef: "validation://" + existing.ValidationID, PayloadHash: existing.PayloadHash}, nil, current.EpisodeID+":validate:"+artifact.DeliveryID, nil, nil, nil)
+			if commitErr != nil {
+				return DeliveryValidationResult{}, commitErr
+			}
+		} else if eventErr != nil {
+			return DeliveryValidationResult{}, eventErr
+		}
+		latest, getErr := s.store.Get(ctx, current.EpisodeID)
+		if getErr != nil {
+			return DeliveryValidationResult{}, getErr
+		}
+		return DeliveryValidationResult{Episode: latest, Artifact: artifact, Evidence: existing, Valid: existing.Valid, Event: event, Replayed: eventErr == nil}, nil
 	} else if !errors.Is(findErr, repository.ErrFactNotFound) {
 		return DeliveryValidationResult{}, findErr
 	}
@@ -353,9 +423,6 @@ func (s *Service) ValidateDelivery(ctx context.Context, request ValidateDelivery
 	}
 	now := s.clock().UTC()
 	evidence := &invocation.ValidationEvidence{ValidationID: "validation:" + artifact.DeliveryID, EpisodeID: current.EpisodeID, DeliveryID: artifact.DeliveryID, ValidatorName: acquire.Validator.Name, ValidatorVersion: acquire.Validator.Version, Valid: result.Valid, ReasonCode: result.ReasonCode, EvidenceRefs: result.EvidenceRefs, PayloadHash: artifact.PayloadHash, CreatedAt: now}
-	if err := store.SaveValidationEvidence(ctx, evidence); err != nil {
-		return DeliveryValidationResult{}, err
-	}
 	if current.State != episode.StateValidatingDelivery {
 		return DeliveryValidationResult{}, decision.ErrActionNotAllowed
 	}
@@ -376,7 +443,7 @@ func (s *Service) ValidateDelivery(ctx context.Context, request ValidateDelivery
 		traceID = current.EpisodeID + ":validate:" + artifact.DeliveryID
 	}
 	key := "validate:" + artifact.DeliveryID + ":" + acquire.Validator.Name + ":" + acquire.Validator.Version
-	event, replay, err := s.commitS4Event(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: result.ReasonCode, FactsRef: "validation://" + evidence.ValidationID, PayloadHash: evidence.PayloadHash}, nil, traceID)
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: result.ReasonCode, FactsRef: "validation://" + evidence.ValidationID, PayloadHash: evidence.PayloadHash}, nil, traceID, nil, nil, evidence)
 	if err != nil {
 		return DeliveryValidationResult{}, err
 	}
@@ -457,7 +524,18 @@ func (s *Service) executeMerchantInvocation(ctx context.Context, store repositor
 			return nil, adapters.MerchantInvokeResult{}, nil, false, repository.ErrFactConflict
 		}
 		if existing.CompletedAt.IsZero() || existing.ResponseStatus == 0 {
-			return nil, adapters.MerchantInvokeResult{}, nil, false, invocation.ErrInvocationInFlight
+			if s.clock().UTC().Before(existing.StartedAt.Add(s.invocationStaleAfter)) {
+				return nil, adapters.MerchantInvokeResult{}, nil, false, invocation.ErrInvocationInFlight
+			}
+			if s.merchantAdapter == nil {
+				return nil, adapters.MerchantInvokeResult{}, nil, false, adapters.ErrMerchantAdapterNotConfigured
+			}
+			response, callErr := s.merchantAdapter.Invoke(ctx, request)
+			response, completeErr := s.completeMerchantInvocation(ctx, store, existing, response, callErr)
+			if completeErr != nil {
+				return nil, adapters.MerchantInvokeResult{}, callErr, false, completeErr
+			}
+			return existing, response, callErr, false, nil
 		}
 		return existing, merchantResponseFromFact(*existing), nil, true, nil
 	} else if !errors.Is(findErr, repository.ErrFactNotFound) {
@@ -472,6 +550,14 @@ func (s *Service) executeMerchantInvocation(ctx context.Context, store repositor
 		return nil, adapters.MerchantInvokeResult{}, nil, false, err
 	}
 	response, callErr := s.merchantAdapter.Invoke(ctx, request)
+	response, completeErr := s.completeMerchantInvocation(ctx, store, fact, response, callErr)
+	if completeErr != nil {
+		return nil, adapters.MerchantInvokeResult{}, callErr, false, completeErr
+	}
+	return fact, response, callErr, false, nil
+}
+
+func (s *Service) completeMerchantInvocation(ctx context.Context, store repository.S4Store, fact *invocation.MerchantInvocation, response adapters.MerchantInvokeResult, callErr error) (adapters.MerchantInvokeResult, error) {
 	if callErr != nil || response.HTTPStatus == 0 {
 		response = adapters.MerchantInvokeResult{HTTPStatus: 599, ContentType: "application/problem+json", Body: nil, OccurredAt: s.clock().UTC(), PayloadHash: invocation.PayloadHash(nil), PayloadRef: "merchant-response://" + strings.TrimPrefix(invocation.PayloadHash(nil), "sha256:")}
 	}
@@ -495,9 +581,9 @@ func (s *Service) executeMerchantInvocation(ctx context.Context, store repositor
 	fact.ResponseBody = append([]byte(nil), response.Body...)
 	fact.CompletedAt = response.OccurredAt
 	if err := store.UpdateMerchantInvocation(ctx, fact); err != nil {
-		return nil, adapters.MerchantInvokeResult{}, callErr, false, err
+		return adapters.MerchantInvokeResult{}, err
 	}
-	return fact, response, callErr, false, nil
+	return response, nil
 }
 
 func (s *Service) selectedCapabilityAndInput(ctx context.Context, current *episode.CommerceEpisode) (*catalog.MerchantCapability, contract.Input, error) {
@@ -534,11 +620,17 @@ func (s *Service) selectedCapabilityAndInput(ctx context.Context, current *episo
 	return capability, acquire.Input, nil
 }
 
-func bindPaymentRequirement(current *episode.CommerceEpisode, capability *catalog.MerchantCapability, parsed x402.ParsedRequirement) error {
+func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capability *catalog.MerchantCapability, parsed x402.ParsedRequirement) error {
 	if current == nil || capability == nil {
 		return decision.ErrPaymentBindingMismatch
 	}
-	if parsed.Scheme != "exact" || !protocolSupported(capability.SupportedProtocolVersions, parsed.ProtocolVersion) || !strings.EqualFold(parsed.Currency, current.Budget.Currency) || parsed.AmountMinor > current.Budget.AvailableBudget {
+	if parsed.Scheme != "exact" || !protocolSupported(capability.SupportedProtocolVersions, parsed.ProtocolVersion) || !strings.EqualFold(parsed.Currency, current.Budget.Currency) || parsed.BusinessAmountMinor > current.Budget.AvailableBudget {
+		return decision.ErrPaymentBindingMismatch
+	}
+	if policy := s.settlementPolicy; policy.Network != "" && !strings.EqualFold(policy.Network, parsed.Network) {
+		return decision.ErrPaymentBindingMismatch
+	}
+	if expectedAsset, ok := policyAsset(s.settlementPolicy, parsed.Currency); ok && !strings.EqualFold(expectedAsset, parsed.Asset) {
 		return decision.ErrPaymentBindingMismatch
 	}
 	if !x402.EqualResourceURL(parsed.ResourceURL, capability.InvokeEndpoint.Endpoint) {
@@ -561,7 +653,7 @@ func protocolSupported(supported []string, actual string) bool {
 	for _, value := range supported {
 		value = strings.ToLower(strings.TrimSpace(value))
 		actual = strings.ToLower(strings.TrimSpace(actual))
-		if value == actual || (strings.HasPrefix(value, "x402-") && strings.HasPrefix(actual, "x402-")) {
+		if value == actual {
 			return true
 		}
 	}
@@ -610,6 +702,14 @@ func base58Equal(left, right, alphabet string) bool {
 }
 
 func (s *Service) commitS4Event(ctx context.Context, current, next *episode.CommerceEpisode, action trace.Action, observation trace.Observation, target *trace.Target, traceID string) (*episode.EpisodeEvent, bool, error) {
+	return s.commitS4Transition(ctx, current, next, action, observation, target, traceID, nil, nil, nil)
+}
+
+func (s *Service) commitS4Transition(ctx context.Context, current, next *episode.CommerceEpisode, action trace.Action, observation trace.Observation, target *trace.Target, traceID string, requirement *invocation.PaymentRequirementFact, delivery *invocation.DeliveryArtifact, evidence *invocation.ValidationEvidence) (*episode.EpisodeEvent, bool, error) {
+	store, err := s.s4Store()
+	if err != nil {
+		return nil, false, err
+	}
 	if existing, err := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, action.IdempotencyKey); err == nil {
 		return existing, true, nil
 	} else if !errors.Is(err, repository.ErrNotFound) {
@@ -619,7 +719,7 @@ func (s *Service) commitS4Event(ctx context.Context, current, next *episode.Comm
 	if err != nil {
 		return nil, false, err
 	}
-	if err := s.store.CommitTransition(ctx, current.EpisodeID, current.Version, next, event); err != nil {
+	if err := store.CommitS4Transition(ctx, repository.S4Transition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, PaymentRequirement: requirement, DeliveryArtifact: delivery, ValidationEvidence: evidence}); err != nil {
 		if errors.Is(err, repository.ErrIdempotentReplay) || errors.Is(err, repository.ErrVersionConflict) {
 			if replay, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, action.IdempotencyKey); findErr == nil {
 				return replay, true, nil
@@ -658,7 +758,30 @@ func merchantResponseFromFact(value invocation.MerchantInvocation) adapters.Merc
 	return adapters.MerchantInvokeResult{HTTPStatus: value.ResponseStatus, ContentType: value.ResponseContentType, Headers: copyHeaders(value.SelectedHeaders), PayloadRef: value.ResponseRef, PayloadHash: value.ResponsePayloadHash, Body: append([]byte(nil), value.ResponseBody...), OccurredAt: value.CompletedAt}
 }
 func trustedQuoteFromRequirement(value invocation.PaymentRequirementFact) TrustedPaymentQuote {
-	return TrustedPaymentQuote{MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID, QuoteHash: value.CanonicalQuoteHash, AmountMinor: value.AmountMinor, Currency: value.Currency, RequesterDID: "", ExpiresAt: value.ExpiresAt, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, PaymentRequirementRef: value.FactsRef}
+	return TrustedPaymentQuote{MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID, QuoteHash: value.CanonicalQuoteHash, AmountMinor: value.BusinessAmountMinor, Currency: value.Currency, RequesterDID: "", ExpiresAt: value.ExpiresAt, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, PaymentRequirementRef: value.FactsRef}
+}
+
+func policyAsset(policy SettlementPolicy, currency string) (string, bool) {
+	if policy.Assets == nil {
+		return "", false
+	}
+	for key, value := range policy.Assets {
+		if strings.EqualFold(strings.TrimSpace(key), strings.TrimSpace(currency)) {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", true
+}
+
+func copyStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	copy := make(map[string]string, len(values))
+	for key, value := range values {
+		copy[key] = value
+	}
+	return copy
 }
 func eventEpisodeOr(next *episode.CommerceEpisode, replay bool, s *Service, ctx context.Context) *episode.CommerceEpisode {
 	if replay {

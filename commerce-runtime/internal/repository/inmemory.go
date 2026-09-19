@@ -339,6 +339,121 @@ func (s *InMemoryStore) CommitTransition(ctx context.Context, episodeID string, 
 	return nil
 }
 
+func (s *InMemoryStore) CommitS4Transition(ctx context.Context, transition S4Transition) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if transition.NextEpisode == nil || transition.Event == nil || transition.EpisodeID == "" || transition.NextEpisode.EpisodeID != transition.EpisodeID || transition.Event.EpisodeID != transition.EpisodeID {
+		return errors.New("s4 transition records do not refer to the same episode")
+	}
+	if err := transition.NextEpisode.Validate(); err != nil {
+		return err
+	}
+	if err := transition.Event.Validate(); err != nil {
+		return err
+	}
+	if transition.ExpectedEpisodeVersion == 0 || transition.Event.Sequence != transition.ExpectedEpisodeVersion || transition.NextEpisode.Version != transition.ExpectedEpisodeVersion+1 {
+		return ErrVersionConflict
+	}
+	if transition.Event.StateAfter != transition.NextEpisode.State {
+		return errors.New("s4 event does not match episode projection")
+	}
+	if transition.PaymentRequirement != nil {
+		if transition.PaymentRequirement.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		if err := transition.PaymentRequirement.Validate(); err != nil {
+			return err
+		}
+	}
+	if transition.DeliveryArtifact != nil {
+		if transition.DeliveryArtifact.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		if err := transition.DeliveryArtifact.Validate(); err != nil {
+			return err
+		}
+	}
+	if transition.ValidationEvidence != nil {
+		if transition.ValidationEvidence.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		if err := transition.ValidationEvidence.Validate(); err != nil {
+			return err
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.events[transition.EpisodeID] {
+		if existing.Action.IdempotencyKey == transition.Event.Action.IdempotencyKey {
+			return ErrIdempotentReplay
+		}
+	}
+	current, ok := s.episodes[transition.EpisodeID]
+	if !ok {
+		return ErrNotFound
+	}
+	if current.Version != transition.ExpectedEpisodeVersion {
+		return ErrVersionConflict
+	}
+	if current.State != transition.Event.StateBefore {
+		return errors.New("s4 event state does not match current episode")
+	}
+	if current.ContractSnapshotHash != transition.NextEpisode.ContractSnapshotHash || !bytes.Equal(current.ContractSnapshot, transition.NextEpisode.ContractSnapshot) {
+		return episode.ErrImmutableContract
+	}
+	if uint64(len(s.events[transition.EpisodeID])+1) != transition.Event.Sequence {
+		return ErrEventSequenceConflict
+	}
+	if err := s.validateS4FactsLocked(transition); err != nil {
+		return err
+	}
+	s.episodes[transition.EpisodeID] = transition.NextEpisode.Clone()
+	if transition.PaymentRequirement != nil {
+		value := transition.PaymentRequirement.Clone()
+		s.paymentRequirements[value.PaymentRequirementID] = value
+		s.requirementsByInvocation[invocationKey(value.EpisodeID, value.InvocationID)] = value.PaymentRequirementID
+	}
+	if transition.DeliveryArtifact != nil {
+		value := transition.DeliveryArtifact.Clone()
+		s.deliveryArtifacts[value.DeliveryID] = value
+	}
+	if transition.ValidationEvidence != nil {
+		value := transition.ValidationEvidence.Clone()
+		s.validationEvidence[value.ValidationID] = value
+		s.validationByDelivery[validationKey(value.DeliveryID, value.ValidatorName, value.ValidatorVersion)] = value.ValidationID
+	}
+	s.events[transition.EpisodeID] = append(s.events[transition.EpisodeID], transition.Event.Clone())
+	return nil
+}
+
+func (s *InMemoryStore) validateS4FactsLocked(transition S4Transition) error {
+	if value := transition.PaymentRequirement; value != nil {
+		if existingID, ok := s.requirementsByInvocation[invocationKey(value.EpisodeID, value.InvocationID)]; ok && existingID != value.PaymentRequirementID {
+			return ErrFactConflict
+		}
+		if existing, ok := s.paymentRequirements[value.PaymentRequirementID]; ok && !reflect.DeepEqual(existing, value) {
+			return ErrFactConflict
+		}
+	}
+	if value := transition.DeliveryArtifact; value != nil {
+		if existing, ok := s.deliveryArtifacts[value.DeliveryID]; ok && !reflect.DeepEqual(existing, value) {
+			return ErrFactConflict
+		}
+	}
+	if value := transition.ValidationEvidence; value != nil {
+		key := validationKey(value.DeliveryID, value.ValidatorName, value.ValidatorVersion)
+		if existingID, ok := s.validationByDelivery[key]; ok && existingID != value.ValidationID {
+			return ErrFactConflict
+		}
+		if existing, ok := s.validationEvidence[value.ValidationID]; ok && !reflect.DeepEqual(existing, value) {
+			return ErrFactConflict
+		}
+	}
+	return nil
+}
+
 func (s *InMemoryStore) AppendLedgerEntry(ctx context.Context, value *ledger.LedgerEntry) error {
 	if err := contextErr(ctx); err != nil {
 		return err

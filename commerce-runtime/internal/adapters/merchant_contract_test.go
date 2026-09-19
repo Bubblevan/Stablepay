@@ -22,7 +22,7 @@ func TestHTTPMerchantAdapterUsesExisting402AndPaidContract(t *testing.T) {
 			t.Fatalf("unexpected merchant request: %s", request.URL.String())
 		}
 		if request.Header.Get("PAYMENT-SIGNATURE") == "" {
-			challenge := map[string]any{"x402Version": 2, "resource": map[string]any{"url": "http://merchant.example" + resourcePath}, "accepts": []any{map[string]any{"scheme": "exact", "network": "devnet", "amount": "300", "asset": "USDC", "payTo": "payee-1", "maxTimeoutSeconds": 300, "extra": map[string]any{"currency": "USDC", "skillDid": "did:payee:1"}}}}
+			challenge := map[string]any{"x402Version": 2, "resource": map[string]any{"url": "http://merchant.example" + resourcePath}, "accepts": []any{map[string]any{"scheme": "exact", "network": "devnet", "amount": "3000000", "asset": "USDC", "payTo": "payee-1", "maxTimeoutSeconds": 300, "extra": map[string]any{"currency": "USDC", "skillDid": "did:payee:1"}}}}
 			body, _ := json.Marshal(challenge)
 			writer.Header().Set("PAYMENT-REQUIRED", base64.StdEncoding.EncodeToString(body))
 			writer.Header().Set("Content-Type", "application/json")
@@ -43,7 +43,7 @@ func TestHTTPMerchantAdapterUsesExisting402AndPaidContract(t *testing.T) {
 		t.Fatalf("expected real HTTP 402 contract: %#v err=%v", initial, err)
 	}
 	parsed, err := x402.ParseRequired(initial.Headers, initial.Body)
-	if err != nil || parsed.AmountMinor != 300 || parsed.ProtocolVersion != "x402-v2" {
+	if err != nil || parsed.AtomicAmount != 3000000 || parsed.BusinessAmountMinor != 300 || parsed.ProtocolVersion != "x402-v2" {
 		t.Fatalf("parser did not consume merchant 402: %#v err=%v", parsed, err)
 	}
 	paidRequest := initialRequest

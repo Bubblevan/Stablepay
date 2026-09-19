@@ -165,6 +165,12 @@ func (a *HTTPMerchantAdapter) Invoke(ctx context.Context, request MerchantInvoke
 	if request.PaymentSignature != "" {
 		req.Header.Set("PAYMENT-SIGNATURE", request.PaymentSignature)
 	}
+	// Merchant side effects are keyed by the same durable operation identity
+	// that the runtime persists. Send both spellings used by deployed merchant
+	// implementations so a retry after a runtime crash cannot mint a second
+	// delivery.
+	req.Header.Set("X-StablePay-Invocation-Idempotency", request.IdempotencyKey)
+	req.Header.Set("Idempotency-Key", request.IdempotencyKey)
 	resp, err := client.Do(req)
 	if err != nil {
 		return MerchantInvokeResult{}, err

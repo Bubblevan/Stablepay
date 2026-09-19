@@ -5,7 +5,6 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -60,7 +59,7 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		db.Exec("DELETE FROM commerce_episodes WHERE episode_id = ?", episodeID)
 	})
 
-	for index, step := range []struct {
+	for _, step := range []struct {
 		action      trace.ActionType
 		observation trace.ObservationType
 		key         string
@@ -69,16 +68,8 @@ func TestMySQLTransitionStoreConcurrencyAndAtomicity(t *testing.T) {
 		{trace.ActionInvoke, trace.ObservationCandidatesFound, "mysql-invoke"},
 		{trace.ActionParse402, trace.ObservationHTTP402, "mysql-parse-402"},
 	} {
-		current, err := service.GetEpisode(ctx, episodeID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		proposal := integrationProposal(episodeID, current.Version-1, step.action, now, fmt.Sprintf("mysql-proposal-%d", index))
-		if _, err := service.CommitProposal(ctx, application.CommitRequest{
-			Proposal:    proposal,
-			Action:      trace.Action{Type: step.action, IdempotencyKey: step.key},
-			Observation: trace.Observation{Type: step.observation}, Actor: "runtime", TraceID: "mysql-trace",
-		}); err != nil {
+		if _, err := service.CommitRuntimeAction(ctx, application.RuntimeActionRequest{EpisodeID: episodeID,
+			Action: trace.Action{Type: step.action, IdempotencyKey: step.key}, Observation: trace.Observation{Type: step.observation}, TraceID: "mysql-trace"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -259,8 +250,7 @@ func TestMySQLTransitionStoreIdempotencyRaceReplaysOrConflictsDeterministically(
 		db.Exec("DELETE FROM episode_events WHERE episode_id = ?", episodeID)
 		db.Exec("DELETE FROM commerce_episodes WHERE episode_id = ?", episodeID)
 	})
-	proposal := integrationProposal(episodeID, 0, trace.ActionDiscover, now, "mysql-idempotency-proposal")
-	request := application.CommitRequest{Proposal: proposal, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "mysql-idempotency-race"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, Actor: "runtime", TraceID: "mysql-idempotency"}
+	request := application.RuntimeActionRequest{EpisodeID: episodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "mysql-idempotency-race"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, TraceID: "mysql-idempotency"}
 	results := runConcurrentCommits(service, request, request)
 	successes, replays := 0, 0
 	for _, result := range results {
@@ -277,7 +267,7 @@ func TestMySQLTransitionStoreIdempotencyRaceReplaysOrConflictsDeterministically(
 	}
 	changed := request
 	changed.Observation.Code = "different-body"
-	if _, err := service.CommitProposal(ctx, changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
+	if _, err := service.CommitRuntimeAction(ctx, changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
 		t.Fatalf("expected changed idempotency body conflict, got %v", err)
 	}
 	episodeValue, err := service.GetEpisode(ctx, episodeID)
@@ -307,16 +297,16 @@ type concurrentCommitResult struct {
 	err   error
 }
 
-func runConcurrentCommits(service *application.Service, requests ...application.CommitRequest) []concurrentCommitResult {
+func runConcurrentCommits(service *application.Service, requests ...application.RuntimeActionRequest) []concurrentCommitResult {
 	start := make(chan struct{})
 	results := make(chan concurrentCommitResult, len(requests))
 	var wait sync.WaitGroup
 	for _, request := range requests {
 		wait.Add(1)
-		go func(request application.CommitRequest) {
+		go func(request application.RuntimeActionRequest) {
 			defer wait.Done()
 			<-start
-			value, err := service.CommitProposal(context.Background(), request)
+			value, err := service.CommitRuntimeAction(context.Background(), request)
 			results <- concurrentCommitResult{value: value, err: err}
 		}(request)
 	}

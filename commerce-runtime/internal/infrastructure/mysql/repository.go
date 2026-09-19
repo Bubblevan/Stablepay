@@ -233,7 +233,9 @@ type PaymentRequirementFactModel struct {
 	Scheme               string    `gorm:"column:scheme;type:varchar(32);not null"`
 	Network              string    `gorm:"column:network;type:varchar(128);not null"`
 	Asset                string    `gorm:"column:asset;type:varchar(128);not null"`
-	AmountMinor          int64     `gorm:"column:amount_minor;not null"`
+	AtomicAmount         int64     `gorm:"column:atomic_amount;not null"`
+	AtomicDecimals       int       `gorm:"column:atomic_decimals;not null"`
+	BusinessAmountMinor  int64     `gorm:"column:business_amount_minor;not null"`
 	Currency             string    `gorm:"column:currency;type:varchar(16);not null"`
 	PayTo                string    `gorm:"column:pay_to;type:varchar(128);not null"`
 	PayeeDID             string    `gorm:"column:payee_did;type:varchar(128);not null"`
@@ -972,6 +974,191 @@ func (s *Store) CommitTransition(ctx context.Context, episodeID string, expected
 	})
 }
 
+func (s *Store) CommitS4Transition(ctx context.Context, transition repository.S4Transition) error {
+	if transition.NextEpisode == nil || transition.Event == nil || transition.EpisodeID == "" || transition.NextEpisode.EpisodeID != transition.EpisodeID || transition.Event.EpisodeID != transition.EpisodeID {
+		return errors.New("s4 transition records do not refer to the same episode")
+	}
+	if err := transition.NextEpisode.Validate(); err != nil {
+		return err
+	}
+	if err := transition.Event.Validate(); err != nil {
+		return err
+	}
+	if transition.ExpectedEpisodeVersion == 0 || transition.Event.Sequence != transition.ExpectedEpisodeVersion || transition.NextEpisode.Version != transition.ExpectedEpisodeVersion+1 {
+		return repository.ErrVersionConflict
+	}
+	if transition.Event.StateAfter != transition.NextEpisode.State {
+		return errors.New("s4 event does not match episode projection")
+	}
+	updates, err := episodeUpdates(transition.NextEpisode)
+	if err != nil {
+		return err
+	}
+	eventModel, err := eventToModel(transition.Event)
+	if err != nil {
+		return err
+	}
+	var requirementModel *PaymentRequirementFactModel
+	if transition.PaymentRequirement != nil {
+		if transition.PaymentRequirement.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		requirementModel, err = paymentRequirementToModel(transition.PaymentRequirement)
+		if err != nil {
+			return err
+		}
+	}
+	var deliveryModel *DeliveryArtifactModel
+	if transition.DeliveryArtifact != nil {
+		if transition.DeliveryArtifact.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		deliveryModel, err = deliveryArtifactToModel(transition.DeliveryArtifact)
+		if err != nil {
+			return err
+		}
+	}
+	var validationModel *ValidationEvidenceModel
+	if transition.ValidationEvidence != nil {
+		if transition.ValidationEvidence.EpisodeID != transition.EpisodeID {
+			return invocation.ErrInvalidFact
+		}
+		validationModel, err = validationEvidenceToModel(transition.ValidationEvidence)
+		if err != nil {
+			return err
+		}
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existingEvent EventModel
+		if err := tx.Where("episode_id = ? AND idempotency_key = ?", transition.EpisodeID, transition.Event.Action.IdempotencyKey).First(&existingEvent).Error; err == nil {
+			return repository.ErrIdempotentReplay
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		var current EpisodeModel
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("episode_id = ?", transition.EpisodeID).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return repository.ErrNotFound
+			}
+			return err
+		}
+		if current.Version != transition.ExpectedEpisodeVersion {
+			return repository.ErrVersionConflict
+		}
+		if episode.State(current.State) != transition.Event.StateBefore {
+			return errors.New("s4 event state does not match current episode")
+		}
+		if current.ContractSnapshotHash != transition.NextEpisode.ContractSnapshotHash || !bytes.Equal(current.ContractSnapshot, transition.NextEpisode.ContractSnapshot) {
+			return episode.ErrImmutableContract
+		}
+		if err := s.checkS4Requirement(tx, requirementModel, transition.PaymentRequirement); err != nil {
+			return err
+		}
+		if err := s.checkS4Delivery(tx, deliveryModel, transition.DeliveryArtifact); err != nil {
+			return err
+		}
+		if err := s.checkS4Validation(tx, validationModel, transition.ValidationEvidence); err != nil {
+			return err
+		}
+		result := tx.Model(&EpisodeModel{}).Where("episode_id = ? AND version = ?", transition.EpisodeID, transition.ExpectedEpisodeVersion).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return repository.ErrVersionConflict
+		}
+		if requirementModel != nil {
+			var existing PaymentRequirementFactModel
+			if err := tx.Where("payment_requirement_id = ?", requirementModel.PaymentRequirementID).First(&existing).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := tx.Create(requirementModel).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			}
+		}
+		if deliveryModel != nil {
+			var existing DeliveryArtifactModel
+			if err := tx.Where("delivery_id = ?", deliveryModel.DeliveryID).First(&existing).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := tx.Create(deliveryModel).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			}
+		}
+		if validationModel != nil {
+			var existing ValidationEvidenceModel
+			if err := tx.Where("validation_id = ?", validationModel.ValidationID).First(&existing).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := tx.Create(validationModel).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			}
+		}
+		return tx.Create(eventModel).Error
+	})
+}
+
+func (s *Store) checkS4Requirement(tx *gorm.DB, model *PaymentRequirementFactModel, value *invocation.PaymentRequirementFact) error {
+	if model == nil {
+		return nil
+	}
+	var existing PaymentRequirementFactModel
+	err := tx.Where("payment_requirement_id = ? OR (episode_id = ? AND invocation_id = ?)", model.PaymentRequirementID, model.EpisodeID, model.InvocationID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	previous, decodeErr := modelToPaymentRequirement(existing)
+	if decodeErr == nil && reflect.DeepEqual(previous, value) {
+		return nil
+	}
+	return repository.ErrFactConflict
+}
+
+func (s *Store) checkS4Delivery(tx *gorm.DB, model *DeliveryArtifactModel, value *invocation.DeliveryArtifact) error {
+	if model == nil {
+		return nil
+	}
+	var existing DeliveryArtifactModel
+	err := tx.Where("delivery_id = ?", model.DeliveryID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	previous, decodeErr := modelToDeliveryArtifact(existing)
+	if decodeErr == nil && reflect.DeepEqual(previous, value) {
+		return nil
+	}
+	return repository.ErrFactConflict
+}
+
+func (s *Store) checkS4Validation(tx *gorm.DB, model *ValidationEvidenceModel, value *invocation.ValidationEvidence) error {
+	if model == nil {
+		return nil
+	}
+	var existing ValidationEvidenceModel
+	err := tx.Where("validation_id = ? OR (delivery_id = ? AND validator_name = ? AND validator_version = ?)", model.ValidationID, model.DeliveryID, model.ValidatorName, model.ValidatorVersion).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	previous, decodeErr := modelToValidationEvidence(existing)
+	if decodeErr == nil && reflect.DeepEqual(previous, value) {
+		return nil
+	}
+	return repository.ErrFactConflict
+}
+
 func (s *Store) CommitFinanceTransition(ctx context.Context, transition repository.FinanceTransition) error {
 	if transition.NextEpisode == nil || transition.Event == nil || transition.NextEpisode.EpisodeID != transition.EpisodeID || transition.Event.EpisodeID != transition.EpisodeID {
 		return errors.New("finance transition records do not refer to the same episode")
@@ -1333,11 +1520,11 @@ func paymentRequirementToModel(value *invocation.PaymentRequirementFact) (*Payme
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	return &PaymentRequirementFactModel{PaymentRequirementID: value.PaymentRequirementID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, AmountMinor: value.AmountMinor, Currency: value.Currency, PayTo: value.PayTo, PayeeDID: value.PayeeDID, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, MaxTimeoutSeconds: value.MaxTimeoutSeconds, ObservedAt: value.ObservedAt, ExpiresAt: value.ExpiresAt, RawPayloadHash: value.RawPayloadHash, CanonicalQuoteHash: value.CanonicalQuoteHash, FactsRef: value.FactsRef}, nil
+	return &PaymentRequirementFactModel{PaymentRequirementID: value.PaymentRequirementID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, AtomicAmount: value.AtomicAmount, AtomicDecimals: value.AtomicDecimals, BusinessAmountMinor: value.BusinessAmountMinor, Currency: value.Currency, PayTo: value.PayTo, PayeeDID: value.PayeeDID, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, MaxTimeoutSeconds: value.MaxTimeoutSeconds, ObservedAt: value.ObservedAt, ExpiresAt: value.ExpiresAt, RawPayloadHash: value.RawPayloadHash, CanonicalQuoteHash: value.CanonicalQuoteHash, FactsRef: value.FactsRef}, nil
 }
 
 func modelToPaymentRequirement(row PaymentRequirementFactModel) (*invocation.PaymentRequirementFact, error) {
-	value := &invocation.PaymentRequirementFact{PaymentRequirementID: row.PaymentRequirementID, EpisodeID: row.EpisodeID, InvocationID: row.InvocationID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, ProtocolVersion: row.ProtocolVersion, Scheme: row.Scheme, Network: row.Network, Asset: row.Asset, AmountMinor: row.AmountMinor, Currency: row.Currency, PayTo: row.PayTo, PayeeDID: row.PayeeDID, ResourceURL: row.ResourceURL, ProductID: row.ProductID, SkillDID: row.SkillDID, MaxTimeoutSeconds: row.MaxTimeoutSeconds, ObservedAt: row.ObservedAt, ExpiresAt: row.ExpiresAt, RawPayloadHash: row.RawPayloadHash, CanonicalQuoteHash: row.CanonicalQuoteHash, FactsRef: row.FactsRef}
+	value := &invocation.PaymentRequirementFact{PaymentRequirementID: row.PaymentRequirementID, EpisodeID: row.EpisodeID, InvocationID: row.InvocationID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, ProtocolVersion: row.ProtocolVersion, Scheme: row.Scheme, Network: row.Network, Asset: row.Asset, AtomicAmount: row.AtomicAmount, AtomicDecimals: row.AtomicDecimals, BusinessAmountMinor: row.BusinessAmountMinor, Currency: row.Currency, PayTo: row.PayTo, PayeeDID: row.PayeeDID, ResourceURL: row.ResourceURL, ProductID: row.ProductID, SkillDID: row.SkillDID, MaxTimeoutSeconds: row.MaxTimeoutSeconds, ObservedAt: row.ObservedAt, ExpiresAt: row.ExpiresAt, RawPayloadHash: row.RawPayloadHash, CanonicalQuoteHash: row.CanonicalQuoteHash, FactsRef: row.FactsRef}
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}

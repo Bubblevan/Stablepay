@@ -93,9 +93,9 @@ func TestMySQLS2LedgerPaymentIntegration(t *testing.T) {
 		{trace.ActionInvoke, trace.ObservationCandidatesFound, "mysql-s2-invoke"},
 		{trace.ActionParse402, trace.ObservationHTTP402, "mysql-s2-parse-402"},
 	} {
-		proposal := integrationProposal(episodeID, current.Version-1, step.action, now, "mysql-s2-proposal-"+string(rune('a'+index)))
-		result, err := service.CommitProposal(ctx, application.CommitRequest{Proposal: proposal, Action: trace.Action{Type: step.action, IdempotencyKey: step.key},
-			Observation: trace.Observation{Type: step.observation}, Actor: "runtime", TraceID: "mysql-s2-trace"})
+		_ = index
+		result, err := service.CommitRuntimeAction(ctx, application.RuntimeActionRequest{EpisodeID: episodeID, Action: trace.Action{Type: step.action, IdempotencyKey: step.key},
+			Observation: trace.Observation{Type: step.observation}, TraceID: "mysql-s2-trace"})
 		if err != nil {
 			t.Fatal(err)
 		}

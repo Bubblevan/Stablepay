@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
+	"github.com/stablepay/commerce-runtime/internal/x402"
 )
 
 func serviceFixture() (*Service, *repository.InMemoryStore, time.Time) {
@@ -62,9 +64,9 @@ func createFixture(t *testing.T) (*Service, *repository.InMemoryStore, time.Time
 
 func TestCreateAndCommitProposalProducesStructuredEvent(t *testing.T) {
 	service, store, now, created := createFixture(t)
+	_ = now
 	initial := created.Clone()
-	proposal := makeProposal(created.EpisodeID, 0, trace.ActionDiscover, now)
-	result, err := service.CommitProposal(context.Background(), commitRequest(proposal, trace.ActionDiscover, "transition-1", trace.Observation{Type: trace.ObservationCandidatesFound, FactsRef: "object://facts/1"}))
+	result, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "transition-1"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound, FactsRef: "object://facts/1"}, TraceID: "trace-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestCreateAndCommitProposalProducesStructuredEvent(t *testing.T) {
 	if len(events) != 1 || events[0].Sequence != 1 || events[0].StateBefore != episode.StateAccepted || events[0].StateAfter != episode.StateDiscovering {
 		t.Fatalf("unexpected event: %#v", events)
 	}
-	if !events[0].RuntimeVerdict.Allowed || events[0].Action.Type != trace.ActionDiscover || events[0].Decision.ProposalID != proposal.ProposalID {
+	if !events[0].RuntimeVerdict.Allowed || events[0].Action.Type != trace.ActionDiscover || events[0].Decision.ProposalID != "runtime:transition-1" {
 		t.Fatalf("event did not retain structured decision trace: %#v", events[0])
 	}
 	reconstructed, err := episode.Reconstruct(initial, events)
@@ -123,8 +125,7 @@ func TestDeterministicS1FlowReachesFulfilledWithoutLLM(t *testing.T) {
 		{trace.ActionInvoke, trace.ObservationDeliveryValid, "s1-delivery-invoke"},
 		{trace.ActionValidateDelivery, trace.ObservationDeliveryValid, "s1-delivery-validate"},
 	} {
-		proposal := makeProposal(current.EpisodeID, current.Version-1, step.action, now)
-		result, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, step.key, trace.Observation{Type: step.observation}))
+		result, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: current.EpisodeID, Action: trace.Action{Type: step.action, IdempotencyKey: step.key}, Observation: trace.Observation{Type: step.observation}, TraceID: "trace-test"})
 		if err != nil {
 			t.Fatalf("delivery step %d (%s): %v", index+1, step.action, err)
 		}
@@ -164,13 +165,12 @@ func TestRequestAndTransitionIdempotency(t *testing.T) {
 	if _, err := service.CreateEpisode(context.Background(), different); !errors.Is(err, repository.ErrRequestIDConflict) {
 		t.Fatalf("expected request conflict, got %v", err)
 	}
-	proposal := makeProposal(created.EpisodeID, 0, trace.ActionDiscover, now)
-	request := commitRequest(proposal, trace.ActionDiscover, "transition-1", trace.Observation{Type: trace.ObservationCandidatesFound})
-	first, err := service.CommitProposal(context.Background(), request)
+	request := RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "transition-1"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, TraceID: "trace-test"}
+	first, err := service.CommitRuntimeAction(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := service.CommitProposal(context.Background(), request)
+	replayed, err := service.CommitRuntimeAction(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestRequestAndTransitionIdempotency(t *testing.T) {
 	}
 	changed := request
 	changed.Observation.Code = "changed-body"
-	if _, err := service.CommitProposal(context.Background(), changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
+	if _, err := service.CommitRuntimeAction(context.Background(), changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
 		t.Fatalf("expected transition idempotency conflict, got %v", err)
 	}
 }
@@ -213,8 +213,7 @@ func TestSameStatePaymentStepIsCommittedWithoutNewEpisodeState(t *testing.T) {
 		{trace.ActionParse402, trace.ObservationHTTP402},
 	}
 	for index, step := range steps {
-		proposal := makeProposal(created.EpisodeID, uint64(index), step.action, now)
-		result, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, "payment-flow-"+string(rune('a'+index)), trace.Observation{Type: step.observation}))
+		result, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: step.action, IdempotencyKey: "payment-flow-" + string(rune('a'+index))}, Observation: trace.Observation{Type: step.observation}, TraceID: "trace-test"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,11 +259,11 @@ func TestRuntimeGuardRejectsInvalidProposalCases(t *testing.T) {
 	base := func(action trace.ActionType, sequence uint64, key string) CommitRequest {
 		return commitRequest(makeProposal(created.EpisodeID, sequence, action, now), action, key, trace.Observation{Type: trace.ObservationCandidatesFound})
 	}
-	future := base(trace.ActionDiscover, 99, "future")
+	future := base(trace.ActionSelectMerchant, 99, "future")
 	if _, err := service.CommitProposal(context.Background(), future); !errors.Is(err, decision.ErrFutureEventSequence) {
 		t.Fatalf("future proposal: %v", err)
 	}
-	if _, err := service.CommitProposal(context.Background(), base(trace.ActionDiscover, 0, "advance")); err != nil {
+	if _, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "advance"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, TraceID: "advance"}); err != nil {
 		t.Fatal(err)
 	}
 	stale := base(trace.ActionSelectMerchant, 0, "stale")
@@ -288,7 +287,7 @@ func TestRuntimeGuardRejectsInvalidProposalCases(t *testing.T) {
 	if _, err := service.CommitProposal(context.Background(), base(trace.ActionStop, 1, "terminal")); err != nil {
 		t.Fatal(err)
 	}
-	terminal := base(trace.ActionDiscover, 2, "after-terminal")
+	terminal := base(trace.ActionSelectMerchant, 2, "after-terminal")
 	if _, err := service.CommitProposal(context.Background(), terminal); !errors.Is(err, decision.ErrProposalAfterTerminal) {
 		t.Fatalf("terminal proposal: %v", err)
 	}
@@ -296,19 +295,18 @@ func TestRuntimeGuardRejectsInvalidProposalCases(t *testing.T) {
 
 func TestConcurrentTransitionsOnlyOneWins(t *testing.T) {
 	service, store, now, created := createFixture(t)
-	proposalA := makeProposal(created.EpisodeID, 0, trace.ActionDiscover, now)
-	proposalB := makeProposal(created.EpisodeID, 0, trace.ActionDiscover, now)
-	requestA := commitRequest(proposalA, trace.ActionDiscover, "concurrent-a", trace.Observation{Type: trace.ObservationCandidatesFound})
-	requestB := commitRequest(proposalB, trace.ActionDiscover, "concurrent-b", trace.Observation{Type: trace.ObservationCandidatesFound})
+	_ = now
+	requestA := RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "concurrent-a"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, TraceID: "trace-a"}
+	requestB := RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: trace.ActionDiscover, IdempotencyKey: "concurrent-b"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, TraceID: "trace-b"}
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var wait sync.WaitGroup
-	for _, request := range []CommitRequest{requestA, requestB} {
+	for _, request := range []RuntimeActionRequest{requestA, requestB} {
 		wait.Add(1)
-		go func(request CommitRequest) {
+		go func(request RuntimeActionRequest) {
 			defer wait.Done()
 			<-start
-			_, err := service.CommitProposal(context.Background(), request)
+			_, err := service.CommitRuntimeAction(context.Background(), request)
 			results <- err
 		}(request)
 	}
@@ -321,7 +319,7 @@ func TestConcurrentTransitionsOnlyOneWins(t *testing.T) {
 			successes++
 			continue
 		}
-		if !errors.Is(err, repository.ErrVersionConflict) && !errors.Is(err, decision.ErrStaleEventSequence) {
+		if !errors.Is(err, repository.ErrVersionConflict) && !errors.Is(err, decision.ErrStaleEventSequence) && !errors.Is(err, decision.ErrActionNotAllowed) {
 			t.Fatalf("unexpected concurrent error: %v", err)
 		}
 	}
@@ -379,5 +377,76 @@ func TestDecisionProposalCannotCommitPaymentFacts(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("decision proposal created ledger facts: %#v", entries)
+	}
+}
+
+func TestDecisionProviderCannotCommitMerchantRuntimeFacts(t *testing.T) {
+	service, _, now, created := createFixture(t)
+	for _, step := range []struct {
+		action      trace.ActionType
+		observation trace.ObservationType
+		key         string
+	}{
+		{trace.ActionDiscover, trace.ObservationCandidatesFound, "authority-discover"},
+		{trace.ActionInvoke, trace.ObservationMerchantResponse, "authority-invoke"},
+		{trace.ActionParse402, trace.ObservationQuoteValid, "authority-parse"},
+		{trace.ActionReserveBudget, trace.ObservationQuoteValid, "authority-reserve"},
+		{trace.ActionCreatePayment, trace.ObservationPaymentConfirmed, "authority-create"},
+		{trace.ActionVerifyEntitlement, trace.ObservationEntitlementValid, "authority-entitlement"},
+		{trace.ActionInvoke, trace.ObservationMerchantResponse, "authority-delivery-invoke"},
+	} {
+		if _, err := service.CommitRuntimeAction(context.Background(), RuntimeActionRequest{EpisodeID: created.EpisodeID, Action: trace.Action{Type: step.action, IdempotencyKey: step.key}, Observation: trace.Observation{Type: step.observation}, TraceID: step.key}); err != nil {
+			t.Fatalf("runtime setup %s: %v", step.action, err)
+		}
+	}
+	current, err := service.GetEpisode(context.Background(), created.EpisodeID)
+	if err != nil || current.State != episode.StateValidatingDelivery {
+		t.Fatalf("expected validating state, episode=%#v err=%v", current, err)
+	}
+	for _, action := range []trace.ActionType{trace.ActionValidateDelivery} {
+		proposal := makeProposal(current.EpisodeID, current.Version-1, action, now)
+		if _, err := service.CommitProposal(context.Background(), commitRequest(proposal, action, "provider-validate", trace.Observation{Type: trace.ObservationDeliveryValid})); !errors.Is(err, decision.ErrActionNotAllowed) {
+			t.Fatalf("generic provider action %s was not rejected: %v", action, err)
+		}
+	}
+	fresh := created.Clone()
+	for _, step := range []struct {
+		action trace.ActionType
+		obs    trace.ObservationType
+		key    string
+	}{{trace.ActionInvoke, trace.ObservationMerchantResponse, "provider-invoke"}, {trace.ActionParse402, trace.ObservationQuoteValid, "provider-parse"}} {
+		proposal := makeProposal(fresh.EpisodeID, fresh.Version-1, step.action, now)
+		if _, err := service.CommitProposal(context.Background(), commitRequest(proposal, step.action, step.key, trace.Observation{Type: step.obs})); !errors.Is(err, decision.ErrActionNotAllowed) {
+			t.Fatalf("generic provider action %s was not rejected: %v", step.action, err)
+		}
+	}
+	latest, err := service.GetEpisode(context.Background(), created.EpisodeID)
+	if err != nil || latest.State != episode.StateValidatingDelivery {
+		t.Fatalf("provider attempts changed state: %#v err=%v", latest, err)
+	}
+}
+
+func TestSettlementPolicyBindsExactProtocolNetworkAssetAndCurrency(t *testing.T) {
+	service, _, _ := serviceFixture()
+	service.settlementPolicy = SettlementPolicy{Network: "solana:devnet", Assets: map[string]string{"USDC": "mint-1"}}
+	current := &episode.CommerceEpisode{Budget: episode.BudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 1000, AvailableBudget: 1000}}
+	capability := &catalog.MerchantCapability{PayeeDID: "did:merchant:payee", InvokeEndpoint: catalog.EndpointRef{Endpoint: "https://merchant.example/execute"}, SupportedProtocolVersions: []string{"x402-v1"}}
+	parsed := x402.ParsedRequirement{ProtocolVersion: "x402-v1", Scheme: "exact", Network: "solana:devnet", Asset: "mint-1", BusinessAmountMinor: 200, Currency: "USDC", PayTo: "did:merchant:payee", ResourceURL: "https://merchant.example/execute"}
+	if err := service.bindPaymentRequirement(current, capability, parsed); err != nil {
+		t.Fatalf("expected configured settlement policy to accept exact challenge: %v", err)
+	}
+	parsed.ProtocolVersion = "x402-v2"
+	if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
+		t.Fatalf("protocol prefix compatibility was not rejected: %v", err)
+	}
+	parsed.ProtocolVersion = "x402-v1"
+	parsed.Asset = "arbitrary-mint"
+	if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
+		t.Fatalf("arbitrary asset was not rejected: %v", err)
+	}
+	parsed.Asset = "mint-1"
+	parsed.Network = "solana:mainnet"
+	if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
+		t.Fatalf("arbitrary network was not rejected: %v", err)
 	}
 }

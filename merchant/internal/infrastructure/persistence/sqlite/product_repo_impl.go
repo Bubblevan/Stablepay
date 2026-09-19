@@ -5,6 +5,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/stablepay/merchant-server/internal/domain/entity"
+	"github.com/stablepay/merchant-server/internal/domain/repository"
 )
 
 const defaultDBPath = "./data/merchant.db"
@@ -102,9 +104,60 @@ func (r *ProductRepoImpl) Migrate(ctx context.Context) error {
 		updated_at TEXT NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_products_sku_id ON products(sku_id);
-	CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);`
+	CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+	CREATE TABLE IF NOT EXISTS invocation_receipts (
+		idempotency_key TEXT PRIMARY KEY,
+		agent_did TEXT NOT NULL,
+		sku_id TEXT NOT NULL,
+		response_json BLOB NOT NULL,
+		created_at TEXT NOT NULL
+	);`
 	if _, err := r.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("sqlite product repo: migrate: %w", err)
+	}
+	return nil
+}
+
+func (r *ProductRepoImpl) GetInvocationReceipt(ctx context.Context, key, agentDID, skuID string) (*repository.InvocationReceipt, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var receipt repository.InvocationReceipt
+	var createdAt string
+	err := r.db.QueryRowContext(ctx, `SELECT idempotency_key, agent_did, sku_id, response_json, created_at FROM invocation_receipts WHERE idempotency_key = ? AND agent_did = ? AND sku_id = ?`, strings.TrimSpace(key), strings.TrimSpace(agentDID), strings.TrimSpace(skuID)).Scan(&receipt.IdempotencyKey, &receipt.AgentDID, &receipt.SKUID, &receipt.ResponseJSON, &createdAt)
+	if err == sql.ErrNoRows {
+		return nil, repository.ErrInvocationReceiptNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sqlite invocation receipt: get: %w", err)
+	}
+	receipt.CreatedAt, _ = parseTime(createdAt)
+	return &receipt, nil
+}
+
+func (r *ProductRepoImpl) SaveInvocationReceipt(ctx context.Context, receipt *repository.InvocationReceipt) error {
+	if receipt == nil || strings.TrimSpace(receipt.IdempotencyKey) == "" || strings.TrimSpace(receipt.AgentDID) == "" || strings.TrimSpace(receipt.SKUID) == "" || len(receipt.ResponseJSON) == 0 {
+		return repository.ErrInvocationReceiptConflict
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var existing repository.InvocationReceipt
+	var createdAt string
+	err := r.db.QueryRowContext(ctx, `SELECT idempotency_key, agent_did, sku_id, response_json, created_at FROM invocation_receipts WHERE idempotency_key = ?`, receipt.IdempotencyKey).Scan(&existing.IdempotencyKey, &existing.AgentDID, &existing.SKUID, &existing.ResponseJSON, &createdAt)
+	if err == nil {
+		if existing.AgentDID == receipt.AgentDID && existing.SKUID == receipt.SKUID && bytes.Equal(existing.ResponseJSON, receipt.ResponseJSON) {
+			return nil
+		}
+		return repository.ErrInvocationReceiptConflict
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("sqlite invocation receipt: lookup: %w", err)
+	}
+	created := receipt.CreatedAt
+	if created.IsZero() {
+		created = time.Now().UTC()
+	}
+	if _, err := r.db.ExecContext(ctx, `INSERT INTO invocation_receipts (idempotency_key, agent_did, sku_id, response_json, created_at) VALUES (?, ?, ?, ?, ?)`, receipt.IdempotencyKey, receipt.AgentDID, receipt.SKUID, receipt.ResponseJSON, formatTime(created)); err != nil {
+		return fmt.Errorf("sqlite invocation receipt: save: %w", err)
 	}
 	return nil
 }
@@ -281,22 +334,22 @@ func (r *ProductRepoImpl) Seed(ctx context.Context, sellerAddress string) error 
 		{
 			skuID: "ai-agent-job-2025", title: "AI Agent 岗位分析报告 2025",
 			description: "深入分析 2025 年 AI Agent 领域的岗位需求、技能要求、薪资水平和发展趋势",
-			price: "2.00", tags: []string{"AI", "Agent", "求职", "行业分析"},
+			price:       "2.00", tags: []string{"AI", "Agent", "求职", "行业分析"},
 		},
 		{
 			skuID: "industry-briefing-q1", title: "2025 Q1 行业研究简报",
 			description: "涵盖 AI、区块链、Web3 领域的最新趋势和投资机会",
-			price: "1.50", tags: []string{"行业研究", "AI", "区块链", "Web3"},
+			price:       "1.50", tags: []string{"行业研究", "AI", "区块链", "Web3"},
 		},
 		{
 			skuID: "resume-optimization-guide", title: "简历优化建议报告",
 			description: "针对技术岗位的简历优化建议，包含模板和案例分析",
-			price: "1.00", tags: []string{"求职", "简历", "技术岗位"},
+			price:       "1.00", tags: []string{"求职", "简历", "技术岗位"},
 		},
 		{
 			skuID: "vitality-research", title: "生命力研究：为什么有些人看起来生命力很强",
 			description: "基于萨特《恶心》的存在主义解读，探讨生命力的本质与来源",
-			price: "1.50", tags: []string{"哲学", "心理学", "存在主义", "个人成长"},
+			price:       "1.50", tags: []string{"哲学", "心理学", "存在主义", "个人成长"},
 		},
 	}
 

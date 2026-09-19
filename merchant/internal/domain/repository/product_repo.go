@@ -11,9 +11,32 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/stablepay/merchant-server/internal/domain/entity"
 )
+
+var (
+	ErrInvocationReceiptNotFound = errors.New("invocation receipt not found")
+	ErrInvocationReceiptConflict = errors.New("invocation receipt conflicts with existing operation")
+)
+
+// InvocationReceipt is the durable result of a paid merchant operation. It
+// is keyed by the runtime's operation identity so a retried HTTP request can
+// replay the original delivery without allocating another gift code.
+type InvocationReceipt struct {
+	IdempotencyKey string
+	AgentDID       string
+	SKUID          string
+	ResponseJSON   []byte
+	CreatedAt      time.Time
+}
+
+type InvocationReceiptRepository interface {
+	GetInvocationReceipt(context.Context, string, string, string) (*InvocationReceipt, error)
+	SaveInvocationReceipt(context.Context, *InvocationReceipt) error
+}
 
 // ProductRepository 商品仓储接口
 //

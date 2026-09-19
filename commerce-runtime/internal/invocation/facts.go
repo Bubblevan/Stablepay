@@ -96,7 +96,9 @@ type PaymentRequirementFact struct {
 	Scheme               string    `json:"scheme"`
 	Network              string    `json:"network"`
 	Asset                string    `json:"asset"`
-	AmountMinor          int64     `json:"amount_minor"`
+	AtomicAmount         int64     `json:"atomic_amount"`
+	AtomicDecimals       int       `json:"atomic_decimals"`
+	BusinessAmountMinor  int64     `json:"business_amount_minor"`
 	Currency             string    `json:"currency"`
 	PayTo                string    `json:"pay_to"`
 	PayeeDID             string    `json:"payee_did"`
@@ -115,7 +117,7 @@ func (p PaymentRequirementFact) Validate() error {
 	if strings.TrimSpace(p.PaymentRequirementID) == "" || strings.TrimSpace(p.EpisodeID) == "" || strings.TrimSpace(p.InvocationID) == "" ||
 		strings.TrimSpace(p.MerchantDID) == "" || strings.TrimSpace(p.CapabilityID) == "" || strings.TrimSpace(p.CatalogVersion) == "" ||
 		strings.TrimSpace(p.CatalogSnapshotHash) == "" || strings.TrimSpace(p.ProtocolVersion) == "" || strings.TrimSpace(p.Scheme) == "" ||
-		strings.TrimSpace(p.Network) == "" || strings.TrimSpace(p.Asset) == "" || p.AmountMinor <= 0 || strings.TrimSpace(p.Currency) == "" ||
+		strings.TrimSpace(p.Network) == "" || strings.TrimSpace(p.Asset) == "" || p.AtomicAmount <= 0 || p.AtomicDecimals <= 0 || p.BusinessAmountMinor <= 0 || strings.TrimSpace(p.Currency) == "" ||
 		strings.TrimSpace(p.PayTo) == "" || strings.TrimSpace(p.PayeeDID) == "" || strings.TrimSpace(p.ResourceURL) == "" ||
 		p.MaxTimeoutSeconds <= 0 || p.ObservedAt.IsZero() || !p.ExpiresAt.After(p.ObservedAt) || strings.TrimSpace(p.RawPayloadHash) == "" ||
 		strings.TrimSpace(p.CanonicalQuoteHash) == "" || strings.TrimSpace(p.FactsRef) == "" {

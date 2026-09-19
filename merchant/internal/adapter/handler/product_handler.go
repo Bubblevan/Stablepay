@@ -123,11 +123,16 @@ func (h *ProductHandler) ExecutePurchase(ctx context.Context, c *app.RequestCont
 	if paymentSignature == "" {
 		paymentSignature = strings.TrimSpace(string(c.GetHeader("Payment-Signature")))
 	}
+	idempotencyKey := strings.TrimSpace(string(c.GetHeader("X-StablePay-Invocation-Idempotency")))
+	if idempotencyKey == "" {
+		idempotencyKey = strings.TrimSpace(string(c.GetHeader("Idempotency-Key")))
+	}
 
 	result, err := h.productAppService.ExecutePurchase(ctx, appSvc.ExecutePurchaseCommand{
 		SKUID:            skuID,
 		AgentDID:         agentDID,
 		PaymentSignature: paymentSignature,
+		IdempotencyKey:   idempotencyKey,
 	})
 	if err != nil {
 		writeAppError(c, err)

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -27,15 +28,25 @@ const DefaultRuntimeVersion = "commerce-runtime-mvp.1"
 const DefaultCandidateSetTTL = 5 * time.Minute
 
 type Service struct {
-	store             repository.TransitionStore
-	clock             func() time.Time
-	idGenerator       func(prefix string) string
-	runtimeVersion    string
-	candidateSetTTL   time.Duration
-	guard             decision.RuntimeGuard
-	paymentDeps       PaymentDependencies
-	merchantAdapter   adapters.MerchantAdapter
-	validatorRegistry *validator.Registry
+	store                repository.TransitionStore
+	clock                func() time.Time
+	idGenerator          func(prefix string) string
+	runtimeVersion       string
+	candidateSetTTL      time.Duration
+	guard                decision.RuntimeGuard
+	paymentDeps          PaymentDependencies
+	merchantAdapter      adapters.MerchantAdapter
+	validatorRegistry    *validator.Registry
+	settlementPolicy     SettlementPolicy
+	invocationStaleAfter time.Duration
+}
+
+// SettlementPolicy binds merchant challenges to the configured payment
+// environment. Empty fields keep local unit fixtures unconstrained; deployed
+// runtimes should configure the network and exact asset per currency.
+type SettlementPolicy struct {
+	Network string
+	Assets  map[string]string
 }
 
 type Option func(*Service)
@@ -84,20 +95,60 @@ func WithValidatorRegistry(registry *validator.Registry) Option {
 	}
 }
 
+func WithSettlementPolicy(policy SettlementPolicy) Option {
+	return func(s *Service) {
+		s.settlementPolicy = SettlementPolicy{Network: strings.TrimSpace(policy.Network), Assets: copyStringMap(policy.Assets)}
+	}
+}
+
+func WithInvocationStaleAfter(after time.Duration) Option {
+	return func(s *Service) {
+		if after > 0 {
+			s.invocationStaleAfter = after
+		}
+	}
+}
+
 func NewService(store repository.TransitionStore, options ...Option) *Service {
 	service := &Service{
-		store:             store,
-		clock:             func() time.Time { return time.Now().UTC() },
-		idGenerator:       randomID,
-		runtimeVersion:    DefaultRuntimeVersion,
-		candidateSetTTL:   DefaultCandidateSetTTL,
-		guard:             decision.NewRuntimeGuard(),
-		validatorRegistry: validator.NewBuiltinRegistry(),
+		store:                store,
+		clock:                func() time.Time { return time.Now().UTC() },
+		idGenerator:          randomID,
+		runtimeVersion:       DefaultRuntimeVersion,
+		candidateSetTTL:      DefaultCandidateSetTTL,
+		guard:                decision.NewRuntimeGuard(),
+		validatorRegistry:    validator.NewBuiltinRegistry(),
+		settlementPolicy:     settlementPolicyFromEnvironment(),
+		invocationStaleAfter: 30 * time.Second,
 	}
 	for _, option := range options {
 		option(service)
 	}
 	return service
+}
+
+func settlementPolicyFromEnvironment() SettlementPolicy {
+	network := strings.TrimSpace(firstEnvironmentValue("COMMERCE_RUNTIME_SETTLEMENT_NETWORK", "SOLANA_NETWORK"))
+	assets := make(map[string]string)
+	if value := strings.TrimSpace(firstEnvironmentValue("COMMERCE_RUNTIME_USDC_MINT", "USDC_MINT")); value != "" {
+		assets["USDC"] = value
+	}
+	if value := strings.TrimSpace(firstEnvironmentValue("COMMERCE_RUNTIME_USDT_MINT", "USDT_MINT")); value != "" {
+		assets["USDT"] = value
+	}
+	if len(assets) == 0 {
+		assets = nil
+	}
+	return SettlementPolicy{Network: network, Assets: assets}
+}
+
+func firstEnvironmentValue(keys ...string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *Service) discoveryStore() (repository.DiscoveryRepository, error) {
@@ -271,24 +322,29 @@ func (s *Service) DiscoverCapabilities(ctx context.Context, request DiscoverCapa
 	if len(candidateSet.Candidates) == 0 {
 		observationType = trace.ObservationNoEligibleCandidate
 	}
-	discoverProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: current.EpisodeID,
-		BasedOnEventSequence: current.Version - 1, ProposedAction: trace.ActionDiscover, CandidateSetID: candidateSet.CandidateSetID,
-		// The discovery observation creates the first persisted evidence refs;
-		// they cannot be referenced by the same event before it is committed.
-		Confidence: 1,
-		CreatedAt:  now.Add(-time.Nanosecond), ExpiresAt: now.Add(time.Minute)}
-	commit, err := s.CommitProposal(ctx, CommitRequest{Proposal: discoverProposal,
-		Action:      trace.Action{Type: trace.ActionDiscover, IdempotencyKey: actionKey},
-		Observation: trace.Observation{Type: observationType, FactsRef: candidateSet.FactsRef, PayloadHash: candidateSet.PayloadHash},
-		Actor:       "runtime", TraceID: current.EpisodeID})
+	next := current.Clone()
+	next.ActionCount++
+	if err := next.ApplyCommittedState(episode.StateDiscovering, now, ""); err != nil {
+		return DiscoverCapabilitiesResult{}, err
+	}
+	event, replay, err := s.commitS4Event(ctx, current, next,
+		trace.Action{Type: trace.ActionDiscover, IdempotencyKey: actionKey},
+		trace.Observation{Type: observationType, FactsRef: candidateSet.FactsRef, PayloadHash: candidateSet.PayloadHash}, nil, current.EpisodeID)
 	if err != nil {
 		return DiscoverCapabilitiesResult{}, err
 	}
-	result := DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: commit.Episode, Event: commit.Event, NoEligible: len(candidateSet.Candidates) == 0, Replayed: commit.Replayed}
+	latest := next
+	if replay {
+		latest, err = s.store.Get(ctx, current.EpisodeID)
+		if err != nil {
+			return DiscoverCapabilitiesResult{}, err
+		}
+	}
+	result := DiscoverCapabilitiesResult{CandidateSet: candidateSet, Episode: latest, Event: event, NoEligible: len(candidateSet.Candidates) == 0, Replayed: replay}
 	if len(candidateSet.Candidates) == 0 {
 		stopNow := s.clock().UTC()
-		stopProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: commit.Episode.EpisodeID,
-			BasedOnEventSequence: commit.Episode.Version - 1, ProposedAction: trace.ActionStop, CandidateSetID: candidateSet.CandidateSetID,
+		stopProposal := decision.DecisionProposal{ProposalID: s.idGenerator("proposal"), EpisodeID: latest.EpisodeID,
+			BasedOnEventSequence: latest.Version - 1, ProposedAction: trace.ActionStop, CandidateSetID: candidateSet.CandidateSetID,
 			EvidenceRefs: []string{candidateSet.FactsRef, candidateSet.PayloadHash}, Confidence: 1,
 			CreatedAt: stopNow.Add(-time.Nanosecond), ExpiresAt: stopNow.Add(time.Minute)}
 		terminal, stopErr := s.CommitProposal(ctx, CommitRequest{Proposal: stopProposal,
@@ -346,6 +402,69 @@ type CommitResult struct {
 	Replayed bool
 }
 
+// RuntimeActionRequest is the narrow internal/runtime boundary for facts that
+// are observed or committed by Commerce Runtime itself. Decision providers
+// must use CommitProposal and are rejected for these action types.
+type RuntimeActionRequest struct {
+	EpisodeID   string
+	Action      trace.Action
+	Observation trace.Observation
+	TraceID     string
+}
+
+func (s *Service) CommitRuntimeAction(ctx context.Context, request RuntimeActionRequest) (CommitResult, error) {
+	if !runtimeOwnedProposalAction(request.Action.Type) {
+		return CommitResult{}, decision.ErrActionNotAllowed
+	}
+	current, err := s.store.Get(ctx, request.EpisodeID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	if request.Action.IdempotencyKey == "" {
+		return CommitResult{}, decision.ErrInvalidProposal
+	}
+	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); findErr == nil {
+		if existing.Action.Type != request.Action.Type || existing.Action.InputRef != request.Action.InputRef || existing.Action.InputHash != request.Action.InputHash || existing.Observation.Type != request.Observation.Type || existing.Observation.Code != request.Observation.Code || existing.Observation.FactsRef != request.Observation.FactsRef || existing.Observation.PayloadHash != request.Observation.PayloadHash {
+			return CommitResult{}, repository.ErrIdempotencyConflict
+		}
+		latest, getErr := s.store.Get(ctx, current.EpisodeID)
+		if getErr != nil {
+			return CommitResult{}, getErr
+		}
+		return CommitResult{Episode: latest, Event: existing, Replayed: true}, nil
+	} else if !errors.Is(findErr, repository.ErrNotFound) {
+		return CommitResult{}, findErr
+	}
+	nextState, allowed := episode.StateForAction(current.State, request.Action.Type, request.Observation.Type)
+	if !allowed {
+		return CommitResult{}, decision.ErrActionNotAllowed
+	}
+	now := s.clock().UTC()
+	if !now.Before(current.DeadlineAt) {
+		return CommitResult{}, episode.ErrEpisodeExpired
+	}
+	next := current.Clone()
+	next.ActionCount++
+	if request.Action.Type == trace.ActionInvoke && current.State == episode.StateInvokingDelivery {
+		next.DeliveryAttemptCount++
+	}
+	if err := next.ApplyCommittedState(nextState, now, request.Observation.Code); err != nil {
+		return CommitResult{}, err
+	}
+	event, replay, err := s.commitS4Event(ctx, current, next, request.Action, request.Observation, nil, request.TraceID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	if replay {
+		latest, getErr := s.store.Get(ctx, current.EpisodeID)
+		if getErr != nil {
+			return CommitResult{}, getErr
+		}
+		return CommitResult{Episode: latest, Event: event, Replayed: true}, nil
+	}
+	return CommitResult{Episode: next, Event: event}, nil
+}
+
 // CommitProposal is the only write path for proposal-driven state changes.
 // It performs the runtime guard before asking the store to atomically update
 // the projection and append the event.
@@ -361,6 +480,9 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	}
 	if request.Action.Type != request.Proposal.ProposedAction {
 		return CommitResult{}, fmt.Errorf("%w: action type does not match proposal", decision.ErrInvalidProposal)
+	}
+	if runtimeOwnedProposalAction(request.Action.Type) {
+		return CommitResult{}, decision.ErrActionNotAllowed
 	}
 
 	// Idempotency is checked before proposal expiry/sequence validation: a
@@ -379,10 +501,6 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if !errors.Is(err, repository.ErrNotFound) {
 		return CommitResult{}, err
 	}
-	if runtimeOwnedProposalAction(request.Action.Type) {
-		return CommitResult{}, decision.ErrActionNotAllowed
-	}
-
 	current, err := s.store.Get(ctx, request.Proposal.EpisodeID)
 	if err != nil {
 		return CommitResult{}, err
@@ -492,7 +610,8 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 // reservation, settlement or entitlement as if it were a trusted fact.
 func runtimeOwnedProposalAction(action trace.ActionType) bool {
 	switch action {
-	case trace.ActionReserveBudget, trace.ActionNegotiateAndPay, trace.ActionCreatePayment,
+	case trace.ActionDiscover, trace.ActionInvoke, trace.ActionParse402, trace.ActionValidateDelivery,
+		trace.ActionReserveBudget, trace.ActionNegotiateAndPay, trace.ActionCreatePayment,
 		trace.ActionVerifyEntitlement, trace.ActionPaymentAuthorizationChecked,
 		trace.ActionPaymentSubmitted, trace.ActionPaymentPending, trace.ActionPaymentStatusQueried,
 		trace.ActionPaymentConfirmed, trace.ActionPaymentFailed, trace.ActionPaymentUnknown:

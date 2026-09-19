@@ -19,28 +19,32 @@ import (
 const MaxChallengeBytes = 256 << 10
 
 var (
-	ErrInvalidChallenge    = errors.New("invalid x402 payment challenge")
-	ErrUnsupportedScheme   = errors.New("unsupported x402 payment scheme")
-	ErrUnsupportedProtocol = errors.New("unsupported x402 protocol version")
-	ErrChallengeTooLarge   = errors.New("x402 payment challenge exceeds the bounded size")
+	ErrInvalidChallenge      = errors.New("invalid x402 payment challenge")
+	ErrUnsupportedScheme     = errors.New("unsupported x402 payment scheme")
+	ErrUnsupportedProtocol   = errors.New("unsupported x402 protocol version")
+	ErrUnsupportedCurrency   = errors.New("unsupported x402 settlement currency")
+	ErrUnrepresentableAmount = errors.New("x402 atomic amount is not representable in the business ledger")
+	ErrChallengeTooLarge     = errors.New("x402 payment challenge exceeds the bounded size")
 )
 
 type ParsedRequirement struct {
-	ProtocolVersion   string
-	Scheme            string
-	Network           string
-	Asset             string
-	AmountMinor       int64
-	Currency          string
-	PayTo             string
-	ResourceURL       string
-	ProductID         string
-	SkillDID          string
-	MaxTimeoutSeconds int
-	RawPayload        []byte
-	RawPayloadHash    string
-	CanonicalPayload  []byte
-	CanonicalHash     string
+	ProtocolVersion     string
+	Scheme              string
+	Network             string
+	Asset               string
+	AtomicAmount        int64
+	AtomicDecimals      int
+	BusinessAmountMinor int64
+	Currency            string
+	PayTo               string
+	ResourceURL         string
+	ProductID           string
+	SkillDID            string
+	MaxTimeoutSeconds   int
+	RawPayload          []byte
+	RawPayloadHash      string
+	CanonicalPayload    []byte
+	CanonicalHash       string
 }
 
 type topLevel struct {
@@ -141,7 +145,8 @@ func parseV2(raw []byte, top topLevel) (ParsedRequirement, error) {
 	if strings.TrimSpace(resource.URL) == "" || strings.TrimSpace(string(accept.Amount)) == "" || strings.TrimSpace(accept.PayTo) == "" || strings.TrimSpace(accept.Asset) == "" || strings.TrimSpace(accept.Network) == "" {
 		return ParsedRequirement{}, fmt.Errorf("%w: required v2 fields are missing", ErrInvalidChallenge)
 	}
-	amount, err := parseMinorAmount(accept.Amount, canonicalCurrency(extraString(accept.Extra, "currency"), accept.Asset))
+	currency := canonicalCurrency(extraString(accept.Extra, "currency"), accept.Asset)
+	amount, atomicDecimals, businessMinor, err := parseAtomicAmount(accept.Amount, currency)
 	if err != nil {
 		return ParsedRequirement{}, err
 	}
@@ -151,8 +156,8 @@ func parseV2(raw []byte, top topLevel) (ParsedRequirement, error) {
 	if accept.MaxTimeoutSeconds <= 0 || accept.MaxTimeoutSeconds > 86400 {
 		return ParsedRequirement{}, fmt.Errorf("%w: timeout", ErrInvalidChallenge)
 	}
-	result := ParsedRequirement{ProtocolVersion: "x402-v2", Scheme: "exact", Network: strings.TrimSpace(accept.Network), Asset: strings.TrimSpace(accept.Asset), AmountMinor: amount,
-		Currency: canonicalCurrency(extraString(accept.Extra, "currency"), accept.Asset), PayTo: strings.TrimSpace(accept.PayTo), ResourceURL: canonicalURL(resource.URL),
+	result := ParsedRequirement{ProtocolVersion: "x402-v2", Scheme: "exact", Network: strings.TrimSpace(accept.Network), Asset: strings.TrimSpace(accept.Asset), AtomicAmount: amount, AtomicDecimals: atomicDecimals, BusinessAmountMinor: businessMinor,
+		Currency: currency, PayTo: strings.TrimSpace(accept.PayTo), ResourceURL: canonicalURL(resource.URL),
 		ProductID: extraString(accept.Extra, "productId"), SkillDID: extraString(accept.Extra, "skillDid"), MaxTimeoutSeconds: accept.MaxTimeoutSeconds,
 		RawPayload: append([]byte(nil), raw...)}
 	return finalize(result)
@@ -174,7 +179,7 @@ func parseV1(raw []byte, top topLevel) (ParsedRequirement, error) {
 		return ParsedRequirement{}, fmt.Errorf("%w: required v1 fields are missing", ErrInvalidChallenge)
 	}
 	currency := canonicalCurrency(extraString(accept.Extra, "currency"), accept.Asset)
-	amount, err := parseMinorAmount(amountRaw, currency)
+	amount, atomicDecimals, businessMinor, err := parseAtomicAmount(amountRaw, currency)
 	if err != nil {
 		return ParsedRequirement{}, err
 	}
@@ -191,29 +196,31 @@ func parseV1(raw []byte, top topLevel) (ParsedRequirement, error) {
 	if resource == "" {
 		return ParsedRequirement{}, fmt.Errorf("%w: resource is required", ErrInvalidChallenge)
 	}
-	result := ParsedRequirement{ProtocolVersion: "x402-v1", Scheme: "exact", Network: strings.TrimSpace(accept.Network), Asset: strings.TrimSpace(accept.Asset), AmountMinor: amount,
+	result := ParsedRequirement{ProtocolVersion: "x402-v1", Scheme: "exact", Network: strings.TrimSpace(accept.Network), Asset: strings.TrimSpace(accept.Asset), AtomicAmount: amount, AtomicDecimals: atomicDecimals, BusinessAmountMinor: businessMinor,
 		Currency: canonicalCurrency(currency, accept.Asset), PayTo: strings.TrimSpace(accept.PayTo), ResourceURL: canonicalURL(resource), ProductID: extraString(accept.Extra, "productId"),
 		SkillDID: extraString(accept.Extra, "skillDid"), MaxTimeoutSeconds: accept.MaxTimeoutSeconds, RawPayload: append([]byte(nil), raw...)}
 	return finalize(result)
 }
 
 func finalize(result ParsedRequirement) (ParsedRequirement, error) {
-	if result.ResourceURL == "" || !validURL(result.ResourceURL) || result.AmountMinor <= 0 || result.Currency == "" {
+	if result.ResourceURL == "" || !validURL(result.ResourceURL) || result.AtomicAmount <= 0 || result.BusinessAmountMinor <= 0 || result.Currency == "" {
 		return ParsedRequirement{}, ErrInvalidChallenge
 	}
 	canonical := struct {
-		ProtocolVersion   string `json:"protocol_version"`
-		Scheme            string `json:"scheme"`
-		Network           string `json:"network"`
-		Asset             string `json:"asset"`
-		AmountMinor       int64  `json:"amount_minor"`
-		Currency          string `json:"currency"`
-		PayTo             string `json:"pay_to"`
-		ResourceURL       string `json:"resource_url"`
-		ProductID         string `json:"product_id,omitempty"`
-		SkillDID          string `json:"skill_did,omitempty"`
-		MaxTimeoutSeconds int    `json:"max_timeout_seconds"`
-	}{result.ProtocolVersion, result.Scheme, result.Network, result.Asset, result.AmountMinor, result.Currency, result.PayTo, result.ResourceURL, result.ProductID, result.SkillDID, result.MaxTimeoutSeconds}
+		ProtocolVersion     string `json:"protocol_version"`
+		Scheme              string `json:"scheme"`
+		Network             string `json:"network"`
+		Asset               string `json:"asset"`
+		AtomicAmount        int64  `json:"atomic_amount"`
+		AtomicDecimals      int    `json:"atomic_decimals"`
+		BusinessAmountMinor int64  `json:"business_amount_minor"`
+		Currency            string `json:"currency"`
+		PayTo               string `json:"pay_to"`
+		ResourceURL         string `json:"resource_url"`
+		ProductID           string `json:"product_id,omitempty"`
+		SkillDID            string `json:"skill_did,omitempty"`
+		MaxTimeoutSeconds   int    `json:"max_timeout_seconds"`
+	}{result.ProtocolVersion, result.Scheme, result.Network, result.Asset, result.AtomicAmount, result.AtomicDecimals, result.BusinessAmountMinor, result.Currency, result.PayTo, result.ResourceURL, result.ProductID, result.SkillDID, result.MaxTimeoutSeconds}
 	payload, err := json.Marshal(canonical)
 	if err != nil {
 		return ParsedRequirement{}, err
@@ -226,53 +233,53 @@ func finalize(result ParsedRequirement) (ParsedRequirement, error) {
 	return result, nil
 }
 
-func parseMinorAmount(raw json.RawMessage, currency string) (int64, error) {
+func parseAtomicAmount(raw json.RawMessage, currency string) (int64, int, int64, error) {
 	var value string
 	if len(raw) > 0 && raw[0] == '"' {
 		if err := json.Unmarshal(raw, &value); err != nil {
-			return 0, ErrInvalidChallenge
+			return 0, 0, 0, ErrInvalidChallenge
 		}
 	} else {
 		value = strings.TrimSpace(string(raw))
 	}
 	if value == "" || strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
-		return 0, ErrInvalidChallenge
+		return 0, 0, 0, ErrInvalidChallenge
 	}
-	if strings.ContainsAny(value, "eE") {
-		return 0, ErrInvalidChallenge
-	}
-	if strings.Contains(value, ".") {
-		decimals := currencyDecimals(currency)
-		if decimals < 0 {
-			return 0, fmt.Errorf("%w: decimal amount requires a known currency", ErrInvalidChallenge)
-		}
-		parts := strings.Split(value, ".")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || len(parts[1]) > decimals {
-			return 0, ErrInvalidChallenge
-		}
-		fraction := parts[1] + strings.Repeat("0", decimals-len(parts[1]))
-		value = parts[0] + fraction
+	if strings.ContainsAny(value, "eE.") {
+		return 0, 0, 0, ErrInvalidChallenge
 	}
 	if strings.ContainsAny(value, "+-") {
-		return 0, ErrInvalidChallenge
+		return 0, 0, 0, ErrInvalidChallenge
+	}
+	atomicDecimals, businessDecimals, err := settlementDecimals(currency)
+	if err != nil {
+		return 0, 0, 0, err
 	}
 	number := new(big.Int)
 	if _, ok := number.SetString(value, 10); !ok || number.Sign() <= 0 || !number.IsInt64() {
-		return 0, ErrInvalidChallenge
+		return 0, 0, 0, ErrInvalidChallenge
 	}
-	return number.Int64(), nil
+	quantum := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(atomicDecimals-businessDecimals)), nil)
+	if new(big.Int).Mod(new(big.Int).Set(number), quantum).Sign() != 0 {
+		return 0, 0, 0, fmt.Errorf("%w: atomic=%s currency=%s", ErrUnrepresentableAmount, value, currency)
+	}
+	business := new(big.Int).Quo(number, quantum)
+	if !business.IsInt64() || business.Sign() <= 0 {
+		return 0, 0, 0, ErrInvalidChallenge
+	}
+	return number.Int64(), atomicDecimals, business.Int64(), nil
 }
 
-func currencyDecimals(currency string) int {
+func settlementDecimals(currency string) (int, int, error) {
 	switch strings.ToUpper(strings.TrimSpace(currency)) {
 	case "USDC", "USDT":
-		return 6
+		return 6, 2, nil
 	case "SOL":
-		return 9
+		return 9, 2, nil
 	case "USD":
-		return 2
+		return 2, 2, nil
 	default:
-		return -1
+		return 0, 0, fmt.Errorf("%w: %s", ErrUnsupportedCurrency, currency)
 	}
 }
 func canonicalCurrency(value, asset string) string {

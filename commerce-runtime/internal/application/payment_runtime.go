@@ -624,6 +624,15 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	}
 	next := current.Clone()
 	next.ActionCount++
+	if result.Status == adapters.EntitlementValid {
+		entitlementRef := strings.TrimSpace(result.EvidenceRef)
+		if entitlementRef == "" {
+			entitlementRef = strings.TrimSpace(result.Reference)
+		}
+		if entitlementRef != "" {
+			next.EntitlementRefs = appendUnique(next.EntitlementRefs, entitlementRef)
+		}
+	}
 	if err := next.ApplyCommittedState(stateAfter, now, terminalReason); err != nil {
 		return PaymentExecutionResult{}, err
 	}

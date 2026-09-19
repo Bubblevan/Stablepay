@@ -10,8 +10,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	appPort "github.com/stablepay/merchant-server/internal/application/port"
 	"github.com/stablepay/merchant-server/internal/domain/entity"
@@ -35,6 +39,18 @@ type ProductAppService struct {
 	facilitatorURL        string
 	usdcMint              string
 	solanaNetwork         string
+	invocationStore       repository.InvocationReceiptRepository
+	idempotencyMu         sync.Mutex
+}
+
+// SetInvocationReceiptRepository attaches the durable merchant-side
+// idempotency store. It is optional for in-process unit fixtures but should be
+// configured by every server deployment that can perform delivery side
+// effects.
+func (s *ProductAppService) SetInvocationReceiptRepository(store repository.InvocationReceiptRepository) {
+	if s != nil {
+		s.invocationStore = store
+	}
 }
 
 // NewProductAppService creates the product application service.
@@ -111,6 +127,7 @@ type ExecutePurchaseCommand struct {
 	SKUID            string
 	AgentDID         string
 	PaymentSignature string
+	IdempotencyKey   string
 }
 
 // ExecutePurchaseResult is the use-case output.
@@ -140,12 +157,17 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 	cmd.SKUID = strings.TrimSpace(cmd.SKUID)
 	cmd.AgentDID = strings.TrimSpace(cmd.AgentDID)
 	cmd.PaymentSignature = strings.TrimSpace(cmd.PaymentSignature)
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
 
 	if cmd.SKUID == "" {
 		return nil, fmt.Errorf("execute purchase: sku_id is required")
 	}
 	if cmd.AgentDID == "" {
 		return nil, fmt.Errorf("execute purchase: agent_did is required")
+	}
+	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
+		s.idempotencyMu.Lock()
+		defer s.idempotencyMu.Unlock()
 	}
 
 	product, err := s.productRepo.FindBySKUID(ctx, cmd.SKUID)
@@ -154,6 +176,19 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 	}
 	if err := s.domainService.CanPurchase(product); err != nil {
 		return nil, fmt.Errorf("execute purchase: %w", err)
+	}
+	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
+		receipt, receiptErr := s.invocationStore.GetInvocationReceipt(ctx, cmd.IdempotencyKey, cmd.AgentDID, cmd.SKUID)
+		if receiptErr == nil {
+			var replay ExecutePurchaseResult
+			if err := json.Unmarshal(receipt.ResponseJSON, &replay); err != nil {
+				return nil, fmt.Errorf("execute purchase: decode idempotent result: %w", err)
+			}
+			return &replay, nil
+		}
+		if !errors.Is(receiptErr, repository.ErrInvocationReceiptNotFound) {
+			return nil, fmt.Errorf("execute purchase: load idempotency receipt: %w", receiptErr)
+		}
 	}
 
 	verification, err := s.verifyPurchase(ctx, product, cmd)
@@ -183,7 +218,7 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 		giftCode = s.giftCodeSvc.Allocate()
 	}
 
-	return &ExecutePurchaseResult{
+	result := &ExecutePurchaseResult{
 		Purchased:     true,
 		Product:       productToListItem(product),
 		MerchantProof: proof,
@@ -191,7 +226,17 @@ func (s *ProductAppService) ExecutePurchase(ctx context.Context, cmd ExecutePurc
 		TxID:          verification.TxID,
 		TxHash:        verification.TxHash,
 		Content:       buildUnlockedContent(product, proof, verification, giftCode),
-	}, nil
+	}
+	if s.invocationStore != nil && cmd.IdempotencyKey != "" {
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("execute purchase: encode idempotent result: %w", err)
+		}
+		if err := s.invocationStore.SaveInvocationReceipt(ctx, &repository.InvocationReceipt{IdempotencyKey: cmd.IdempotencyKey, AgentDID: cmd.AgentDID, SKUID: cmd.SKUID, ResponseJSON: payload, CreatedAt: time.Now().UTC()}); err != nil {
+			return nil, fmt.Errorf("execute purchase: save idempotency receipt: %w", err)
+		}
+	}
+	return result, nil
 }
 
 func (s *ProductAppService) verifyPurchase(ctx context.Context, product *entity.Product, cmd ExecutePurchaseCommand) (*appPort.VerifyPurchaseResult, error) {
