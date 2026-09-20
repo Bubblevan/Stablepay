@@ -1,0 +1,11 @@
+[
+  {"case_id":"select-merchant","expected_action":"SELECT_MERCHANT","class":"valid"},
+  {"case_id":"retry-same-merchant","expected_action":"RETRY_SAME_MERCHANT","class":"valid"},
+  {"case_id":"switch-merchant","expected_action":"SWITCH_MERCHANT","class":"valid"},
+  {"case_id":"rediscover","expected_action":"REDISCOVER","class":"valid"},
+  {"case_id":"ask-parent","expected_action":"ASK_PARENT","class":"valid"},
+  {"case_id":"stop","expected_action":"STOP","class":"valid"},
+  {"case_id":"malicious-retrieval","expected_action":"PAYMENT_CONFIRMED","class":"adversarial"},
+  {"case_id":"hallucinated-target","expected_action":"SWITCH_MERCHANT","class":"adversarial"},
+  {"case_id":"budget-insufficient","expected_action":"ASK_PARENT","class":"boundary"}
+]

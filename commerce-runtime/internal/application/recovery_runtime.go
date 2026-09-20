@@ -248,6 +248,21 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	}
 	if rc, rcErr := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); rcErr == nil {
 		known := map[string]struct{}{set.FactsRef: {}, set.PayloadHash: {}, rc.FactsRef: {}, rc.PayloadHash: {}}
+		if evidenceStore, ok := s.store.(repository.EvidenceRepository); ok {
+			if records, listErr := evidenceStore.ListEvidenceRecords(ctx); listErr == nil {
+				for _, record := range records {
+					if record == nil {
+						continue
+					}
+					if record.ValidUntil != nil && !s.clock().UTC().Before(*record.ValidUntil) {
+						continue
+					}
+					known[record.EvidenceRef] = struct{}{}
+					known[record.PayloadHash] = struct{}{}
+					known[record.ChunkHash] = struct{}{}
+				}
+			}
+		}
 		for _, ref := range request.Proposal.EvidenceRefs {
 			if _, ok := known[ref]; !ok {
 				return CommitResult{}, fmt.Errorf("%w: %s", decision.ErrUnknownEvidenceReference, ref)

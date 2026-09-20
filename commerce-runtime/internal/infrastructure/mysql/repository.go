@@ -15,8 +15,10 @@ import (
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
+	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
@@ -290,6 +292,44 @@ type ValidationEvidenceModel struct {
 
 func (ValidationEvidenceModel) TableName() string { return "validation_evidence" }
 
+type EvidenceRecordModel struct {
+	EvidenceID    string     `gorm:"column:evidence_id;type:varchar(128);primaryKey"`
+	EvidenceRef   string     `gorm:"column:evidence_ref;type:varchar(255);not null;uniqueIndex:uk_evidence_ref"`
+	SourceType    string     `gorm:"column:source_type;type:varchar(64);not null"`
+	SourceRef     string     `gorm:"column:source_ref;type:varchar(255);not null"`
+	SourceVersion string     `gorm:"column:source_version;type:varchar(128);not null"`
+	SourceHash    string     `gorm:"column:source_hash;type:char(71);not null"`
+	ContentType   string     `gorm:"column:content_type;type:varchar(128);not null"`
+	PayloadHash   string     `gorm:"column:payload_hash;type:char(71);not null"`
+	ChunkHash     string     `gorm:"column:chunk_hash;type:char(71);not null"`
+	TrustClass    string     `gorm:"column:trust_class;type:varchar(32);not null"`
+	Content       string     `gorm:"column:content;type:longtext;not null"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	ValidUntil    *time.Time `gorm:"column:valid_until"`
+}
+
+func (EvidenceRecordModel) TableName() string { return "evidence_records" }
+
+type ModelDecisionTraceModel struct {
+	TraceID            string    `gorm:"column:trace_id;type:varchar(255);primaryKey"`
+	EpisodeID          string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_model_trace_episode"`
+	Provider           string    `gorm:"column:provider;type:varchar(64);not null"`
+	ModelRef           string    `gorm:"column:model_ref;type:varchar(128);not null"`
+	ContextHash        string    `gorm:"column:context_hash;type:char(71);not null"`
+	EvidenceRefs       []byte    `gorm:"column:evidence_refs;type:json"`
+	RequestStartedAt   time.Time `gorm:"column:request_started_at;not null"`
+	ResponseReceivedAt time.Time `gorm:"column:response_received_at;not null"`
+	RawResponseHash    string    `gorm:"column:raw_response_hash;type:char(71)"`
+	ParsedProposalHash string    `gorm:"column:parsed_proposal_hash;type:char(71)"`
+	Status             string    `gorm:"column:status;type:varchar(32);not null"`
+	ErrorCode          string    `gorm:"column:error_code;type:varchar(64)"`
+	InputTokens        int       `gorm:"column:input_tokens;not null;default:0"`
+	OutputTokens       int       `gorm:"column:output_tokens;not null;default:0"`
+	FallbackReason     string    `gorm:"column:fallback_reason;type:varchar(255)"`
+}
+
+func (ModelDecisionTraceModel) TableName() string { return "model_decision_traces" }
+
 type Store struct{ db *gorm.DB }
 
 func Open(dsn string) (*gorm.DB, error) {
@@ -305,7 +345,133 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{})
+	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{})
+}
+
+func evidenceRecordToModel(value *evidence.EvidenceRecord) (*EvidenceRecordModel, error) {
+	if value == nil || value.Validate() != nil {
+		return nil, evidence.ErrInvalidRecord
+	}
+	return &EvidenceRecordModel{EvidenceID: value.EvidenceID, EvidenceRef: value.EvidenceRef, SourceType: string(value.SourceType), SourceRef: value.SourceRef, SourceVersion: value.SourceVersion, SourceHash: value.SourceHash, ContentType: value.ContentType, PayloadHash: value.PayloadHash, ChunkHash: value.ChunkHash, TrustClass: string(value.TrustClass), Content: value.Content, CreatedAt: value.CreatedAt, ValidUntil: value.ValidUntil}, nil
+}
+
+func modelToEvidenceRecord(value EvidenceRecordModel) (*evidence.EvidenceRecord, error) {
+	record := &evidence.EvidenceRecord{EvidenceID: value.EvidenceID, EvidenceRef: value.EvidenceRef, SourceType: evidence.SourceType(value.SourceType), SourceRef: value.SourceRef, SourceVersion: value.SourceVersion, SourceHash: value.SourceHash, ContentType: value.ContentType, PayloadHash: value.PayloadHash, ChunkHash: value.ChunkHash, TrustClass: evidence.TrustClass(value.TrustClass), Content: value.Content, CreatedAt: value.CreatedAt, ValidUntil: value.ValidUntil}
+	if err := record.Validate(); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func modelDecisionTraceToModel(value *llm.ModelDecisionTrace) (*ModelDecisionTraceModel, error) {
+	if value == nil || value.Validate() != nil {
+		return nil, llm.ErrInvalidModelOutput
+	}
+	refs, err := json.Marshal(value.EvidenceRefs)
+	if err != nil {
+		return nil, err
+	}
+	return &ModelDecisionTraceModel{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, EvidenceRefs: refs, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: string(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}, nil
+}
+
+func modelToModelDecisionTrace(value ModelDecisionTraceModel) (*llm.ModelDecisionTrace, error) {
+	traceValue := &llm.ModelDecisionTrace{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: llm.TraceStatus(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}
+	if len(value.EvidenceRefs) > 0 {
+		if err := json.Unmarshal(value.EvidenceRefs, &traceValue.EvidenceRefs); err != nil {
+			return nil, err
+		}
+	}
+	if err := traceValue.Validate(); err != nil {
+		return nil, err
+	}
+	return traceValue, nil
+}
+
+func (s *Store) SaveEvidenceRecord(ctx context.Context, value *evidence.EvidenceRecord) error {
+	model, err := evidenceRecordToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing EvidenceRecordModel
+	lookup := s.db.WithContext(ctx).Where("evidence_ref = ?", model.EvidenceRef).First(&existing).Error
+	if lookup == nil {
+		if existing.PayloadHash == model.PayloadHash && existing.ChunkHash == model.ChunkHash {
+			return nil
+		}
+		return repository.ErrFactConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrFactConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetEvidenceRecord(ctx context.Context, ref string) (*evidence.EvidenceRecord, error) {
+	var model EvidenceRecordModel
+	if err := s.db.WithContext(ctx).Where("evidence_ref = ?", strings.TrimSpace(ref)).First(&model).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, evidence.ErrEvidenceNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToEvidenceRecord(model)
+}
+
+func (s *Store) ListEvidenceRecords(ctx context.Context) ([]*evidence.EvidenceRecord, error) {
+	var models []EvidenceRecordModel
+	if err := s.db.WithContext(ctx).Order("evidence_ref ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*evidence.EvidenceRecord, 0, len(models))
+	for _, model := range models {
+		value, err := modelToEvidenceRecord(model)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+func (s *Store) SaveModelDecisionTrace(ctx context.Context, value *llm.ModelDecisionTrace) error {
+	model, err := modelDecisionTraceToModel(value)
+	if err != nil {
+		return err
+	}
+	var existing ModelDecisionTraceModel
+	lookup := s.db.WithContext(ctx).Where("trace_id = ?", model.TraceID).First(&existing).Error
+	if lookup == nil {
+		previous, decodeErr := modelToModelDecisionTrace(existing)
+		if decodeErr == nil && reflect.DeepEqual(previous, value) {
+			return nil
+		}
+		return repository.ErrModelTraceConflict
+	}
+	if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if err := s.db.WithContext(ctx).Create(model).Error; err != nil {
+		if isDuplicateKey(err) {
+			return repository.ErrModelTraceConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Store) GetModelDecisionTrace(ctx context.Context, id string) (*llm.ModelDecisionTrace, error) {
+	var model ModelDecisionTraceModel
+	if err := s.db.WithContext(ctx).Where("trace_id = ?", strings.TrimSpace(id)).First(&model).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToModelDecisionTrace(model)
 }
 
 func (s *Store) SaveMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {

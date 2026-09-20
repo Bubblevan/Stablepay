@@ -19,6 +19,8 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/evidence"
+	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 	"github.com/stablepay/commerce-runtime/internal/validator"
@@ -39,6 +41,9 @@ type Service struct {
 	validatorRegistry    *validator.Registry
 	settlementPolicy     SettlementPolicy
 	invocationStaleAfter time.Duration
+	llmProvider          *llm.LLMDecisionProvider
+	evidenceRetriever    evidence.Retriever
+	allowRuleFallback    bool
 }
 
 // SettlementPolicy binds merchant challenges to the configured payment
@@ -118,6 +123,29 @@ func WithInvocationStaleAfter(after time.Duration) Option {
 			s.invocationStaleAfter = after
 		}
 	}
+}
+
+func WithLLMDecisionProvider(provider *llm.LLMDecisionProvider) Option {
+	return func(s *Service) { s.llmProvider = provider }
+}
+
+func WithEvidenceRetriever(retriever evidence.Retriever) Option {
+	return func(s *Service) { s.evidenceRetriever = retriever }
+}
+
+func WithPersistentEvidenceStore(store evidence.PersistentStore) Option {
+	return func(s *Service) {
+		if store != nil {
+			s.evidenceRetriever = evidence.LexicalRetriever{Registry: evidence.PersistentRegistry{Store: store}}
+		}
+	}
+}
+
+// WithRuleRecoveryFallback makes the fallback policy explicit. A production
+// caller must opt in; the runtime never silently labels a rule proposal as an
+// LLM proposal.
+func WithRuleRecoveryFallback(enabled bool) Option {
+	return func(s *Service) { s.allowRuleFallback = enabled }
 }
 
 func NewService(store repository.TransitionStore, options ...Option) *Service {
@@ -732,6 +760,11 @@ func evidenceReferences(events []*episode.EpisodeEvent) map[string]struct{} {
 
 func (s *Service) knownProposalEvidence(ctx context.Context, current *episode.CommerceEpisode, proposal decision.DecisionProposal, events []*episode.EpisodeEvent) map[string]struct{} {
 	refs := evidenceReferences(events)
+	if store, ok := s.store.(repository.EvidenceRepository); ok {
+		if records, err := store.ListEvidenceRecords(ctx); err == nil {
+			addPersistedEvidenceRefs(refs, records, s.clock().UTC())
+		}
+	}
 	if store, err := s.s5Store(); err == nil {
 		if recoveryContext, err := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); err == nil {
 			refs[recoveryContext.FactsRef] = struct{}{}
@@ -747,6 +780,20 @@ func (s *Service) knownProposalEvidence(ctx context.Context, current *episode.Co
 		}
 	}
 	return refs
+}
+
+func addPersistedEvidenceRefs(refs map[string]struct{}, records []*evidence.EvidenceRecord, now time.Time) {
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if record.ValidUntil != nil && !now.Before(*record.ValidUntil) {
+			continue
+		}
+		refs[record.EvidenceRef] = struct{}{}
+		refs[record.PayloadHash] = struct{}{}
+		refs[record.ChunkHash] = struct{}{}
+	}
 }
 
 func sameTransition(event *episode.EpisodeEvent, request CommitRequest) bool {

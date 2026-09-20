@@ -7,8 +7,10 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
+	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
@@ -32,6 +34,7 @@ var (
 	ErrFactConflict               = errors.New("commerce runtime fact conflicts with an existing identity")
 	ErrParentDecisionConflict     = errors.New("parent decision conflicts with an existing approval")
 	ErrRecoveryConflict           = errors.New("recovery context conflicts with an existing identity")
+	ErrModelTraceConflict         = errors.New("model decision trace conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {
@@ -90,6 +93,26 @@ type CandidateSetRepository interface {
 type DiscoveryRepository interface {
 	CatalogRepository
 	CandidateSetRepository
+}
+
+// EvidenceRepository persists integrity-checked, bounded S6 evidence. It is
+// deliberately separate from catalog and runtime fact repositories so
+// retrieved text cannot masquerade as a trusted domain fact.
+type EvidenceRepository interface {
+	SaveEvidenceRecord(context.Context, *evidence.EvidenceRecord) error
+	GetEvidenceRecord(context.Context, string) (*evidence.EvidenceRecord, error)
+	ListEvidenceRecords(context.Context) ([]*evidence.EvidenceRecord, error)
+}
+
+type ModelDecisionTraceRepository interface {
+	SaveModelDecisionTrace(context.Context, *llm.ModelDecisionTrace) error
+	GetModelDecisionTrace(context.Context, string) (*llm.ModelDecisionTrace, error)
+}
+
+type S6Store interface {
+	TransitionStore
+	EvidenceRepository
+	ModelDecisionTraceRepository
 }
 
 // FinanceTransition is the local atomic boundary for a projection/event plus

@@ -11,8 +11,10 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
+	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
+	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
@@ -43,6 +45,8 @@ type InMemoryStore struct {
 	parentApprovals          map[string]*recovery.ParentApprovalRequest
 	parentDecisions          map[string]*recovery.ParentDecisionFact
 	budgetAmendments         map[string]*recovery.BudgetAmendment
+	evidenceRecords          map[string]*evidence.EvidenceRecord
+	modelDecisionTraces      map[string]*llm.ModelDecisionTrace
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -69,7 +73,91 @@ func NewInMemoryStore() *InMemoryStore {
 		parentApprovals:          make(map[string]*recovery.ParentApprovalRequest),
 		parentDecisions:          make(map[string]*recovery.ParentDecisionFact),
 		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
+		evidenceRecords:          make(map[string]*evidence.EvidenceRecord),
+		modelDecisionTraces:      make(map[string]*llm.ModelDecisionTrace),
 	}
+}
+
+func (s *InMemoryStore) SaveEvidenceRecord(ctx context.Context, value *evidence.EvidenceRecord) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil {
+		return evidence.ErrInvalidRecord
+	}
+	normalized := value.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.evidenceRecords[normalized.EvidenceRef]; ok {
+		if existing.PayloadHash == normalized.PayloadHash && existing.ChunkHash == normalized.ChunkHash {
+			return nil
+		}
+		return ErrFactConflict
+	}
+	s.evidenceRecords[normalized.EvidenceRef] = normalized.Clone()
+	return nil
+}
+
+func (s *InMemoryStore) GetEvidenceRecord(ctx context.Context, ref string) (*evidence.EvidenceRecord, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.evidenceRecords[strings.TrimSpace(ref)]
+	if !ok {
+		return nil, evidence.ErrEvidenceNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) ListEvidenceRecords(ctx context.Context) ([]*evidence.EvidenceRecord, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*evidence.EvidenceRecord, 0, len(s.evidenceRecords))
+	for _, value := range s.evidenceRecords {
+		result = append(result, value.Clone())
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].EvidenceRef < result[j].EvidenceRef })
+	return result, nil
+}
+
+func (s *InMemoryStore) SaveModelDecisionTrace(ctx context.Context, value *llm.ModelDecisionTrace) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil || value.Validate() != nil {
+		return llm.ErrInvalidModelOutput
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.modelDecisionTraces[value.TraceID]; ok {
+		if reflect.DeepEqual(existing, value) {
+			return nil
+		}
+		return ErrModelTraceConflict
+	}
+	s.modelDecisionTraces[value.TraceID] = value.Clone()
+	return nil
+}
+
+func (s *InMemoryStore) GetModelDecisionTrace(ctx context.Context, id string) (*llm.ModelDecisionTrace, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.modelDecisionTraces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value.Clone(), nil
 }
 
 func capabilityKey(merchantDID, capabilityID string) string {
