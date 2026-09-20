@@ -100,6 +100,9 @@ func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal Decision
 		verdict := trace.RuntimeVerdict{Allowed: false, Checks: append(checks, trace.Check(name, false, err.Error())), Reason: err.Error()}
 		return GuardResult{Verdict: verdict}, err
 	}
+	if !ProviderAllowedAction(proposal.ProposedAction) {
+		return addFailure("provider_allowlist", ErrActionNotAllowed)
+	}
 	if proposal.EpisodeID != current.EpisodeID {
 		return addFailure("episode_match", ErrProposalForAnotherEpisode)
 	}
@@ -146,6 +149,17 @@ func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal Decision
 	checks = append(checks, trace.Check("attempt_limits", true, "attempt limits remain"))
 	checks = append(checks, trace.Check("episode_deadline", true, "episode is before deadline"))
 	return GuardResult{Verdict: trace.RuntimeVerdict{Allowed: true, Checks: checks}, NextState: next}, nil
+}
+
+// ValidateRecoveryProposal is the explicit authority boundary for provider
+// recovery actions. Domain-specific recovery handlers may add guards after
+// this method, but they cannot bypass proposal identity, evidence, deadline,
+// state, allowlist, or attempt validation.
+func (guard RuntimeGuard) ValidateRecoveryProposal(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
+	if !ProviderAllowedAction(proposal.ProposedAction) {
+		return GuardResult{}, ErrActionNotAllowed
+	}
+	return guard.Evaluate(current, proposal, knownEvidenceRefs, observation, now)
 }
 
 // EvaluateMerchantSelection adds the catalog boundary to the generic guard.

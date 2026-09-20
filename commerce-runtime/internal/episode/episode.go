@@ -256,9 +256,9 @@ func AllowedTransitions(from State) []State {
 		StateNegotiating:        {StatePaying, StateRecovering, StateBlocked, StateFailed, StateAborted, StateExpired},
 		StatePaying:             {StateClaiming, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateClaiming:           {StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
-		StateInvokingDelivery:   {StateInvoking, StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
+		StateInvokingDelivery:   {StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
 		StateValidatingDelivery: {StateFulfilled, StateRecovering, StateFailed, StateExpired},
-		StateRecovering:         {StateDiscovering, StateInvokingDelivery, StateAwaitingParent, StateFailed, StateAborted, StateExpired},
+		StateRecovering:         {StateDiscovering, StateInvoking, StateInvokingDelivery, StateAwaitingParent, StateFailed, StateAborted, StateExpired},
 		StateAwaitingParent:     {StateRecovering, StateFailed, StateAborted, StateExpired},
 	}
 	return append([]State(nil), transitions[from]...)
@@ -337,7 +337,7 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 	case trace.ActionRetrySameMerchant:
 		return StateInvokingDelivery, from == StateRecovering
 	case trace.ActionSwitchMerchant:
-		return StateInvokingDelivery, from == StateRecovering
+		return StateInvoking, from == StateRecovering
 	case trace.ActionRediscover:
 		return StateDiscovering, from == StateRecovering
 	case trace.ActionAskParent:

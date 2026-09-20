@@ -11,6 +11,7 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
@@ -200,8 +201,12 @@ func TestS5CanonicalCrossMerchantRecoveryHasTwoEconomicAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if switched.Episode.State != episode.StateInvokingDelivery {
+	if switched.Episode.State != episode.StateInvoking {
 		t.Fatalf("switch state=%s", switched.Episode.State)
+	}
+	recoveryContext, err := store.GetRecoveryContextByEpisode(context.Background(), created.Episode.EpisodeID)
+	if err != nil || recoveryContext.CurrentMerchantDID != "did:merchant:b" || recoveryContext.CurrentCapabilityID != "transcription" || len(recoveryContext.AttemptedMerchants) != 2 || recoveryContext.AttemptedMerchants[0] != "did:merchant:a" || recoveryContext.AttemptedMerchants[1] != "did:merchant:b" {
+		t.Fatalf("switch recovery context did not match post-transition episode: %#v err=%v", recoveryContext, err)
 	}
 	initialB, err := service.InvokeSelectedMerchant(context.Background(), InvokeSelectedMerchantRequest{EpisodeID: created.Episode.EpisodeID})
 	if err != nil {
@@ -238,6 +243,9 @@ func TestS5CanonicalCrossMerchantRecoveryHasTwoEconomicAttempts(t *testing.T) {
 	if valid.Episode.PaymentAttemptCount != 2 || valid.Episode.DeliveryAttemptCount != 3 || len(valid.Episode.AttemptedMerchants) != 2 || valid.Episode.AttemptedMerchants[0] != "did:merchant:a" || valid.Episode.AttemptedMerchants[1] != "did:merchant:b" {
 		t.Fatalf("S5 A invariants: %#v", valid.Episode)
 	}
+	if valid.Episode.Budget.BudgetLimitMinor != 1000 || valid.Episode.Budget.SettledAmount != 700 || valid.Episode.Budget.ConsumedAmount != 700 || valid.Episode.Budget.SunkCost != 700 || valid.Episode.Budget.AvailableBudget != 300 {
+		t.Fatalf("S5 A ledger projection: %#v", valid.Episode.Budget)
+	}
 	intents, err := store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 2 {
 		t.Fatalf("payment intents=%#v err=%v", intents, err)
@@ -247,13 +255,20 @@ func TestS5CanonicalCrossMerchantRecoveryHasTwoEconomicAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	settled := 0
+	refunded := 0
 	for _, e := range entries {
 		if e.Type == ledger.EntryPaymentSettled {
 			settled++
 		}
+		if e.Type == ledger.EntryRefundConfirmed {
+			refunded++
+		}
 	}
 	if settled != 2 {
 		t.Fatalf("settlements=%d entries=%#v", settled, entries)
+	}
+	if refunded != 0 {
+		t.Fatalf("delivery recovery created a refund entry: %d", refunded)
 	}
 }
 
@@ -319,6 +334,97 @@ func TestS5BudgetInsufficientPersistsRecoveryAndNoSecondReservation(t *testing.T
 	}
 }
 
+func TestS5RecoveryProposalGuardRejectsStaleExpiredFutureAndFakeEvidence(t *testing.T) {
+	service, store, now, current := s5BudgetRecoveryFixture(t, "acr-s5-proposal-guard")
+	_, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:b", CapabilityID: "transcription", PayeeDID: "did:payee:s5", QuoteHash: "sha256:guard-quote", AmountMinor: 500, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(time.Minute)}, IdempotencyKey: "guard-budget-reserve"})
+	if !errors.Is(err, ledger.ErrInsufficientBudget) {
+		t.Fatalf("expected budget gate: %v", err)
+	}
+	latest, err := service.GetEpisode(context.Background(), current.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, err := store.GetRecoveryContextByEpisode(context.Background(), latest.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := func(key string) CommitRequest {
+		return CommitRequest{Proposal: decision.DecisionProposal{ProposalID: key, EpisodeID: latest.EpisodeID, BasedOnEventSequence: latest.Version - 1, ProposedAction: trace.ActionAskParent, EvidenceRefs: []string{rc.FactsRef}, Confidence: 1, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}, Action: trace.Action{Type: trace.ActionAskParent, IdempotencyKey: key}, Observation: trace.Observation{Type: trace.ObservationPolicyDenied}, Actor: "provider", TraceID: key}
+	}
+	stale := base("guard-stale")
+	stale.Proposal.BasedOnEventSequence--
+	if _, err := service.CommitProposal(context.Background(), stale); !errors.Is(err, decision.ErrStaleEventSequence) {
+		t.Fatalf("stale proposal error=%v", err)
+	}
+	future := base("guard-future")
+	future.Proposal.BasedOnEventSequence++
+	if _, err := service.CommitProposal(context.Background(), future); !errors.Is(err, decision.ErrFutureEventSequence) {
+		t.Fatalf("future proposal error=%v", err)
+	}
+	expired := base("guard-expired")
+	expired.Proposal.ExpiresAt = now.Add(-time.Second)
+	if _, err := service.CommitProposal(context.Background(), expired); !errors.Is(err, decision.ErrProposalExpired) {
+		t.Fatalf("expired proposal error=%v", err)
+	}
+	fakeEvidence := base("guard-fake-evidence")
+	fakeEvidence.Proposal.EvidenceRefs = []string{"recovery://forged"}
+	if _, err := service.CommitProposal(context.Background(), fakeEvidence); !errors.Is(err, decision.ErrUnknownEvidenceReference) {
+		t.Fatalf("fake evidence error=%v", err)
+	}
+}
+
+func TestS5RediscoverRecoversPersistedCandidateSetBeforeTransition(t *testing.T) {
+	service, store, now, current := s5BudgetRecoveryFixture(t, "acr-s5-rediscover-crash")
+	_, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:b", CapabilityID: "transcription", PayeeDID: "did:payee:s5", QuoteHash: "sha256:rediscover-quote", AmountMinor: 500, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(time.Minute)}, IdempotencyKey: "rediscover-budget-reserve"})
+	if !errors.Is(err, ledger.ErrInsufficientBudget) {
+		t.Fatalf("expected budget gate: %v", err)
+	}
+	current, err = service.GetEpisode(context.Background(), current.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acquire contract.AcquireCapabilityRequest
+	if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
+		t.Fatal(err)
+	}
+	query, err := catalog.FromAcquireCapabilityRequest(acquire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := catalog.BuildCandidateSet("cs:"+current.EpisodeID+":1", current.EpisodeID, current.RequestID, query, nil, now, current.DeadlineAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.Generation = 1
+	set.PayloadHash, err = set.PayloadHashFor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveCandidateSet(context.Background(), set); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := store.GetRecoveryContextByEpisode(context.Background(), current.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := RediscoverRequest{EpisodeID: current.EpisodeID, Proposal: decision.DecisionProposal{ProposalID: "rediscover-crash", EpisodeID: current.EpisodeID, BasedOnEventSequence: current.Version - 1, ProposedAction: trace.ActionRediscover, EvidenceRefs: []string{rc.FactsRef}, Confidence: 1, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}, Action: trace.Action{Type: trace.ActionRediscover, IdempotencyKey: "rediscover-crash-key"}, Observation: trace.Observation{Type: trace.ObservationCandidatesFound}}
+	first, err := service.Rediscover(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Episode.DiscoveryGeneration != 1 || first.Episode.State != episode.StateDiscovering {
+		t.Fatalf("recovered rediscovery transition=%#v", first.Episode)
+	}
+	persisted, err := store.GetCandidateSet(context.Background(), set.CandidateSetID)
+	if err != nil || persisted.PayloadHash != set.PayloadHash {
+		t.Fatalf("candidate set changed during recovery: %#v err=%v", persisted, err)
+	}
+	replayed, err := service.Rediscover(context.Background(), request)
+	if err != nil || !replayed.Replayed || replayed.Event.EventID != first.Event.EventID {
+		t.Fatalf("rediscover replay=%#v err=%v", replayed, err)
+	}
+}
+
 func TestS5ParentApprovalAmendmentIdempotencyAndDenial(t *testing.T) {
 	service, store, now, current := s5BudgetRecoveryFixture(t, "acr-s5-parent-approve")
 	_, err := service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:b", CapabilityID: "transcription", PayeeDID: "did:payee:s5", QuoteHash: "sha256:parent-quote", AmountMinor: 500, Currency: "USDC", RequesterDID: current.RequesterDID, ExpiresAt: now.Add(time.Minute)}, IdempotencyKey: "parent-budget-reserve"})
@@ -331,6 +437,22 @@ func TestS5ParentApprovalAmendmentIdempotencyAndDenial(t *testing.T) {
 	}
 	if asked.Episode.State != episode.StateAwaitingParent {
 		t.Fatalf("state=%s", asked.Episode.State)
+	}
+	approval, err := store.GetParentApprovalRequest(context.Background(), "approval:s5:increase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedApprovalHash, err := approval.PayloadHashFor()
+	if err != nil || approval.PayloadHash != expectedApprovalHash {
+		t.Fatalf("approval hash is not canonical: %#v err=%v", approval, err)
+	}
+	conflictingApproval := approval.Clone()
+	conflictingApproval.RequestedBudgetIncreaseMinor++
+	if err := conflictingApproval.RefreshPayloadHash(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveParentApprovalRequest(context.Background(), conflictingApproval); !errors.Is(err, repository.ErrFactConflict) {
+		t.Fatalf("expected immutable approval conflict, got %v", err)
 	}
 	approved, err := service.RecordParentDecision(context.Background(), ParentDecisionRequest{ApprovalID: "approval:s5:increase", Decision: recovery.Approve, ActorRef: "parent:1"})
 	if err != nil {
@@ -346,6 +468,9 @@ func TestS5ParentApprovalAmendmentIdempotencyAndDenial(t *testing.T) {
 	replayed, err := service.RecordParentDecision(context.Background(), ParentDecisionRequest{ApprovalID: "approval:s5:increase", Decision: recovery.Approve, ActorRef: "parent:1"})
 	if err != nil || !replayed.Replayed {
 		t.Fatalf("parent replay=%#v err=%v", replayed, err)
+	}
+	if _, err = service.RecordParentDecision(context.Background(), ParentDecisionRequest{ApprovalID: "approval:s5:increase", Decision: recovery.Approve, ActorRef: "parent:other"}); !errors.Is(err, repository.ErrParentDecisionConflict) {
+		t.Fatalf("expected actor identity conflict, got %v", err)
 	}
 	if _, err = service.RecordParentDecision(context.Background(), ParentDecisionRequest{ApprovalID: "approval:s5:increase", Decision: recovery.Deny, ActorRef: "parent:1"}); !errors.Is(err, repository.ErrParentDecisionConflict) {
 		t.Fatalf("expected parent conflict, got %v", err)
@@ -369,4 +494,16 @@ func TestS5ParentApprovalAmendmentIdempotencyAndDenial(t *testing.T) {
 		t.Fatalf("denied stop=%#v", failed.Episode)
 	}
 	_ = denied
+
+	serviceE, _, nowE, currentE := s5BudgetRecoveryFixture(t, "acr-s5-parent-expired")
+	if _, err = serviceE.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: currentE.EpisodeID, Quote: TrustedPaymentQuote{MerchantDID: "did:merchant:b", CapabilityID: "transcription", PayeeDID: "did:payee:s5", QuoteHash: "sha256:expired-quote", AmountMinor: 500, Currency: "USDC", RequesterDID: currentE.RequesterDID, ExpiresAt: nowE.Add(time.Minute)}, IdempotencyKey: "expired-budget-reserve"}); !errors.Is(err, ledger.ErrInsufficientBudget) {
+		t.Fatal(err)
+	}
+	if _, err = serviceE.AskParent(context.Background(), AskParentRequest{EpisodeID: currentE.EpisodeID, ApprovalID: "approval:s5:expired", ApprovalScope: recovery.AllowSwitch, RequestedAction: trace.ActionSwitchMerchant, ExpiresAt: nowE.Add(time.Minute), Proposal: decision.DecisionProposal{ProposedAction: trace.ActionAskParent, EvidenceRefs: []string{"recovery://" + currentE.EpisodeID}}}); err != nil {
+		t.Fatal(err)
+	}
+	serviceE.clock = func() time.Time { return nowE.Add(2 * time.Minute) }
+	if _, err = serviceE.RecordParentDecision(context.Background(), ParentDecisionRequest{ApprovalID: "approval:s5:expired", Decision: recovery.Approve, ActorRef: "parent:expired", OccurredAt: nowE}); !errors.Is(err, recovery.ErrInvalidParentDecision) {
+		t.Fatalf("backdated decision bypassed runtime expiry: %v", err)
+	}
 }

@@ -199,6 +199,7 @@ type RecoveryTransition struct {
 	Event                  *episode.EpisodeEvent
 	RecoveryContext        *recovery.RecoveryContext
 	ParentApproval         *recovery.ParentApprovalRequest
+	CandidateSet           *catalog.CandidateSet
 }
 
 type ParentDecisionTransition struct {

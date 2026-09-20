@@ -496,32 +496,20 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if !providerAllowedAction(request.Action.Type) {
 		return CommitResult{}, decision.ErrActionNotAllowed
 	}
-	// S5 actions have dedicated runtime boundaries because their guards depend
-	// on persisted recovery/candidate facts. A provider may propose them, but
-	// the generic event writer must not bypass those checks.
 	switch request.Action.Type {
 	case trace.ActionRetrySameMerchant:
-		if !request.runtimeRecoveryValidated {
-			return s.RetrySameMerchant(ctx, RetrySameMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+		if request.Observation.Type == "" {
+			request.Observation.Type = trace.ObservationDeliveryInvalid
 		}
-	case trace.ActionSwitchMerchant:
-		return s.SwitchMerchant(ctx, SwitchMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
-	case trace.ActionRediscover:
-		return s.Rediscover(ctx, RediscoverRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
-	case trace.ActionAskParent:
-		return s.AskParent(ctx, AskParentRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID, CandidateSetID: request.Proposal.CandidateSetID, CandidateMerchantDID: func() string {
-			if request.Proposal.Target != nil {
-				return request.Proposal.Target.MerchantDID
-			}
-			return ""
-		}(), CandidateCapabilityID: func() string {
-			if request.Proposal.Target != nil {
-				return request.Proposal.Target.CapabilityID
-			}
-			return ""
-		}()})
+	case trace.ActionSwitchMerchant, trace.ActionRediscover:
+		if request.Observation.Type == "" {
+			request.Observation.Type = trace.ObservationCandidatesFound
+		}
+	case trace.ActionAskParent, trace.ActionStop:
+		if request.Observation.Type == "" {
+			request.Observation.Type = trace.ObservationPolicyDenied
+		}
 	}
-
 	// Idempotency is checked before proposal expiry/sequence validation: a
 	// retried request returns the already committed deterministic result.
 	existingEvent, err := s.store.FindByIdempotencyKey(ctx, request.Proposal.EpisodeID, request.Action.IdempotencyKey)
@@ -546,7 +534,7 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if err != nil {
 		return CommitResult{}, err
 	}
-	knownEvidence := evidenceReferences(events)
+	knownEvidence := s.knownProposalEvidence(ctx, current, request.Proposal, events)
 	now := s.clock().UTC()
 	guardResult, err := s.guard.Evaluate(current, request.Proposal, knownEvidence, request.Observation, now)
 	if err != nil {
@@ -575,6 +563,31 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 			return CommitResult{}, err
 		}
 		selectedCandidate = guardResult.SelectedCandidate
+	}
+	// S5 actions have dedicated runtime boundaries because their guards depend
+	// on persisted recovery/candidate facts. The common proposal guard above is
+	// always evaluated first; the dedicated method only adds domain checks.
+	switch request.Action.Type {
+	case trace.ActionRetrySameMerchant:
+		if !request.runtimeRecoveryValidated {
+			return s.RetrySameMerchant(ctx, RetrySameMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+		}
+	case trace.ActionSwitchMerchant:
+		return s.SwitchMerchant(ctx, SwitchMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+	case trace.ActionRediscover:
+		return s.Rediscover(ctx, RediscoverRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+	case trace.ActionAskParent:
+		return s.AskParent(ctx, AskParentRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID, CandidateSetID: request.Proposal.CandidateSetID, CandidateMerchantDID: func() string {
+			if request.Proposal.Target != nil {
+				return request.Proposal.Target.MerchantDID
+			}
+			return ""
+		}(), CandidateCapabilityID: func() string {
+			if request.Proposal.Target != nil {
+				return request.Proposal.Target.CapabilityID
+			}
+			return ""
+		}()})
 	}
 
 	next := current.Clone()
@@ -665,6 +678,17 @@ func providerAllowedAction(action trace.ActionType) bool {
 	return decision.ProviderAllowedAction(action)
 }
 
+func (s *Service) validateRecoveryProposal(ctx context.Context, current *episode.CommerceEpisode, proposal decision.DecisionProposal, action trace.ActionType, observation trace.Observation) (decision.GuardResult, error) {
+	if !providerAllowedAction(action) || proposal.ProposedAction != action {
+		return decision.GuardResult{}, decision.ErrActionNotAllowed
+	}
+	events, err := s.store.ListByEpisode(ctx, current.EpisodeID)
+	if err != nil {
+		return decision.GuardResult{}, err
+	}
+	return s.guard.ValidateRecoveryProposal(current, proposal, s.knownProposalEvidence(ctx, current, proposal, events), observation, s.clock().UTC())
+}
+
 func (s *Service) replayIfCommitted(ctx context.Context, episodeID string, request CommitRequest) (CommitResult, error) {
 	committed, err := s.store.FindByIdempotencyKey(ctx, episodeID, request.Action.IdempotencyKey)
 	if err != nil {
@@ -696,6 +720,30 @@ func evidenceReferences(events []*episode.EpisodeEvent) map[string]struct{} {
 		}
 		if event.Observation.PayloadHash != "" {
 			refs[event.Observation.PayloadHash] = struct{}{}
+		}
+		for _, ref := range event.Decision.EvidenceRefs {
+			if ref != "" {
+				refs[ref] = struct{}{}
+			}
+		}
+	}
+	return refs
+}
+
+func (s *Service) knownProposalEvidence(ctx context.Context, current *episode.CommerceEpisode, proposal decision.DecisionProposal, events []*episode.EpisodeEvent) map[string]struct{} {
+	refs := evidenceReferences(events)
+	if store, err := s.s5Store(); err == nil {
+		if recoveryContext, err := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); err == nil {
+			refs[recoveryContext.FactsRef] = struct{}{}
+			refs[recoveryContext.PayloadHash] = struct{}{}
+		}
+	}
+	if strings.TrimSpace(proposal.CandidateSetID) != "" {
+		if store, err := s.discoveryStore(); err == nil {
+			if candidateSet, err := store.GetCandidateSet(ctx, proposal.CandidateSetID); err == nil && candidateSet.EpisodeID == current.EpisodeID && candidateSet.RequestID == current.RequestID {
+				refs[candidateSet.FactsRef] = struct{}{}
+				refs[candidateSet.PayloadHash] = struct{}{}
+			}
 		}
 	}
 	return refs

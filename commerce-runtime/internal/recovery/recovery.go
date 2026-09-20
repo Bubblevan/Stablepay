@@ -96,6 +96,10 @@ func (c RecoveryContext) Validate() error {
 	if len(c.AttemptedMerchants) == 0 {
 		return ErrInvalidRecoveryContext
 	}
+	expected, err := c.PayloadHashFor()
+	if err != nil || c.PayloadHash != expected {
+		return ErrInvalidRecoveryContext
+	}
 	return nil
 }
 
@@ -137,6 +141,15 @@ func (c *RecoveryContext) RefreshPayloadHash() error {
 	return nil
 }
 
+func (c RecoveryContext) PayloadHashFor() (string, error) {
+	snapshot, err := c.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 func (c RecoveryContext) Clone() *RecoveryContext { c = c.Normalize(); return &c }
 
 type ApprovalScope string
@@ -169,15 +182,79 @@ type ParentApprovalRequest struct {
 }
 
 func (r ParentApprovalRequest) Validate() error {
-	if strings.TrimSpace(r.ApprovalID) == "" || strings.TrimSpace(r.EpisodeID) == "" || strings.TrimSpace(r.RecoveryID) == "" || !r.ReasonCode.Valid() || strings.TrimSpace(r.RequestedAction) == "" || (r.ApprovalScope != AllowSwitch && r.ApprovalScope != BudgetIncrease) || r.CurrentBudgetMinor < 0 || r.ConsumedMinor < 0 || r.AvailableMinor < 0 || r.SunkCostMinor < 0 || r.ExpiresAt.IsZero() || r.FactsRef == "" || r.PayloadHash == "" || r.CreatedAt.IsZero() {
+	r = r.Normalize()
+	if strings.TrimSpace(r.ApprovalID) == "" || strings.TrimSpace(r.EpisodeID) == "" || strings.TrimSpace(r.RecoveryID) == "" || !r.ReasonCode.Valid() || strings.TrimSpace(r.RequestedAction) == "" || (r.ApprovalScope != AllowSwitch && r.ApprovalScope != BudgetIncrease) || r.CurrentBudgetMinor < 0 || r.ConsumedMinor < 0 || r.AvailableMinor < 0 || r.SunkCostMinor < 0 || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(r.CreatedAt) || r.FactsRef == "" || r.PayloadHash == "" || r.CreatedAt.IsZero() {
 		return ErrInvalidParentRequest
 	}
 	if r.RequestedBudgetIncreaseMinor < 0 {
 		return ErrInvalidParentRequest
 	}
+	expected, err := r.PayloadHashFor()
+	if err != nil || r.PayloadHash != expected {
+		return ErrInvalidParentRequest
+	}
 	return nil
 }
 func (r ParentApprovalRequest) Clone() *ParentApprovalRequest { c := r; return &c }
+
+func (r ParentApprovalRequest) Normalize() ParentApprovalRequest {
+	r.ApprovalID = strings.TrimSpace(r.ApprovalID)
+	r.EpisodeID = strings.TrimSpace(r.EpisodeID)
+	r.RecoveryID = strings.TrimSpace(r.RecoveryID)
+	r.RequestedAction = strings.TrimSpace(r.RequestedAction)
+	r.CurrentMerchantDID = strings.TrimSpace(r.CurrentMerchantDID)
+	r.CandidateSetID = strings.TrimSpace(r.CandidateSetID)
+	r.CandidateMerchantDID = strings.TrimSpace(r.CandidateMerchantDID)
+	r.CandidateCapabilityID = strings.ToLower(strings.TrimSpace(r.CandidateCapabilityID))
+	r.FactsRef = strings.TrimSpace(r.FactsRef)
+	r.PayloadHash = strings.ToLower(strings.TrimSpace(r.PayloadHash))
+	return r
+}
+
+func (r ParentApprovalRequest) CanonicalSnapshot() ([]byte, error) {
+	r = r.Normalize()
+	return json.Marshal(struct {
+		ApprovalID                   string        `json:"approval_id"`
+		EpisodeID                    string        `json:"episode_id"`
+		RecoveryID                   string        `json:"recovery_id"`
+		ReasonCode                   ReasonCode    `json:"reason_code"`
+		RequestedAction              string        `json:"requested_action"`
+		ApprovalScope                ApprovalScope `json:"approval_scope"`
+		CurrentBudgetMinor           int64         `json:"current_budget_minor"`
+		ConsumedMinor                int64         `json:"consumed_minor"`
+		AvailableMinor               int64         `json:"available_minor"`
+		SunkCostMinor                int64         `json:"sunk_cost_minor"`
+		CurrentMerchantDID           string        `json:"current_merchant_did"`
+		CandidateSetID               string        `json:"candidate_set_id,omitempty"`
+		CandidateMerchantDID         string        `json:"candidate_merchant_did,omitempty"`
+		CandidateCapabilityID        string        `json:"candidate_capability_id,omitempty"`
+		RequestedBudgetIncreaseMinor int64         `json:"requested_budget_increase_minor,omitempty"`
+		ExpiresAt                    time.Time     `json:"expires_at"`
+		FactsRef                     string        `json:"facts_ref"`
+		CreatedAt                    time.Time     `json:"created_at"`
+	}{r.ApprovalID, r.EpisodeID, r.RecoveryID, r.ReasonCode, r.RequestedAction, r.ApprovalScope, r.CurrentBudgetMinor, r.ConsumedMinor, r.AvailableMinor, r.SunkCostMinor, r.CurrentMerchantDID, r.CandidateSetID, r.CandidateMerchantDID, r.CandidateCapabilityID, r.RequestedBudgetIncreaseMinor, r.ExpiresAt, r.FactsRef, r.CreatedAt})
+}
+
+func (r ParentApprovalRequest) PayloadHashFor() (string, error) {
+	snapshot, err := r.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (r *ParentApprovalRequest) RefreshPayloadHash() error {
+	if r == nil {
+		return ErrInvalidParentRequest
+	}
+	hash, err := r.PayloadHashFor()
+	if err != nil {
+		return err
+	}
+	r.PayloadHash = hash
+	return nil
+}
 
 type Decision string
 
@@ -197,12 +274,59 @@ type ParentDecisionFact struct {
 }
 
 func (d ParentDecisionFact) Validate() error {
+	d = d.Normalize()
 	if strings.TrimSpace(d.ApprovalID) == "" || strings.TrimSpace(d.EpisodeID) == "" || (d.Decision != Approve && d.Decision != Deny) || strings.TrimSpace(d.ActorRef) == "" || d.OccurredAt.IsZero() || d.FactsRef == "" || d.PayloadHash == "" {
+		return ErrInvalidParentDecision
+	}
+	expected, err := d.PayloadHashFor()
+	if err != nil || d.PayloadHash != expected {
 		return ErrInvalidParentDecision
 	}
 	return nil
 }
 func (d ParentDecisionFact) Clone() *ParentDecisionFact { c := d; return &c }
+
+func (d ParentDecisionFact) Normalize() ParentDecisionFact {
+	d.ApprovalID = strings.TrimSpace(d.ApprovalID)
+	d.EpisodeID = strings.TrimSpace(d.EpisodeID)
+	d.ActorRef = strings.TrimSpace(d.ActorRef)
+	d.FactsRef = strings.TrimSpace(d.FactsRef)
+	d.PayloadHash = strings.ToLower(strings.TrimSpace(d.PayloadHash))
+	return d
+}
+
+func (d ParentDecisionFact) CanonicalSnapshot() ([]byte, error) {
+	d = d.Normalize()
+	return json.Marshal(struct {
+		ApprovalID string    `json:"approval_id"`
+		EpisodeID  string    `json:"episode_id"`
+		Decision   Decision  `json:"decision"`
+		ActorRef   string    `json:"actor_ref"`
+		OccurredAt time.Time `json:"occurred_at"`
+		FactsRef   string    `json:"facts_ref"`
+	}{d.ApprovalID, d.EpisodeID, d.Decision, d.ActorRef, d.OccurredAt, d.FactsRef})
+}
+
+func (d ParentDecisionFact) PayloadHashFor() (string, error) {
+	snapshot, err := d.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (d *ParentDecisionFact) RefreshPayloadHash() error {
+	if d == nil {
+		return ErrInvalidParentDecision
+	}
+	hash, err := d.PayloadHashFor()
+	if err != nil {
+		return err
+	}
+	d.PayloadHash = hash
+	return nil
+}
 
 type BudgetAmendment struct {
 	AmendmentID   string    `json:"amendment_id"`
@@ -218,9 +342,60 @@ type BudgetAmendment struct {
 }
 
 func (b BudgetAmendment) Validate() error {
+	b = b.Normalize()
 	if strings.TrimSpace(b.AmendmentID) == "" || strings.TrimSpace(b.EpisodeID) == "" || b.OldLimitMinor < 0 || b.NewLimitMinor < 0 || b.DeltaMinor != b.NewLimitMinor-b.OldLimitMinor || b.NewLimitMinor < b.OldLimitMinor || strings.TrimSpace(b.ApprovedBy) == "" || strings.TrimSpace(b.ApprovalRef) == "" || b.OccurredAt.IsZero() || b.FactsRef == "" || b.PayloadHash == "" {
+		return ErrInvalidBudgetAmendment
+	}
+	expected, err := b.PayloadHashFor()
+	if err != nil || b.PayloadHash != expected {
 		return ErrInvalidBudgetAmendment
 	}
 	return nil
 }
 func (b BudgetAmendment) Clone() *BudgetAmendment { c := b; return &c }
+
+func (b BudgetAmendment) Normalize() BudgetAmendment {
+	b.AmendmentID = strings.TrimSpace(b.AmendmentID)
+	b.EpisodeID = strings.TrimSpace(b.EpisodeID)
+	b.ApprovedBy = strings.TrimSpace(b.ApprovedBy)
+	b.ApprovalRef = strings.TrimSpace(b.ApprovalRef)
+	b.FactsRef = strings.TrimSpace(b.FactsRef)
+	b.PayloadHash = strings.ToLower(strings.TrimSpace(b.PayloadHash))
+	return b
+}
+
+func (b BudgetAmendment) CanonicalSnapshot() ([]byte, error) {
+	b = b.Normalize()
+	return json.Marshal(struct {
+		AmendmentID   string    `json:"amendment_id"`
+		EpisodeID     string    `json:"episode_id"`
+		OldLimitMinor int64     `json:"old_limit_minor"`
+		NewLimitMinor int64     `json:"new_limit_minor"`
+		DeltaMinor    int64     `json:"delta_minor"`
+		ApprovedBy    string    `json:"approved_by"`
+		ApprovalRef   string    `json:"approval_ref"`
+		OccurredAt    time.Time `json:"occurred_at"`
+		FactsRef      string    `json:"facts_ref"`
+	}{b.AmendmentID, b.EpisodeID, b.OldLimitMinor, b.NewLimitMinor, b.DeltaMinor, b.ApprovedBy, b.ApprovalRef, b.OccurredAt, b.FactsRef})
+}
+
+func (b BudgetAmendment) PayloadHashFor() (string, error) {
+	snapshot, err := b.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (b *BudgetAmendment) RefreshPayloadHash() error {
+	if b == nil {
+		return ErrInvalidBudgetAmendment
+	}
+	hash, err := b.PayloadHashFor()
+	if err != nil {
+		return err
+	}
+	b.PayloadHash = hash
+	return nil
+}

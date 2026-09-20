@@ -205,7 +205,7 @@ func (s *Store) SaveParentApprovalRequest(ctx context.Context, v *recovery.Paren
 	var x ParentApprovalRequestModel
 	if q := s.db.WithContext(ctx).Where("approval_id = ?", m.ApprovalID).First(&x).Error; q == nil {
 		old, _ := modelToParentApproval(x)
-		if reflect.DeepEqual(old, v) {
+		if old != nil && old.EpisodeID == v.EpisodeID && old.PayloadHash == v.PayloadHash {
 			return nil
 		}
 		return repository.ErrFactConflict
@@ -231,7 +231,7 @@ func (s *Store) SaveParentDecision(ctx context.Context, v *recovery.ParentDecisi
 	var x ParentDecisionFactModel
 	if q := s.db.WithContext(ctx).Where("approval_id = ?", m.ApprovalID).First(&x).Error; q == nil {
 		old, _ := modelToParentDecision(x)
-		if reflect.DeepEqual(old, v) {
+		if old != nil && old.EpisodeID == v.EpisodeID && old.Decision == v.Decision && old.ActorRef == v.ActorRef && old.FactsRef == v.FactsRef {
 			return nil
 		}
 		return repository.ErrParentDecisionConflict
@@ -311,6 +311,16 @@ func (s *Store) CommitRecoveryTransition(ctx context.Context, t repository.Recov
 			return e
 		}
 	}
+	var cm *CandidateSetModel
+	if t.CandidateSet != nil {
+		if t.CandidateSet.EpisodeID != t.EpisodeID || t.CandidateSet.RequestID != t.NextEpisode.RequestID || t.CandidateSet.Generation != t.NextEpisode.DiscoveryGeneration {
+			return repository.ErrCandidateSetConflict
+		}
+		cm, e = candidateSetToModel(t.CandidateSet)
+		if e != nil {
+			return e
+		}
+	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing EventModel
 		if q := tx.Where("episode_id = ? AND idempotency_key = ?", t.EpisodeID, t.Event.Action.IdempotencyKey).First(&existing).Error; q == nil {
@@ -332,12 +342,33 @@ func (s *Store) CommitRecoveryTransition(ctx context.Context, t repository.Recov
 			return q
 		}
 		if am != nil {
-			if q := tx.Where("approval_id = ?", am.ApprovalID).First(&ParentApprovalRequestModel{}).Error; errors.Is(q, gorm.ErrRecordNotFound) {
+			var existing ParentApprovalRequestModel
+			if q := tx.Where("approval_id = ?", am.ApprovalID).First(&existing).Error; errors.Is(q, gorm.ErrRecordNotFound) {
 				if q = tx.Create(am).Error; q != nil {
 					return q
 				}
 			} else if q != nil {
 				return q
+			} else {
+				previous, decodeErr := modelToParentApproval(existing)
+				if decodeErr != nil {
+					return decodeErr
+				}
+				if previousHash, hashErr := previous.PayloadHashFor(); hashErr != nil || previousHash != am.PayloadHash {
+					return repository.ErrFactConflict
+				}
+			}
+		}
+		if cm != nil {
+			var existing CandidateSetModel
+			if q := tx.Where("candidate_set_id = ?", cm.CandidateSetID).First(&existing).Error; errors.Is(q, gorm.ErrRecordNotFound) {
+				if q = tx.Create(cm).Error; q != nil {
+					return q
+				}
+			} else if q != nil {
+				return q
+			} else if existing.PayloadHash != cm.PayloadHash {
+				return repository.ErrCandidateSetConflict
 			}
 		}
 		var old RecoveryContextModel
@@ -410,7 +441,7 @@ func (s *Store) CommitParentDecision(ctx context.Context, t repository.ParentDec
 		var old ParentDecisionFactModel
 		if q := tx.Where("approval_id = ?", dm.ApprovalID).First(&old).Error; q == nil {
 			previous, _ := modelToParentDecision(old)
-			if reflect.DeepEqual(previous, t.Decision) {
+			if previous != nil && previous.EpisodeID == t.Decision.EpisodeID && previous.Decision == t.Decision.Decision && previous.ActorRef == t.Decision.ActorRef && previous.FactsRef == t.Decision.FactsRef {
 				return repository.ErrIdempotentReplay
 			}
 			return repository.ErrParentDecisionConflict

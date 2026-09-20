@@ -130,7 +130,7 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 		traceID = current.EpisodeID + ":initial-invoke"
 	}
 	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, Attempt: 1, Phase: invocation.PhaseInitial, TraceID: traceID, IdempotencyKey: "invoke:initial:" + current.EpisodeID + ":" + current.SelectedMerchantDID, Endpoint: capability.InvokeEndpoint, PaymentSignature: request.PaymentSignature}
-	if _, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); errors.Is(findErr, repository.ErrFactNotFound) && current.State != episode.StateInvoking && current.State != episode.StateInvokingDelivery {
+	if _, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); errors.Is(findErr, repository.ErrFactNotFound) && current.State != episode.StateInvoking {
 		return MerchantInvocationResult{}, decision.ErrActionNotAllowed
 	} else if findErr != nil && !errors.Is(findErr, repository.ErrFactNotFound) {
 		return MerchantInvocationResult{}, findErr
@@ -147,7 +147,7 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 		}
 		return MerchantInvocationResult{Episode: latest, Invocation: fact, Response: response, Event: existing, Replayed: true}, adapterErr
 	}
-	if current.State != episode.StateInvoking && current.State != episode.StateInvokingDelivery {
+	if current.State != episode.StateInvoking {
 		return MerchantInvocationResult{}, decision.ErrActionNotAllowed
 	}
 	observationType := trace.ObservationMerchantResponse
@@ -157,11 +157,7 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 	next := current.Clone()
 	next.AttemptedMerchants = appendUnique(next.AttemptedMerchants, current.SelectedMerchantDID)
 	next.ActionCount++
-	after := episode.StateInvoking
-	if current.State == episode.StateInvoking && response.HTTPStatus != 402 {
-		after = episode.StateInvoking
-	}
-	if err := next.ApplyCommittedState(after, response.OccurredAt, ""); err != nil {
+	if err := next.ApplyCommittedState(episode.StateInvoking, response.OccurredAt, ""); err != nil {
 		return MerchantInvocationResult{}, err
 	}
 	event, replay, err := s.commitS4Event(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: key, InputRef: operation.InputRef, InputHash: operation.InputHash}, trace.Observation{Type: observationType, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID)
@@ -491,6 +487,13 @@ func (s *Service) RetrySameMerchant(ctx context.Context, request RetrySameMercha
 	current, err := s.store.Get(ctx, request.EpisodeID)
 	if err != nil {
 		return CommitResult{}, err
+	}
+	if strings.TrimSpace(request.Action.IdempotencyKey) != "" {
+		if existing, replayErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); replayErr == nil {
+			return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+		} else if !errors.Is(replayErr, repository.ErrNotFound) {
+			return CommitResult{}, replayErr
+		}
 	}
 	if current.State != episode.StateRecovering {
 		return CommitResult{}, decision.ErrActionNotAllowed

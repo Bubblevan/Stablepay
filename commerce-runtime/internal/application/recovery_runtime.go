@@ -194,6 +194,13 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	if err != nil {
 		return CommitResult{}, err
 	}
+	if strings.TrimSpace(request.Action.IdempotencyKey) != "" {
+		if existing, replayErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); replayErr == nil {
+			return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+		} else if !errors.Is(replayErr, repository.ErrNotFound) {
+			return CommitResult{}, replayErr
+		}
+	}
 	if current.State != episode.StateRecovering {
 		return CommitResult{}, decision.ErrActionNotAllowed
 	}
@@ -218,6 +225,9 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	}
 	if existing, e := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); e == nil {
 		return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+	}
+	if _, err := s.validateRecoveryProposal(ctx, current, request.Proposal, request.Action.Type, request.Observation); err != nil {
+		return CommitResult{}, err
 	}
 	if request.Proposal.ProposedAction != trace.ActionSwitchMerchant || request.Proposal.Target == nil || request.Proposal.CandidateSetID == "" {
 		return CommitResult{}, decision.ErrInvalidProposal
@@ -274,7 +284,7 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	next.CurrentQuoteHash = ""
 	next.AttemptedMerchants = appendAttemptedMerchant(next.AttemptedMerchants, candidate.MerchantDID)
 	next.ActionCount++
-	if err := next.ApplyCommittedState(episode.StateInvokingDelivery, now, ""); err != nil {
+	if err := next.ApplyCommittedState(episode.StateInvoking, now, ""); err != nil {
 		return CommitResult{}, err
 	}
 	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionSwitchMerchant, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: set.CandidateSetID, Target: &trace.Target{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true, Checks: []trace.RuntimeCheck{trace.Check("recovery_candidate", true, "unattempted candidate")}}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
@@ -285,7 +295,7 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	if old, e := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); e == nil {
 		reason = old.ReasonCode
 	}
-	rc, err := s.currentRecoveryContext(ctx, current, reason, set.CandidateSetID, event.EventID)
+	rc, err := s.currentRecoveryContext(ctx, next, reason, set.CandidateSetID, event.EventID)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -304,6 +314,13 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	current, err := s.store.Get(ctx, request.EpisodeID)
 	if err != nil {
 		return CommitResult{}, err
+	}
+	if strings.TrimSpace(request.Action.IdempotencyKey) != "" {
+		if existing, replayErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); replayErr == nil {
+			return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+		} else if !errors.Is(replayErr, repository.ErrNotFound) {
+			return CommitResult{}, replayErr
+		}
 	}
 	if current.State != episode.StateRecovering {
 		return CommitResult{}, decision.ErrActionNotAllowed
@@ -330,6 +347,9 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	if existing, e := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); e == nil {
 		return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
 	}
+	if _, err := s.validateRecoveryProposal(ctx, current, request.Proposal, request.Action.Type, request.Observation); err != nil {
+		return CommitResult{}, err
+	}
 	var acquire contract.AcquireCapabilityRequest
 	if err = json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
 		return CommitResult{}, err
@@ -338,41 +358,50 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	if err != nil {
 		return CommitResult{}, err
 	}
+	now := s.clock().UTC()
+	generation := current.DiscoveryGeneration + 1
+	setID := fmt.Sprintf("cs:%s:%d", current.EpisodeID, generation)
 	discovery, err := s.discoveryStore()
 	if err != nil {
 		return CommitResult{}, err
 	}
-	caps, err := discovery.ListActiveCapabilities(ctx)
-	if err != nil {
-		return CommitResult{}, err
-	}
-	filtered := make([]*catalog.MerchantCapability, 0, len(caps))
-	for _, cap := range caps {
-		if !attemptedMerchant(current.AttemptedMerchants, cap.MerchantDID) {
-			filtered = append(filtered, cap)
+	set, setErr := discovery.GetCandidateSet(ctx, setID)
+	if errors.Is(setErr, repository.ErrNotFound) {
+		caps, listErr := discovery.ListActiveCapabilities(ctx)
+		if listErr != nil {
+			return CommitResult{}, listErr
 		}
-	}
-	now := s.clock().UTC()
-	expires := request.ExpiresAt
-	if expires.IsZero() {
-		expires = now.Add(s.candidateSetTTL)
-	}
-	if expires.After(current.DeadlineAt) {
-		expires = current.DeadlineAt
-	}
-	generation := current.DiscoveryGeneration + 1
-	setID := fmt.Sprintf("cs:%s:%d", current.EpisodeID, generation)
-	set, err := catalog.BuildCandidateSet(setID, current.EpisodeID, current.RequestID, query, filtered, now, expires)
-	if err != nil {
-		return CommitResult{}, err
-	}
-	set.Generation = generation
-	set.PayloadHash, err = set.PayloadHashFor()
-	if err != nil {
-		return CommitResult{}, err
-	}
-	if err = discovery.SaveCandidateSet(ctx, set); err != nil {
-		return CommitResult{}, err
+		filtered := make([]*catalog.MerchantCapability, 0, len(caps))
+		for _, cap := range caps {
+			if !attemptedMerchant(current.AttemptedMerchants, cap.MerchantDID) {
+				filtered = append(filtered, cap)
+			}
+		}
+		expires := request.ExpiresAt
+		if expires.IsZero() {
+			expires = now.Add(s.candidateSetTTL)
+		}
+		if expires.After(current.DeadlineAt) {
+			expires = current.DeadlineAt
+		}
+		set, err = catalog.BuildCandidateSet(setID, current.EpisodeID, current.RequestID, query, filtered, now, expires)
+		if err != nil {
+			return CommitResult{}, err
+		}
+		set.Generation = generation
+		set.PayloadHash, err = set.PayloadHashFor()
+		if err != nil {
+			return CommitResult{}, err
+		}
+	} else if setErr != nil {
+		return CommitResult{}, setErr
+	} else {
+		if set.EpisodeID != current.EpisodeID || set.RequestID != current.RequestID || set.Generation != generation {
+			return CommitResult{}, repository.ErrCandidateSetConflict
+		}
+		if err := set.Validate(); err != nil {
+			return CommitResult{}, err
+		}
 	}
 	next := current.Clone()
 	next.DiscoveryGeneration = generation
@@ -380,7 +409,7 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	if err = next.ApplyCommittedState(episode.StateDiscovering, now, ""); err != nil {
 		return CommitResult{}, err
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionRediscover, ProposalID: request.Proposal.ProposalID, CandidateSetID: setID, EvidenceRefs: []string{set.FactsRef, set.PayloadHash}}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionRediscover, ProposalID: request.Proposal.ProposalID, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -388,12 +417,12 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	if len(set.Candidates) == 0 {
 		reason = recovery.ReasonNoRecoveryCandidate
 	}
-	rc, err := s.currentRecoveryContext(ctx, current, reason, setID, event.EventID)
+	rc, err := s.currentRecoveryContext(ctx, next, reason, setID, event.EventID)
 	if err != nil {
 		return CommitResult{}, err
 	}
 	next.RecoveryID = rc.RecoveryID
-	if err = store.CommitRecoveryTransition(ctx, repository.RecoveryTransition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, RecoveryContext: rc}); err != nil {
+	if err = store.CommitRecoveryTransition(ctx, repository.RecoveryTransition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, RecoveryContext: rc, CandidateSet: set}); err != nil {
 		return CommitResult{}, err
 	}
 	return CommitResult{Episode: next, Event: event}, nil
@@ -407,6 +436,13 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	current, err := s.store.Get(ctx, request.EpisodeID)
 	if err != nil {
 		return CommitResult{}, err
+	}
+	if strings.TrimSpace(request.Action.IdempotencyKey) != "" {
+		if existing, replayErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); replayErr == nil {
+			return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+		} else if !errors.Is(replayErr, repository.ErrNotFound) {
+			return CommitResult{}, replayErr
+		}
 	}
 	if current.State != episode.StateRecovering {
 		return CommitResult{}, decision.ErrActionNotAllowed
@@ -424,6 +460,9 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	if request.Actor == "" {
 		request.Actor = "runtime"
 	}
+	if request.Observation.Type == "" {
+		request.Observation.Type = trace.ObservationPolicyDenied
+	}
 	if request.TraceID == "" {
 		request.TraceID = current.EpisodeID + ":ask-parent"
 	}
@@ -440,11 +479,20 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	if request.ExpiresAt.IsZero() {
 		request.ExpiresAt = now.Add(10 * time.Minute)
 	}
+	if !request.ExpiresAt.After(now) {
+		return CommitResult{}, recovery.ErrInvalidParentRequest
+	}
 	if request.ExpiresAt.After(current.DeadlineAt) {
 		request.ExpiresAt = current.DeadlineAt
 	}
+	if !request.ExpiresAt.After(now) {
+		return CommitResult{}, recovery.ErrInvalidParentRequest
+	}
 	if existing, e := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, request.Action.IdempotencyKey); e == nil {
 		return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+	}
+	if _, err := s.validateRecoveryProposal(ctx, current, request.Proposal, request.Action.Type, request.Observation); err != nil {
+		return CommitResult{}, err
 	}
 	parentReason := recovery.ReasonBudgetInsufficient
 	if existing, existingErr := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); existingErr == nil {
@@ -457,7 +505,9 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 		return CommitResult{}, err
 	}
 	approval := &recovery.ParentApprovalRequest{ApprovalID: request.ApprovalID, EpisodeID: current.EpisodeID, RecoveryID: rc.RecoveryID, ReasonCode: rc.ReasonCode, RequestedAction: string(request.RequestedAction), ApprovalScope: request.ApprovalScope, CurrentBudgetMinor: current.Budget.BudgetLimitMinor, ConsumedMinor: current.Budget.ConsumedAmount, AvailableMinor: current.Budget.AvailableBudget, SunkCostMinor: current.Budget.SunkCost, CurrentMerchantDID: current.SelectedMerchantDID, CandidateSetID: request.CandidateSetID, CandidateMerchantDID: request.CandidateMerchantDID, CandidateCapabilityID: request.CandidateCapabilityID, RequestedBudgetIncreaseMinor: request.RequestedBudgetIncreaseMinor, ExpiresAt: request.ExpiresAt, FactsRef: "parent-approval://" + request.ApprovalID, CreatedAt: now}
-	approval.PayloadHash = ledger.HashReference(approval.FactsRef)
+	if err = approval.RefreshPayloadHash(); err != nil {
+		return CommitResult{}, err
+	}
 	if err = approval.Validate(); err != nil {
 		return CommitResult{}, err
 	}
@@ -466,12 +516,14 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	if err = next.ApplyCommittedState(episode.StateAwaitingParent, now, ""); err != nil {
 		return CommitResult{}, err
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, trace.Observation{Type: trace.ObservationPolicyDenied, Code: string(rc.ReasonCode), FactsRef: approval.FactsRef, PayloadHash: approval.PayloadHash}, trace.Decision{ProposedAction: trace.ActionAskParent, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, EvidenceRefs: []string{rc.FactsRef, rc.PayloadHash}}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionAskParent, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}
 	rc.TriggerEventID = event.EventID
-	rc.RefreshPayloadHash()
+	if err := rc.RefreshPayloadHash(); err != nil {
+		return CommitResult{}, err
+	}
 	next.RecoveryID = rc.RecoveryID
 	if err = store.CommitRecoveryTransition(ctx, repository.RecoveryTransition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, RecoveryContext: rc, ParentApproval: approval}); err != nil {
 		return CommitResult{}, err
@@ -492,32 +544,34 @@ func (s *Service) RecordParentDecision(ctx context.Context, request ParentDecisi
 	if err != nil {
 		return CommitResult{}, err
 	}
-	if request.OccurredAt.IsZero() {
-		request.OccurredAt = s.clock().UTC()
-	}
-	if request.ActorRef == "" {
+	if request.ActorRef == "" || (request.Decision != recovery.Approve && request.Decision != recovery.Deny) {
 		return CommitResult{}, recovery.ErrInvalidParentDecision
 	}
-	if request.FactsRef == "" {
-		request.FactsRef = "parent-decision://" + request.ApprovalID
-	}
-	if request.PayloadHash == "" {
-		request.PayloadHash = ledger.HashReference(request.FactsRef)
-	}
-	decisionFact := &recovery.ParentDecisionFact{ApprovalID: request.ApprovalID, EpisodeID: approval.EpisodeID, Decision: request.Decision, ActorRef: request.ActorRef, OccurredAt: request.OccurredAt, FactsRef: request.FactsRef, PayloadHash: request.PayloadHash}
 	if existing, e := store.GetParentDecision(ctx, request.ApprovalID); e == nil {
-		if existing.Decision != decisionFact.Decision {
+		if existing.EpisodeID != approval.EpisodeID || existing.Decision != request.Decision || existing.ActorRef != request.ActorRef || (!request.OccurredAt.IsZero() && !request.OccurredAt.Equal(existing.OccurredAt)) || (request.FactsRef != "" && request.FactsRef != existing.FactsRef) {
 			return CommitResult{}, repository.ErrParentDecisionConflict
 		}
 		return CommitResult{Episode: current, Replayed: true}, nil
+	} else if !errors.Is(e, repository.ErrNotFound) {
+		return CommitResult{}, e
 	}
 	if current.State != episode.StateAwaitingParent {
 		return CommitResult{}, decision.ErrActionNotAllowed
 	}
-	if !request.OccurredAt.Before(approval.ExpiresAt) {
+	now := s.clock().UTC()
+	if !now.Before(approval.ExpiresAt) {
 		return CommitResult{}, recovery.ErrInvalidParentDecision
 	}
-	now := s.clock().UTC()
+	if request.OccurredAt.IsZero() {
+		request.OccurredAt = now
+	}
+	if request.FactsRef == "" {
+		request.FactsRef = "parent-decision://" + request.ApprovalID
+	}
+	decisionFact := &recovery.ParentDecisionFact{ApprovalID: request.ApprovalID, EpisodeID: approval.EpisodeID, Decision: request.Decision, ActorRef: request.ActorRef, OccurredAt: request.OccurredAt, FactsRef: request.FactsRef}
+	if err = decisionFact.RefreshPayloadHash(); err != nil {
+		return CommitResult{}, err
+	}
 	next := current.Clone()
 	next.ActionCount++
 	var amendment *recovery.BudgetAmendment
@@ -536,7 +590,10 @@ func (s *Service) RecordParentDecision(ctx context.Context, request ParentDecisi
 			if err = next.Budget.Recalculate(); err != nil {
 				return CommitResult{}, err
 			}
-			amendment = &recovery.BudgetAmendment{AmendmentID: "amendment:" + request.ApprovalID, EpisodeID: current.EpisodeID, OldLimitMinor: current.Budget.BudgetLimitMinor, NewLimitMinor: newLimit, DeltaMinor: approval.RequestedBudgetIncreaseMinor, ApprovedBy: request.ActorRef, ApprovalRef: request.ApprovalID, OccurredAt: request.OccurredAt, FactsRef: "budget-amendment://" + request.ApprovalID, PayloadHash: ledger.HashReference("budget-amendment://" + request.ApprovalID)}
+			amendment = &recovery.BudgetAmendment{AmendmentID: "amendment:" + request.ApprovalID, EpisodeID: current.EpisodeID, OldLimitMinor: current.Budget.BudgetLimitMinor, NewLimitMinor: newLimit, DeltaMinor: approval.RequestedBudgetIncreaseMinor, ApprovedBy: request.ActorRef, ApprovalRef: request.ApprovalID, OccurredAt: request.OccurredAt, FactsRef: "budget-amendment://" + request.ApprovalID}
+			if err = amendment.RefreshPayloadHash(); err != nil {
+				return CommitResult{}, err
+			}
 		}
 	}
 	rc, err := s.currentRecoveryContext(ctx, current, reason, approval.CandidateSetID, "parent-decision:"+request.ApprovalID)
@@ -562,7 +619,7 @@ func (s *Service) RecordParentDecision(ctx context.Context, request ParentDecisi
 	if request.TraceID == "" {
 		request.TraceID = current.EpisodeID + ":parent:" + request.ApprovalID
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, trace.Action{Type: eventType, IdempotencyKey: "parent-decision:" + request.ApprovalID}, trace.Observation{Type: observation, Code: string(reason), FactsRef: request.FactsRef, PayloadHash: request.PayloadHash}, trace.Decision{ProposedAction: eventType, ProposalID: request.ApprovalID, Reason: string(request.Decision), EvidenceRefs: []string{approval.FactsRef, request.FactsRef}}, trace.RuntimeVerdict{Allowed: true}, next.State, "parent", request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, trace.Action{Type: eventType, IdempotencyKey: "parent-decision:" + request.ApprovalID}, trace.Observation{Type: observation, Code: string(reason), FactsRef: request.FactsRef, PayloadHash: decisionFact.PayloadHash}, trace.Decision{ProposedAction: eventType, ProposalID: request.ApprovalID, Reason: string(request.Decision), EvidenceRefs: []string{approval.FactsRef, request.FactsRef}}, trace.RuntimeVerdict{Allowed: true}, next.State, "parent", request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}

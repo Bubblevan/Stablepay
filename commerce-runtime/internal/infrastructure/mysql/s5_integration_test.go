@@ -8,7 +8,6 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/episode"
-	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
@@ -77,14 +76,20 @@ func TestMySQLS5RecoveryAndParentFactsAreAtomicAndReplayable(t *testing.T) {
 	current, _ = commitRecovery(current, episode.StateInvoking, trace.ActionInvoke, "mysql-s5-invoke", nil)
 	current, _ = commitRecovery(current, episode.StateNegotiating, trace.ActionParse402, "mysql-s5-parse", nil)
 	current, _ = commitRecovery(current, episode.StateRecovering, trace.ActionReserveBudget, "mysql-s5-recover", nil)
-	approval := &recovery.ParentApprovalRequest{ApprovalID: "mysql-s5-approval", EpisodeID: episodeID, RecoveryID: rc.RecoveryID, ReasonCode: recovery.ReasonBudgetInsufficient, RequestedAction: string(trace.ActionSwitchMerchant), ApprovalScope: recovery.AllowSwitch, CurrentBudgetMinor: 1000, ConsumedMinor: 700, AvailableMinor: 300, SunkCostMinor: 700, CurrentMerchantDID: "did:merchant:a", ExpiresAt: now.Add(time.Minute), FactsRef: "parent-approval://mysql-s5", PayloadHash: ledger.HashReference("parent-approval://mysql-s5"), CreatedAt: now}
+	approval := &recovery.ParentApprovalRequest{ApprovalID: "mysql-s5-approval", EpisodeID: episodeID, RecoveryID: rc.RecoveryID, ReasonCode: recovery.ReasonBudgetInsufficient, RequestedAction: string(trace.ActionSwitchMerchant), ApprovalScope: recovery.AllowSwitch, CurrentBudgetMinor: 1000, ConsumedMinor: 700, AvailableMinor: 300, SunkCostMinor: 700, CurrentMerchantDID: "did:merchant:a", ExpiresAt: now.Add(time.Minute), FactsRef: "parent-approval://mysql-s5", CreatedAt: now}
+	if err := approval.RefreshPayloadHash(); err != nil {
+		t.Fatal(err)
+	}
 	if err := approval.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	next, event := commitRecovery(current, episode.StateAwaitingParent, trace.ActionAskParent, "mysql-s5-ask", approval)
 	_ = next
 	_ = event
-	decisionFact := &recovery.ParentDecisionFact{ApprovalID: approval.ApprovalID, EpisodeID: episodeID, Decision: recovery.Approve, ActorRef: "parent:mysql", OccurredAt: now, FactsRef: "parent-decision://mysql-s5", PayloadHash: ledger.HashReference("parent-decision://mysql-s5")}
+	decisionFact := &recovery.ParentDecisionFact{ApprovalID: approval.ApprovalID, EpisodeID: episodeID, Decision: recovery.Approve, ActorRef: "parent:mysql", OccurredAt: now, FactsRef: "parent-decision://mysql-s5"}
+	if err := decisionFact.RefreshPayloadHash(); err != nil {
+		t.Fatal(err)
+	}
 	rc.TriggerEventID = "mysql-s5-parent"
 	rc.RefreshPayloadHash()
 	after := current

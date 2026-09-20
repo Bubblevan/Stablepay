@@ -70,7 +70,7 @@ func (s *InMemoryStore) SaveParentApprovalRequest(ctx context.Context, value *re
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.parentApprovals[value.ApprovalID]; ok {
-		if reflect.DeepEqual(existing, value) {
+		if existing.PayloadHash == value.PayloadHash && existing.EpisodeID == value.EpisodeID {
 			return nil
 		}
 		return ErrFactConflict
@@ -100,7 +100,7 @@ func (s *InMemoryStore) SaveParentDecision(ctx context.Context, value *recovery.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.parentDecisions[value.ApprovalID]; ok {
-		if reflect.DeepEqual(existing, value) {
+		if existing.EpisodeID == value.EpisodeID && existing.Decision == value.Decision && existing.ActorRef == value.ActorRef && existing.FactsRef == value.FactsRef {
 			return nil
 		}
 		return ErrParentDecisionConflict
@@ -175,6 +175,14 @@ func (s *InMemoryStore) CommitRecoveryTransition(ctx context.Context, transition
 			return err
 		}
 	}
+	if transition.CandidateSet != nil {
+		if err := transition.CandidateSet.Validate(); err != nil {
+			return err
+		}
+		if transition.CandidateSet.EpisodeID != transition.EpisodeID || transition.CandidateSet.RequestID != transition.NextEpisode.RequestID || transition.CandidateSet.Generation != transition.NextEpisode.DiscoveryGeneration {
+			return ErrCandidateSetConflict
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.commitRecoveryLocked(transition)
@@ -203,14 +211,33 @@ func (s *InMemoryStore) commitRecoveryLocked(t RecoveryTransition) error {
 		// Recovery is one current durable context; updates replace the same id.
 		return ErrRecoveryConflict
 	}
+	if t.CandidateSet != nil {
+		if existing, ok := s.candidateSets[t.CandidateSet.CandidateSetID]; ok && existing.PayloadHash != t.CandidateSet.PayloadHash {
+			return ErrCandidateSetConflict
+		}
+	}
+	if t.ParentApproval != nil {
+		if existing, ok := s.parentApprovals[t.ParentApproval.ApprovalID]; ok {
+			if existing.PayloadHash != t.ParentApproval.PayloadHash || existing.EpisodeID != t.ParentApproval.EpisodeID {
+				return ErrFactConflict
+			}
+		}
+	}
 	if len(s.events[t.EpisodeID])+1 != int(t.Event.Sequence) {
 		return ErrEventSequenceConflict
 	}
 	s.episodes[t.EpisodeID] = t.NextEpisode.Clone()
+	if t.CandidateSet != nil {
+		if _, exists := s.candidateSets[t.CandidateSet.CandidateSetID]; !exists {
+			s.candidateSets[t.CandidateSet.CandidateSetID] = t.CandidateSet.Clone()
+		}
+	}
 	s.recoveryContexts[t.RecoveryContext.RecoveryID] = t.RecoveryContext.Clone()
 	s.recoveryByEpisode[t.EpisodeID] = t.RecoveryContext.RecoveryID
 	if t.ParentApproval != nil {
-		s.parentApprovals[t.ParentApproval.ApprovalID] = t.ParentApproval.Clone()
+		if _, exists := s.parentApprovals[t.ParentApproval.ApprovalID]; !exists {
+			s.parentApprovals[t.ParentApproval.ApprovalID] = t.ParentApproval.Clone()
+		}
 	}
 	s.events[t.EpisodeID] = append(s.events[t.EpisodeID], t.Event.Clone())
 	return nil
@@ -248,7 +275,7 @@ func (s *InMemoryStore) CommitParentDecision(ctx context.Context, t ParentDecisi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.parentDecisions[t.Decision.ApprovalID]; ok {
-		if reflect.DeepEqual(existing, t.Decision) {
+		if existing.EpisodeID == t.Decision.EpisodeID && existing.Decision == t.Decision.Decision && existing.ActorRef == t.Decision.ActorRef && existing.FactsRef == t.Decision.FactsRef {
 			return ErrIdempotentReplay
 		}
 		return ErrParentDecisionConflict
