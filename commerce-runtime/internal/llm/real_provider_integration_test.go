@@ -24,7 +24,7 @@ func TestRealLLMNetworkProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	input, err := BuildDecisionContext(ContextInput{Episode: &episode.CommerceEpisode{EpisodeID: "real-llm-integration", RequestID: "real-llm-integration", State: episode.StateRecovering, DeadlineAt: now.Add(10 * time.Minute), Version: 2, Budget: episode.BudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 1000, AvailableBudget: 1000, RefundReusable: true}}, AllowedActions: []trace.ActionType{trace.ActionStop, trace.ActionAskParent}, Recovery: &recovery.RecoveryContext{RecoveryID: "recovery:real-llm-integration", EpisodeID: "real-llm-integration", ReasonCode: recovery.ReasonBudgetInsufficient, FactsRef: "recovery://real-llm-integration", PayloadHash: "sha256:real-llm"}})
+	input, err := BuildDecisionContext(ContextInput{Episode: &episode.CommerceEpisode{EpisodeID: "real-llm-integration", RequestID: "real-llm-integration", State: episode.StateRecovering, DeadlineAt: now.Add(10 * time.Minute), Version: 2, Budget: episode.BudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 1000, AvailableBudget: 1000, RefundReusable: true}}, AllowedActions: []trace.ActionType{trace.ActionStop, trace.ActionAskParent}, Recovery: &recovery.RecoveryContext{RecoveryID: "recovery:real-llm-integration", EpisodeID: "real-llm-integration", ReasonCode: recovery.ReasonBudgetInsufficient, FactsRef: "recovery://real-llm-integration", PayloadHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}})
 	if err != nil {
 		t.Fatal(err)
 	}
