@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sort"
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/episode"
@@ -222,6 +223,23 @@ func (s *Store) GetParentApprovalRequest(ctx context.Context, id string) (*recov
 		return nil, e
 	}
 	return modelToParentApproval(m)
+}
+
+func (s *Store) ListParentApprovalRequests(ctx context.Context, episodeID string) ([]*recovery.ParentApprovalRequest, error) {
+	var rows []ParentApprovalRequestModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", episodeID).Order("created_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*recovery.ParentApprovalRequest, 0, len(rows))
+	for _, row := range rows {
+		value, err := modelToParentApproval(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
 }
 func (s *Store) SaveParentDecision(ctx context.Context, v *recovery.ParentDecisionFact) error {
 	m, e := parentDecisionToModel(v)

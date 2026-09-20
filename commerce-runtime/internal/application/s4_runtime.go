@@ -848,6 +848,15 @@ func trustedQuoteFromRequirement(value invocation.PaymentRequirementFact) Truste
 	return TrustedPaymentQuote{MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID, QuoteHash: value.CanonicalQuoteHash, AmountMinor: value.BusinessAmountMinor, Currency: value.Currency, RequesterDID: "", ExpiresAt: value.ExpiresAt, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, PaymentRequirementRef: value.FactsRef}
 }
 
+// TrustedQuoteFromPaymentRequirement exposes the already validated x402 fact
+// to the episode runner. The runner may orchestrate this fact, but it cannot
+// manufacture or alter a payment quote outside the S4 parsing boundary.
+func TrustedQuoteFromPaymentRequirement(value invocation.PaymentRequirementFact, requesterDID string) TrustedPaymentQuote {
+	quote := trustedQuoteFromRequirement(value)
+	quote.RequesterDID = strings.TrimSpace(requesterDID)
+	return quote
+}
+
 func policyAsset(policy SettlementPolicy, currency string) (string, bool) {
 	if policy.Assets == nil {
 		return "", false

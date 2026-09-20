@@ -717,6 +717,23 @@ func (s *Store) Get(ctx context.Context, episodeID string) (*episode.CommerceEpi
 	return modelToEpisode(row)
 }
 
+func (s *Store) ListRunnableEpisodes(ctx context.Context) ([]*episode.CommerceEpisode, error) {
+	var rows []EpisodeModel
+	terminalStates := []string{string(episode.StateFulfilled), string(episode.StateFailed), string(episode.StateBlocked), string(episode.StateAborted), string(episode.StateExpired), string(episode.StateDisputed)}
+	if err := s.db.WithContext(ctx).Where("state NOT IN ?", terminalStates).Order("created_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*episode.CommerceEpisode, 0, len(rows))
+	for _, row := range rows {
+		value, err := modelToEpisode(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
 func (s *Store) FindByRequestID(ctx context.Context, requestID string) (*episode.CommerceEpisode, error) {
 	var row EpisodeModel
 	err := s.db.WithContext(ctx).Where("request_id = ?", requestID).First(&row).Error

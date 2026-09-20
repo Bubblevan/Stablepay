@@ -340,6 +340,22 @@ func (s *InMemoryStore) Get(ctx context.Context, episodeID string) (*episode.Com
 	return value.Clone(), nil
 }
 
+func (s *InMemoryStore) ListRunnableEpisodes(ctx context.Context) ([]*episode.CommerceEpisode, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*episode.CommerceEpisode, 0)
+	for _, value := range s.episodes {
+		if value != nil && !episode.IsTerminal(value.State) {
+			result = append(result, value.Clone())
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
 func (s *InMemoryStore) FindByRequestID(ctx context.Context, requestID string) (*episode.CommerceEpisode, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err

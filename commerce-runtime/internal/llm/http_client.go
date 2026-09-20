@@ -52,7 +52,7 @@ func NewOpenAICompatibleClient(baseURL, apiKey, model string, client HTTPDoer) (
 
 func NewConfiguredClient(provider, baseURL, apiKey, model string, client HTTPDoer) (LLMClient, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openai", "openai-compatible", "compatible", "http":
+	case "deepseek", "openai", "openai-compatible", "compatible", "http":
 		return NewOpenAICompatibleClient(baseURL, apiKey, model, client)
 	default:
 		return nil, fmt.Errorf("%w: unsupported LLM_PROVIDER", ErrLLMUnavailable)

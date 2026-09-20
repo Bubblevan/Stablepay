@@ -46,6 +46,13 @@ type EpisodeRepository interface {
 	UpdateOptimistic(ctx context.Context, episodeID string, expectedVersion uint64, next *episode.CommerceEpisode) error
 }
 
+// RunnableEpisodeLister is the restart surface used by the production
+// runner. It intentionally returns only persisted projections; no in-memory
+// workflow cursor is authoritative.
+type RunnableEpisodeLister interface {
+	ListRunnableEpisodes(context.Context) ([]*episode.CommerceEpisode, error)
+}
+
 type EpisodeEventRepository interface {
 	Append(ctx context.Context, value *episode.EpisodeEvent) error
 	ListByEpisode(ctx context.Context, episodeID string) ([]*episode.EpisodeEvent, error)

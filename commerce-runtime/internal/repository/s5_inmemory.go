@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
@@ -89,6 +90,22 @@ func (s *InMemoryStore) GetParentApprovalRequest(ctx context.Context, id string)
 		return nil, ErrNotFound
 	}
 	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) ListParentApprovalRequests(ctx context.Context, episodeID string) ([]*recovery.ParentApprovalRequest, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*recovery.ParentApprovalRequest, 0)
+	for _, value := range s.parentApprovals {
+		if value != nil && value.EpisodeID == episodeID {
+			result = append(result, value.Clone())
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
 }
 func (s *InMemoryStore) SaveParentDecision(ctx context.Context, value *recovery.ParentDecisionFact) error {
 	if err := contextErr(ctx); err != nil {

@@ -2,24 +2,42 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/stablepay/commerce-runtime/config"
-	mysqlrepo "github.com/stablepay/commerce-runtime/internal/infrastructure/mysql"
+	"github.com/stablepay/commerce-runtime/internal/api"
+	"github.com/stablepay/commerce-runtime/internal/composition"
 )
 
 func main() {
 	cfg := config.FromEnv()
-	if cfg.MySQLDSN == "" {
-		log.Println("commerce-runtime S1 domain module ready; set COMMERCE_RUNTIME_MYSQL_DSN to run MySQL migrations")
-		return
-	}
-	db, err := mysqlrepo.Open(cfg.MySQLDSN)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	root, err := composition.NewProduction(ctx, cfg)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("commerce-runtime composition failed: %v", err)
 	}
-	if err := mysqlrepo.AutoMigrate(context.Background(), db); err != nil {
-		log.Fatal(err)
+	defer root.Close()
+	if err := root.Runner.ResumePersisted(ctx); err != nil {
+		log.Printf("commerce-runtime persisted episode resume scan unavailable: %v", err)
 	}
-	log.Printf("commerce-runtime persistence ready (%s)", cfg.RuntimeVersion)
+	handler := api.NewServer(root.Runtime, root.Store, root.Runner, api.AuthConfig{Token: cfg.APIToken, AllowInsecure: cfg.AllowInsecure}, root.Ready)
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 120 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+	log.Printf("commerce-runtime S10 listening on %s (version=%s)", cfg.HTTPAddr, cfg.RuntimeVersion)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("commerce-runtime HTTP server failed: %v", err)
+	}
 }
