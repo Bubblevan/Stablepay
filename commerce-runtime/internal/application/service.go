@@ -21,6 +21,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/llm"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 	"github.com/stablepay/commerce-runtime/internal/validator"
@@ -44,6 +45,8 @@ type Service struct {
 	llmProvider          *llm.LLMDecisionProvider
 	evidenceRetriever    evidence.Retriever
 	allowRuleFallback    bool
+	memoryStore          memory.MemoryStore
+	memoryProjector      *memory.Projector
 }
 
 // SettlementPolicy binds merchant challenges to the configured payment
@@ -148,6 +151,30 @@ func WithRuleRecoveryFallback(enabled bool) Option {
 	return func(s *Service) { s.allowRuleFallback = enabled }
 }
 
+// WithMemoryStore enables S7 derived-memory retrieval and post-terminal
+// projection. The underlying runtime store must also implement memory's
+// authoritative EpisodeSource surface; otherwise callers can still inject a
+// projector explicitly for controlled fixtures.
+func WithMemoryStore(store memory.MemoryStore) Option {
+	return func(s *Service) {
+		if store == nil {
+			return
+		}
+		s.memoryStore = store
+		if source, ok := s.store.(memory.EpisodeSource); ok {
+			s.memoryProjector = memory.NewProjector(source, store, memory.WithProjectorClock(s.clock))
+		}
+	}
+}
+
+func WithMemoryProjector(projector *memory.Projector) Option {
+	return func(s *Service) {
+		if projector != nil {
+			s.memoryProjector = projector
+		}
+	}
+}
+
 func NewService(store repository.TransitionStore, options ...Option) *Service {
 	service := &Service{
 		store:                store,
@@ -162,6 +189,11 @@ func NewService(store repository.TransitionStore, options ...Option) *Service {
 	}
 	for _, option := range options {
 		option(service)
+	}
+	if service.memoryStore != nil {
+		if source, ok := service.store.(memory.EpisodeSource); ok && service.memoryProjector == nil {
+			service.memoryProjector = memory.NewProjector(source, service.memoryStore, memory.WithProjectorClock(service.clock))
+		}
 	}
 	return service
 }
@@ -502,7 +534,11 @@ func (s *Service) CommitRuntimeAction(ctx context.Context, request RuntimeAction
 		}
 		return CommitResult{Episode: latest, Event: event, Replayed: true}, nil
 	}
-	return CommitResult{Episode: next, Event: event}, nil
+	result := CommitResult{Episode: next, Event: event}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 // CommitProposal is the only write path for proposal-driven state changes.
@@ -563,8 +599,16 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		return CommitResult{}, err
 	}
 	knownEvidence := s.knownProposalEvidence(ctx, current, request.Proposal, events)
+	knownMemory := map[string]struct{}(nil)
+	if len(request.Proposal.MemoryRefs) > 0 {
+		contextValue, contextErr := s.BuildDecisionContext(ctx, S6DecisionRequest{EpisodeID: current.EpisodeID})
+		if contextErr != nil {
+			return CommitResult{}, contextErr
+		}
+		knownMemory = llm.ContextMemoryRefs(contextValue)
+	}
 	now := s.clock().UTC()
-	guardResult, err := s.guard.Evaluate(current, request.Proposal, knownEvidence, request.Observation, now)
+	guardResult, err := s.guard.EvaluateWithMemory(current, request.Proposal, knownEvidence, knownMemory, request.Observation, now)
 	if err != nil {
 		// The idempotency precheck and the projection read are intentionally
 		// separate for throughput. If the winning transaction commits between
@@ -654,7 +698,7 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		s.idGenerator("evt"), current.EpisodeID, current.Version,
 		now, current.State, request.Action, request.Observation,
 		trace.Decision{ProposedAction: request.Proposal.ProposedAction, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale,
-			CandidateSetID: request.Proposal.CandidateSetID, Target: eventTarget, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)},
+			CandidateSetID: request.Proposal.CandidateSetID, Target: eventTarget, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...), MemoryRefs: append([]string(nil), request.Proposal.MemoryRefs...)},
 		guardResult.Verdict, next.State, request.Actor, request.TraceID, s.runtimeVersion,
 	)
 	if err != nil {
@@ -679,7 +723,11 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 		}
 		return CommitResult{}, err
 	}
-	return CommitResult{Episode: next, Event: event}, nil
+	result := CommitResult{Episode: next, Event: event}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 // Payment, budget and entitlement facts are committed by the deterministic
@@ -714,7 +762,15 @@ func (s *Service) validateRecoveryProposal(ctx context.Context, current *episode
 	if err != nil {
 		return decision.GuardResult{}, err
 	}
-	return s.guard.ValidateRecoveryProposal(current, proposal, s.knownProposalEvidence(ctx, current, proposal, events), observation, s.clock().UTC())
+	knownMemory := map[string]struct{}(nil)
+	if len(proposal.MemoryRefs) > 0 {
+		contextValue, contextErr := s.BuildDecisionContext(ctx, S6DecisionRequest{EpisodeID: current.EpisodeID})
+		if contextErr != nil {
+			return decision.GuardResult{}, contextErr
+		}
+		knownMemory = llm.ContextMemoryRefs(contextValue)
+	}
+	return s.guard.ValidateRecoveryProposalWithMemory(current, proposal, s.knownProposalEvidence(ctx, current, proposal, events), knownMemory, observation, s.clock().UTC())
 }
 
 func (s *Service) replayIfCommitted(ctx context.Context, episodeID string, request CommitRequest) (CommitResult, error) {
@@ -734,6 +790,23 @@ func (s *Service) replayIfCommitted(ctx context.Context, episodeID string, reque
 
 func (s *Service) GetEpisode(ctx context.Context, episodeID string) (*episode.CommerceEpisode, error) {
 	return s.store.Get(ctx, episodeID)
+}
+
+// ProjectEpisodeMemory is an explicit rebuild/replay hook. It is safe to run
+// after a crash between the authoritative terminal commit and derived memory.
+func (s *Service) ProjectEpisodeMemory(ctx context.Context, episodeID string) ([]memory.MemoryMutation, error) {
+	if s == nil || s.memoryProjector == nil {
+		return nil, repository.ErrRepositoryUnavailable
+	}
+	return s.memoryProjector.ProjectEpisode(ctx, episodeID)
+}
+
+func (s *Service) projectTerminalMemory(ctx context.Context, value *episode.CommerceEpisode) error {
+	if s == nil || s.memoryProjector == nil || value == nil || !episode.IsTerminal(value.State) {
+		return nil
+	}
+	_, err := s.memoryProjector.ProjectEpisode(ctx, value.EpisodeID)
+	return err
 }
 
 func (s *Service) ListEvents(ctx context.Context, episodeID string) ([]*episode.EpisodeEvent, error) {

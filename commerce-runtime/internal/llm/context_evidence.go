@@ -12,6 +12,7 @@ import (
 // which was not part of the exact context sent to the model. Persistence alone
 // never makes evidence authoritative for a proposal.
 var ErrEvidenceOutsideContext = errors.New("proposal evidence is outside the decision context")
+var ErrMemoryOutsideContext = errors.New("proposal memory is outside the decision context")
 
 // ValidateProposalEvidenceAgainstContext is the application handoff boundary
 // for model-generated proposals. It deliberately derives the allowlist from
@@ -28,6 +29,25 @@ func ValidateProposalEvidenceAgainstContext(ctx DecisionContext, proposal decisi
 		ref = strings.TrimSpace(ref)
 		if _, ok := known[ref]; !ok {
 			return fmt.Errorf("%w: %s", ErrEvidenceOutsideContext, ref)
+		}
+	}
+	return nil
+}
+
+// ValidateProposalMemoryRefsAgainstContext is separate from evidence
+// validation so historical memory cannot be mistaken for runtime proof.
+func ValidateProposalMemoryRefsAgainstContext(ctx DecisionContext, proposal decision.DecisionProposal) error {
+	if err := ctx.Validate(); err != nil {
+		return err
+	}
+	if err := proposal.Validate(); err != nil {
+		return err
+	}
+	known := ContextMemoryRefs(ctx)
+	for _, ref := range proposal.MemoryRefs {
+		ref = strings.TrimSpace(ref)
+		if _, ok := known[ref]; !ok {
+			return fmt.Errorf("%w: %s", ErrMemoryOutsideContext, ref)
 		}
 	}
 	return nil
@@ -61,6 +81,19 @@ func ContextEvidenceRefs(ctx DecisionContext) map[string]struct{} {
 	}
 	for _, record := range ctx.RetrievedEvidence {
 		add(record.EvidenceRef, record.SourceHash, record.PayloadHash, record.ChunkHash)
+	}
+	return known
+}
+
+func ContextMemoryRefs(ctx DecisionContext) map[string]struct{} {
+	known := make(map[string]struct{}, len(ctx.RetrievedMemories)*2)
+	for _, record := range ctx.RetrievedMemories {
+		if strings.TrimSpace(record.FactsRef) != "" {
+			known[record.FactsRef] = struct{}{}
+		}
+		if strings.TrimSpace(record.MemoryID) != "" {
+			known["memory://"+record.MemoryID] = struct{}{}
+		}
 	}
 	return known
 }

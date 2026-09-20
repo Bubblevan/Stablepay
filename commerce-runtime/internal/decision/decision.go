@@ -22,6 +22,7 @@ type DecisionProposal struct {
 	Target               *ProposalTarget  `json:"target,omitempty"`
 	Rationale            string           `json:"rationale,omitempty"`
 	EvidenceRefs         []string         `json:"evidence_refs,omitempty"`
+	MemoryRefs           []string         `json:"memory_refs,omitempty"`
 	Confidence           float64          `json:"confidence,omitempty"`
 	ModelRef             string           `json:"model_ref,omitempty"`
 	ExpiresAt            time.Time        `json:"expires_at"`
@@ -43,6 +44,7 @@ var (
 	ErrFutureEventSequence       = errors.New("proposal references a future event sequence")
 	ErrStaleEventSequence        = errors.New("proposal references a stale event sequence")
 	ErrUnknownEvidenceReference  = errors.New("proposal references unknown evidence")
+	ErrUnknownMemoryReference    = errors.New("proposal references unknown memory")
 	ErrActionNotAllowed          = errors.New("proposed action is not allowed in the current state")
 	ErrProposalAfterTerminal     = errors.New("proposal cannot be committed after terminal state")
 	ErrAttemptLimit              = errors.New("episode attempt limit has been reached")
@@ -73,6 +75,17 @@ func (p DecisionProposal) Validate() error {
 		}
 		seen[ref] = struct{}{}
 	}
+	seenMemory := make(map[string]struct{}, len(p.MemoryRefs))
+	for _, ref := range p.MemoryRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || len(ref) > 512 || !strings.HasPrefix(ref, "memory://") {
+			return ErrInvalidProposal
+		}
+		if _, ok := seenMemory[ref]; ok {
+			return ErrInvalidProposal
+		}
+		seenMemory[ref] = struct{}{}
+	}
 	return nil
 }
 
@@ -88,7 +101,18 @@ func NewRuntimeGuard() RuntimeGuard { return RuntimeGuard{} }
 
 // Evaluate verifies proposal authority without allowing the proposal to select
 // an arbitrary next state. knownEvidenceRefs is built from persisted events.
-func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
+func (guard RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
+	return guard.evaluate(current, proposal, knownEvidenceRefs, nil, observation, now)
+}
+
+// EvaluateWithMemory keeps memory references inside the same deterministic
+// guard boundary while treating them as advisory context. A memory reference
+// can be accepted only when it was present in this exact decision context.
+func (guard RuntimeGuard) EvaluateWithMemory(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs, knownMemoryRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
+	return guard.evaluate(current, proposal, knownEvidenceRefs, knownMemoryRefs, observation, now)
+}
+
+func (RuntimeGuard) evaluate(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs, knownMemoryRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
 	if current == nil {
 		return GuardResult{}, ErrInvalidProposal
 	}
@@ -126,6 +150,17 @@ func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal Decision
 		}
 	}
 	checks = append(checks, trace.Check("evidence_references", true, "all proposal evidence is known"))
+	for _, ref := range proposal.MemoryRefs {
+		if knownMemoryRefs == nil {
+			return addFailure("memory_reference", fmt.Errorf("%w: %s", ErrUnknownMemoryReference, ref))
+		}
+		if _, ok := knownMemoryRefs[ref]; !ok {
+			return addFailure("memory_reference", fmt.Errorf("%w: %s", ErrUnknownMemoryReference, ref))
+		}
+	}
+	if len(proposal.MemoryRefs) > 0 {
+		checks = append(checks, trace.Check("memory_references", true, "all proposal memory refs are present in the decision context"))
+	}
 	next, allowed := episode.StateForAction(current.State, proposal.ProposedAction, observation.Type)
 	if !allowed {
 		return addFailure("state_action", fmt.Errorf("%w: %s in %s", ErrActionNotAllowed, proposal.ProposedAction, current.State))
@@ -160,6 +195,13 @@ func (guard RuntimeGuard) ValidateRecoveryProposal(current *episode.CommerceEpis
 		return GuardResult{}, ErrActionNotAllowed
 	}
 	return guard.Evaluate(current, proposal, knownEvidenceRefs, observation, now)
+}
+
+func (guard RuntimeGuard) ValidateRecoveryProposalWithMemory(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs, knownMemoryRefs map[string]struct{}, observation trace.Observation, now time.Time) (GuardResult, error) {
+	if !ProviderAllowedAction(proposal.ProposedAction) {
+		return GuardResult{}, ErrActionNotAllowed
+	}
+	return guard.EvaluateWithMemory(current, proposal, knownEvidenceRefs, knownMemoryRefs, observation, now)
 }
 
 // EvaluateMerchantSelection adds the catalog boundary to the generic guard.
@@ -213,6 +255,54 @@ func (guard RuntimeGuard) EvaluateMerchantSelection(current *episode.CommerceEpi
 		trace.Check("candidate_set_scope", true, "candidate set belongs to the current episode and request"),
 		trace.Check("candidate_membership", true, "selected merchant capability is an eligible candidate"),
 		trace.Check("catalog_snapshot", true, "selection is bound to the immutable catalog snapshot"))
+	result.Verdict.Checks = checks
+	result.SelectedCandidate = &candidate
+	return result, nil
+}
+
+func (guard RuntimeGuard) EvaluateMerchantSelectionWithMemory(current *episode.CommerceEpisode, proposal DecisionProposal, knownEvidenceRefs, knownMemoryRefs map[string]struct{}, observation trace.Observation, now time.Time, candidateSet *catalog.CandidateSet) (GuardResult, error) {
+	result, err := guard.EvaluateWithMemory(current, proposal, knownEvidenceRefs, knownMemoryRefs, observation, now)
+	if err != nil {
+		return GuardResult{}, err
+	}
+	if proposal.ProposedAction != trace.ActionSelectMerchant {
+		return GuardResult{}, ErrActionNotAllowed
+	}
+	// The catalog checks are identical to EvaluateMerchantSelection; keep the
+	// memory-aware entry point explicit so callers cannot accidentally bypass
+	// memory reference validation when adding selection flows.
+	return guard.evaluateMerchantSelectionFacts(current, proposal, result, now, candidateSet)
+}
+
+func (guard RuntimeGuard) evaluateMerchantSelectionFacts(current *episode.CommerceEpisode, proposal DecisionProposal, result GuardResult, now time.Time, candidateSet *catalog.CandidateSet) (GuardResult, error) {
+	checks := append([]trace.RuntimeCheck(nil), result.Verdict.Checks...)
+	fail := func(name string, failure error) (GuardResult, error) {
+		verdict := trace.RuntimeVerdict{Allowed: false, Checks: append(checks, trace.Check(name, false, failure.Error())), Reason: failure.Error()}
+		return GuardResult{Verdict: verdict}, failure
+	}
+	if strings.TrimSpace(proposal.CandidateSetID) == "" || candidateSet == nil {
+		return fail("candidate_set_required", ErrCandidateSetRequired)
+	}
+	if err := candidateSet.ValidateAt(now); err != nil {
+		return fail("candidate_set_validity", err)
+	}
+	if candidateSet.EpisodeID != current.EpisodeID || candidateSet.RequestID != current.RequestID || candidateSet.CandidateSetID != strings.TrimSpace(proposal.CandidateSetID) {
+		return fail("candidate_set_scope", ErrCandidateSetMismatch)
+	}
+	if proposal.Target == nil || strings.TrimSpace(proposal.Target.MerchantDID) == "" || strings.TrimSpace(proposal.Target.CapabilityID) == "" {
+		return fail("selection_target", ErrInvalidProposal)
+	}
+	candidate, ok := candidateSet.FindCandidate(proposal.Target.MerchantDID, proposal.Target.CapabilityID)
+	if !ok {
+		return fail("candidate_membership", ErrMerchantNotInCandidateSet)
+	}
+	if now.Before(candidate.CatalogValidFrom) || !now.Before(candidate.CatalogValidUntil) {
+		return fail("catalog_validity", catalog.ErrCatalogSnapshotExpired)
+	}
+	if proposal.Target.CatalogVersion != "" && proposal.Target.CatalogVersion != candidate.CatalogVersion || proposal.Target.CatalogSnapshotHash != "" && proposal.Target.CatalogSnapshotHash != candidate.CatalogSnapshotHash || proposal.Target.CatalogSnapshotRef != "" && proposal.Target.CatalogSnapshotRef != candidate.CatalogSnapshotRef {
+		return fail("catalog_snapshot", ErrCatalogSnapshotMismatch)
+	}
+	checks = append(checks, trace.Check("candidate_set_scope", true, "candidate set belongs to the current episode and request"), trace.Check("candidate_membership", true, "selected merchant capability is an eligible candidate"), trace.Check("catalog_snapshot", true, "selection is bound to the immutable catalog snapshot"))
 	result.Verdict.Checks = checks
 	result.SelectedCandidate = &candidate
 	return result, nil

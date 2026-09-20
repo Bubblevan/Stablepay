@@ -87,6 +87,7 @@ func (e *EpisodeEvent) Clone() *EpisodeEvent {
 	copy := *e
 	copy.RuntimeVerdict.Checks = append([]trace.RuntimeCheck(nil), e.RuntimeVerdict.Checks...)
 	copy.Decision.EvidenceRefs = append([]string(nil), e.Decision.EvidenceRefs...)
+	copy.Decision.MemoryRefs = append([]string(nil), e.Decision.MemoryRefs...)
 	if e.Decision.Target != nil {
 		target := *e.Decision.Target
 		copy.Decision.Target = &target

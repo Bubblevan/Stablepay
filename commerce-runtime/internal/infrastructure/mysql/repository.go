@@ -317,6 +317,7 @@ type ModelDecisionTraceModel struct {
 	ModelRef           string    `gorm:"column:model_ref;type:varchar(128);not null"`
 	ContextHash        string    `gorm:"column:context_hash;type:char(71);not null"`
 	EvidenceRefs       []byte    `gorm:"column:evidence_refs;type:json"`
+	MemoryRefs         []byte    `gorm:"column:memory_refs;type:json"`
 	RequestStartedAt   time.Time `gorm:"column:request_started_at;not null"`
 	ResponseReceivedAt time.Time `gorm:"column:response_received_at;not null"`
 	RawResponseHash    string    `gorm:"column:raw_response_hash;type:char(71)"`
@@ -345,7 +346,23 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{})
+	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}); err != nil {
+		return err
+	}
+	// GORM's generic MySQL time mapping may retain an older DATETIME(3)
+	// column created before S7. Memory payload hashes include timestamps, so
+	// the durable schema must preserve microseconds for round-trip integrity.
+	if err := db.WithContext(ctx).Exec(`
+ALTER TABLE memory_records
+    MODIFY COLUMN first_observed_at DATETIME(6) NOT NULL,
+    MODIFY COLUMN last_observed_at DATETIME(6) NOT NULL,
+    MODIFY COLUMN valid_from DATETIME(6) NOT NULL,
+    MODIFY COLUMN valid_until DATETIME(6) NULL,
+    MODIFY COLUMN created_at DATETIME(6) NOT NULL,
+    MODIFY COLUMN updated_at DATETIME(6) NOT NULL`).Error; err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Exec(`ALTER TABLE memory_observations MODIFY COLUMN observed_at DATETIME(6) NOT NULL`).Error
 }
 
 func evidenceRecordToModel(value *evidence.EvidenceRecord) (*EvidenceRecordModel, error) {
@@ -371,13 +388,22 @@ func modelDecisionTraceToModel(value *llm.ModelDecisionTrace) (*ModelDecisionTra
 	if err != nil {
 		return nil, err
 	}
-	return &ModelDecisionTraceModel{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, EvidenceRefs: refs, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: string(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}, nil
+	memoryRefs, err := json.Marshal(value.MemoryRefs)
+	if err != nil {
+		return nil, err
+	}
+	return &ModelDecisionTraceModel{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, EvidenceRefs: refs, MemoryRefs: memoryRefs, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: string(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}, nil
 }
 
 func modelToModelDecisionTrace(value ModelDecisionTraceModel) (*llm.ModelDecisionTrace, error) {
 	traceValue := &llm.ModelDecisionTrace{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: llm.TraceStatus(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}
 	if len(value.EvidenceRefs) > 0 {
 		if err := json.Unmarshal(value.EvidenceRefs, &traceValue.EvidenceRefs); err != nil {
+			return nil, err
+		}
+	}
+	if len(value.MemoryRefs) > 0 {
+		if err := json.Unmarshal(value.MemoryRefs, &traceValue.MemoryRefs); err != nil {
 			return nil, err
 		}
 	}

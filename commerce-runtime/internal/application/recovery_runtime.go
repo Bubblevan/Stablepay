@@ -318,7 +318,7 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	if err := next.ApplyCommittedState(episode.StateInvoking, now, ""); err != nil {
 		return CommitResult{}, err
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionSwitchMerchant, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: set.CandidateSetID, Target: &trace.Target{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true, Checks: []trace.RuntimeCheck{trace.Check("recovery_candidate", true, "unattempted candidate")}}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionSwitchMerchant, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: set.CandidateSetID, Target: &trace.Target{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}, EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...), MemoryRefs: append([]string(nil), request.Proposal.MemoryRefs...)}, trace.RuntimeVerdict{Allowed: true, Checks: []trace.RuntimeCheck{trace.Check("recovery_candidate", true, "unattempted candidate")}}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -440,7 +440,7 @@ func (s *Service) Rediscover(ctx context.Context, request RediscoverRequest) (Co
 	if err = next.ApplyCommittedState(episode.StateDiscovering, now, ""); err != nil {
 		return CommitResult{}, err
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionRediscover, ProposalID: request.Proposal.ProposalID, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionRediscover, ProposalID: request.Proposal.ProposalID, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...), MemoryRefs: append([]string(nil), request.Proposal.MemoryRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -547,7 +547,7 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	if err = next.ApplyCommittedState(episode.StateAwaitingParent, now, ""); err != nil {
 		return CommitResult{}, err
 	}
-	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionAskParent, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State, request.Action, request.Observation, trace.Decision{ProposedAction: trace.ActionAskParent, ProposalID: request.Proposal.ProposalID, Reason: request.Proposal.Rationale, CandidateSetID: request.Proposal.CandidateSetID, Target: proposalTarget(request.Proposal.Target), EvidenceRefs: append([]string(nil), request.Proposal.EvidenceRefs...), MemoryRefs: append([]string(nil), request.Proposal.MemoryRefs...)}, trace.RuntimeVerdict{Allowed: true}, next.State, request.Actor, request.TraceID, s.runtimeVersion)
 	if err != nil {
 		return CommitResult{}, err
 	}

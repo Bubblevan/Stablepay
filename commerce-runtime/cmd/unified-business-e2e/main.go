@@ -128,6 +128,7 @@ func run(parent context.Context) error {
 		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Status: kitexPayment, Entitlement: verification}),
 		application.WithMerchantAdapter(adapters.NewHTTPMerchantAdapter(nil)),
 		application.WithPersistentEvidenceStore(store),
+		application.WithMemoryStore(store),
 	)
 	now := time.Now().UTC()
 	if err := seedUnifiedEvidence(ctx, store, now); err != nil {
@@ -339,6 +340,7 @@ func runUnifiedU2(parent context.Context) error {
 		application.WithMerchantAdapter(controlledMerchant),
 		application.WithLLMDecisionProvider(llm.NewLLMDecisionProvider(countingClient, llm.WithProviderName(providerName), llm.WithModelRef(model), llm.WithProviderTTL(2*time.Minute))),
 		application.WithPersistentEvidenceStore(store),
+		application.WithMemoryStore(store),
 	)
 	now := time.Now().UTC()
 	if err := seedUnifiedEvidence(ctx, store, now); err != nil {

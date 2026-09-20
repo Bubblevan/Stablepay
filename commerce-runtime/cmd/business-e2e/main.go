@@ -174,6 +174,7 @@ func run(parent context.Context) error {
 		application.WithMerchantAdapter(&controlledMerchant{inner: adapters.NewHTTPMerchantAdapter(nil), invalidFirst: true}),
 		application.WithLLMDecisionProvider(llm.NewLLMDecisionProvider(countingClient, llm.WithProviderName(providerName), llm.WithModelRef(model), llm.WithProviderTTL(2*time.Minute))),
 		application.WithPersistentEvidenceStore(store),
+		application.WithMemoryStore(store),
 	)
 	if err := seedEvidence(ctx, store, now); err != nil {
 		return fmt.Errorf("seed evidence: %w", err)

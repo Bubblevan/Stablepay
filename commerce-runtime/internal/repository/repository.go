@@ -11,6 +11,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/llm"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
@@ -113,6 +114,13 @@ type S6Store interface {
 	TransitionStore
 	EvidenceRepository
 	ModelDecisionTraceRepository
+}
+
+// MemoryStore is the S7 derived projection port. It is intentionally separate
+// from S2-S6 transactional stores so historical context cannot gain payment or
+// entitlement authority by interface composition.
+type MemoryStore interface {
+	memory.MemoryStore
 }
 
 // FinanceTransition is the local atomic boundary for a projection/event plus

@@ -15,6 +15,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/llm"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
@@ -47,6 +48,8 @@ type InMemoryStore struct {
 	budgetAmendments         map[string]*recovery.BudgetAmendment
 	evidenceRecords          map[string]*evidence.EvidenceRecord
 	modelDecisionTraces      map[string]*llm.ModelDecisionTrace
+	memoryRecords            map[string]*memory.MemoryRecord
+	memoryObservations       map[string]*memory.MemoryObservation
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -75,6 +78,8 @@ func NewInMemoryStore() *InMemoryStore {
 		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
 		evidenceRecords:          make(map[string]*evidence.EvidenceRecord),
 		modelDecisionTraces:      make(map[string]*llm.ModelDecisionTrace),
+		memoryRecords:            make(map[string]*memory.MemoryRecord),
+		memoryObservations:       make(map[string]*memory.MemoryObservation),
 	}
 }
 

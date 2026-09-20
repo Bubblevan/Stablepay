@@ -577,6 +577,9 @@ func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, exp
 		}
 		return PaymentExecutionResult{}, err
 	}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
+		return PaymentExecutionResult{}, err
+	}
 	return PaymentExecutionResult{Intent: &intentNext, Episode: next, Event: event, Outcome: outcome}, nil
 }
 
@@ -648,6 +651,9 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 		if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, eventKey); findErr == nil {
 			return PaymentExecutionResult{Intent: intent, Episode: current, Event: existing, Replayed: true}, nil
 		}
+		return PaymentExecutionResult{}, err
+	}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
 		return PaymentExecutionResult{}, err
 	}
 	return PaymentExecutionResult{Intent: intent, Episode: next, Event: event, Outcome: payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency}}, nil
@@ -743,6 +749,9 @@ func (s *Service) closePaymentIntent(ctx context.Context, intent *payment.Paymen
 		return PaymentExecutionResult{}, commitErr
 	}
 	result := PaymentExecutionResult{Intent: &intentNext, Episode: next, Event: event, Outcome: payment.PaymentOutcome{Status: payment.OutcomeFailed, IntentID: intent.IntentID, TxID: intent.TxID, TxHash: intent.TxHash, AmountMinor: intent.AmountMinor, Currency: intent.Currency, Reason: reason}}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
+		return result, err
+	}
 	return result, cause
 }
 

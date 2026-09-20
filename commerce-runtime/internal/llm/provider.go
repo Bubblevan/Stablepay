@@ -68,6 +68,7 @@ type ModelDecisionTrace struct {
 	ModelRef           string      `json:"model_ref"`
 	ContextHash        string      `json:"context_hash"`
 	EvidenceRefs       []string    `json:"evidence_refs,omitempty"`
+	MemoryRefs         []string    `json:"memory_refs,omitempty"`
 	RequestStartedAt   time.Time   `json:"request_started_at"`
 	ResponseReceivedAt time.Time   `json:"response_received_at"`
 	RawResponseHash    string      `json:"raw_response_hash,omitempty"`
@@ -81,6 +82,7 @@ type ModelDecisionTrace struct {
 
 func (t ModelDecisionTrace) Clone() *ModelDecisionTrace {
 	t.EvidenceRefs = append([]string(nil), t.EvidenceRefs...)
+	t.MemoryRefs = append([]string(nil), t.MemoryRefs...)
 	return &t
 }
 
@@ -188,7 +190,7 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 		return DecisionResult{}, err
 	}
 	started := p.clock().UTC()
-	traceValue := ModelDecisionTrace{TraceID: p.idGenerator("llm-trace"), EpisodeID: input.Episode.EpisodeID, Provider: p.providerName, ModelRef: p.modelRef, ContextHash: contextHash, EvidenceRefs: contextEvidenceRefs(input), RequestStartedAt: started, Status: TraceTransportError}
+	traceValue := ModelDecisionTrace{TraceID: p.idGenerator("llm-trace"), EpisodeID: input.Episode.EpisodeID, Provider: p.providerName, ModelRef: p.modelRef, ContextHash: contextHash, EvidenceRefs: contextEvidenceRefs(input), MemoryRefs: contextMemoryRefs(input), RequestStartedAt: started, Status: TraceTransportError}
 	var lastErr error
 	var raw []byte
 	for attempt := 0; attempt < p.maxAttempts; attempt++ {
@@ -274,6 +276,7 @@ type wireProposal struct {
 	CandidateSetID string                   `json:"candidate_set_id,omitempty"`
 	Target         *decision.ProposalTarget `json:"target,omitempty"`
 	EvidenceRefs   []string                 `json:"evidence_refs"`
+	MemoryRefs     []string                 `json:"memory_refs,omitempty"`
 	Rationale      string                   `json:"rationale"`
 	Confidence     float64                  `json:"confidence"`
 }
@@ -304,6 +307,19 @@ func validateWireProposal(w wireProposal) error {
 	}
 	if len(w.EvidenceRefs) == 0 || len(w.EvidenceRefs) > 16 {
 		return fmt.Errorf("%w: evidence_refs count", ErrInvalidModelOutput)
+	}
+	if len(w.MemoryRefs) > 16 {
+		return fmt.Errorf("%w: memory_refs count", ErrInvalidModelOutput)
+	}
+	seenMemory := make(map[string]struct{}, len(w.MemoryRefs))
+	for _, ref := range w.MemoryRefs {
+		if !strings.HasPrefix(strings.TrimSpace(ref), "memory://") || len(ref) > 512 {
+			return fmt.Errorf("%w: memory_ref", ErrInvalidModelOutput)
+		}
+		if _, ok := seenMemory[ref]; ok {
+			return fmt.Errorf("%w: duplicate memory_ref", ErrInvalidModelOutput)
+		}
+		seenMemory[ref] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(w.EvidenceRefs))
 	for _, ref := range w.EvidenceRefs {
@@ -350,7 +366,7 @@ func (p *LLMDecisionProvider) authoritativeProposal(input DecisionContext, wire 
 	if !expires.After(now) {
 		return decision.DecisionProposal{}, decision.ErrProposalExpired
 	}
-	proposal := decision.DecisionProposal{ProposalID: p.idGenerator("llm-proposal"), EpisodeID: input.Episode.EpisodeID, BasedOnEventSequence: input.CurrentEventSequence, ProposedAction: wire.ProposedAction, CandidateSetID: strings.TrimSpace(wire.CandidateSetID), Target: wire.Target, Rationale: strings.TrimSpace(wire.Rationale), EvidenceRefs: append([]string(nil), wire.EvidenceRefs...), Confidence: wire.Confidence, ModelRef: p.modelRef, CreatedAt: started, ExpiresAt: expires}
+	proposal := decision.DecisionProposal{ProposalID: p.idGenerator("llm-proposal"), EpisodeID: input.Episode.EpisodeID, BasedOnEventSequence: input.CurrentEventSequence, ProposedAction: wire.ProposedAction, CandidateSetID: strings.TrimSpace(wire.CandidateSetID), Target: wire.Target, Rationale: strings.TrimSpace(wire.Rationale), EvidenceRefs: append([]string(nil), wire.EvidenceRefs...), MemoryRefs: append([]string(nil), wire.MemoryRefs...), Confidence: wire.Confidence, ModelRef: p.modelRef, CreatedAt: started, ExpiresAt: expires}
 	if err := proposal.Validate(); err != nil {
 		return decision.DecisionProposal{}, err
 	}
@@ -367,6 +383,16 @@ func contextEvidenceRefs(input DecisionContext) []string {
 	}
 	if input.CandidateSet.FactsRef != "" {
 		refs = append(refs, input.CandidateSet.FactsRef, input.CandidateSet.PayloadHash)
+	}
+	return uniqueStrings(refs)
+}
+
+func contextMemoryRefs(input DecisionContext) []string {
+	refs := make([]string, 0, len(input.RetrievedMemories))
+	for _, record := range input.RetrievedMemories {
+		if strings.TrimSpace(record.FactsRef) != "" {
+			refs = append(refs, record.FactsRef)
+		}
 	}
 	return uniqueStrings(refs)
 }

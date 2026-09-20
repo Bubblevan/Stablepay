@@ -13,6 +13,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/llm"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
@@ -85,7 +86,25 @@ func (s *Service) BuildDecisionContext(ctx context.Context, request S6DecisionRe
 			}
 		}
 	}
-	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(current.State), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved})
+	var retrievedMemories []memory.MemoryRecord
+	if s.memoryStore != nil {
+		merchantDID := current.SelectedMerchantDID
+		capabilityID := current.SelectedCapabilityID
+		if recoveryContext != nil && merchantDID == "" {
+			merchantDID = recoveryContext.CurrentMerchantDID
+			capabilityID = recoveryContext.CurrentCapabilityID
+		}
+		values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: merchantDID, CapabilityID: capabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, Now: s.clock().UTC(), Limit: llm.MaxContextMemories})
+		if memoryErr != nil {
+			return llm.DecisionContext{}, memoryErr
+		}
+		for _, value := range values {
+			if value != nil {
+				retrievedMemories = append(retrievedMemories, *value.Clone())
+			}
+		}
+	}
+	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(current.State), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved, RetrievedMemories: retrievedMemories})
 }
 
 // ProposeRecoveryDecision invokes the configured LLM provider. It returns a
@@ -113,7 +132,7 @@ func (s *Service) ProposeRecoveryDecision(ctx context.Context, request S6Decisio
 		}
 		if result.Trace.Validate() != nil {
 			now := s.clock().UTC()
-			result.Trace = llm.ModelDecisionTrace{TraceID: "llm-error:" + current.EpisodeID + ":" + fmt.Sprint(current.Version), EpisodeID: current.EpisodeID, Provider: "llm", ModelRef: "configured", ContextHash: contextHashOrEmpty(contextValue), EvidenceRefs: fallbackEvidenceRefs(contextValue), RequestStartedAt: now, ResponseReceivedAt: now, Status: llm.TraceTransportError, ErrorCode: "LLM_UNAVAILABLE"}
+			result.Trace = llm.ModelDecisionTrace{TraceID: "llm-error:" + current.EpisodeID + ":" + fmt.Sprint(current.Version), EpisodeID: current.EpisodeID, Provider: "llm", ModelRef: "configured", ContextHash: contextHashOrEmpty(contextValue), EvidenceRefs: fallbackEvidenceRefs(contextValue), MemoryRefs: fallbackMemoryRefs(contextValue), RequestStartedAt: now, ResponseReceivedAt: now, Status: llm.TraceTransportError, ErrorCode: "LLM_UNAVAILABLE"}
 		}
 		if err := s.persistModelTrace(ctx, &result.Trace); err != nil {
 			return S6DecisionResult{}, err
@@ -149,6 +168,15 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
 		return CommitResult{}, result, evidenceErr
+	}
+	if memoryErr := llm.ValidateProposalMemoryRefsAgainstContext(result.Context, result.Proposal); memoryErr != nil {
+		rejected := result.Trace
+		rejected.TraceID = result.Trace.TraceID + ":memory-context"
+		rejected.Status = llm.TraceGuardRejected
+		rejected.ErrorCode = "CONTEXT_MEMORY_MISMATCH"
+		rejected.ResponseReceivedAt = s.clock().UTC()
+		_ = s.persistModelTrace(ctx, &rejected)
+		return CommitResult{}, result, memoryErr
 	}
 	key := "s6:" + result.Proposal.ProposalID
 	commit, commitErr := s.CommitProposal(ctx, CommitRequest{Proposal: result.Proposal, Action: trace.Action{Type: result.Proposal.ProposedAction, IdempotencyKey: key}, Actor: func() string {
@@ -195,7 +223,7 @@ func (s *Service) ruleFallback(ctx context.Context, contextValue llm.DecisionCon
 	}
 	proposal.ModelRef = "rule-recovery-fallback"
 	now := s.clock().UTC()
-	traceValue := llm.ModelDecisionTrace{TraceID: "rule-fallback:" + current.EpisodeID + ":" + fmt.Sprint(current.Version), EpisodeID: current.EpisodeID, Provider: "rule", ModelRef: "rule-recovery", ContextHash: contextHashOrEmpty(contextValue), EvidenceRefs: fallbackEvidenceRefs(contextValue), RequestStartedAt: now, ResponseReceivedAt: now, Status: llm.TraceFallback, ErrorCode: "LLM_UNAVAILABLE", FallbackReason: cause.Error()}
+	traceValue := llm.ModelDecisionTrace{TraceID: "rule-fallback:" + current.EpisodeID + ":" + fmt.Sprint(current.Version), EpisodeID: current.EpisodeID, Provider: "rule", ModelRef: "rule-recovery", ContextHash: contextHashOrEmpty(contextValue), EvidenceRefs: fallbackEvidenceRefs(contextValue), MemoryRefs: fallbackMemoryRefs(contextValue), RequestStartedAt: now, ResponseReceivedAt: now, Status: llm.TraceFallback, ErrorCode: "LLM_UNAVAILABLE", FallbackReason: cause.Error()}
 	if err := s.persistModelTrace(ctx, &traceValue); err != nil {
 		return S6DecisionResult{}, err
 	}
@@ -241,6 +269,16 @@ func fallbackEvidenceRefs(value llm.DecisionContext) []string {
 	return uniqueS6Strings(refs)
 }
 
+func fallbackMemoryRefs(value llm.DecisionContext) []string {
+	refs := make([]string, 0, len(value.RetrievedMemories))
+	for _, record := range value.RetrievedMemories {
+		if strings.TrimSpace(record.FactsRef) != "" {
+			refs = append(refs, record.FactsRef)
+		}
+	}
+	return uniqueS6Strings(refs)
+}
+
 func contextHashOrEmpty(value llm.DecisionContext) string {
 	hash, _ := value.Hash()
 	return hash
@@ -268,6 +306,9 @@ func errorCodeForS6(err error) string {
 	}
 	if errors.Is(err, decision.ErrUnknownEvidenceReference) {
 		return "UNKNOWN_EVIDENCE"
+	}
+	if errors.Is(err, decision.ErrUnknownMemoryReference) {
+		return "UNKNOWN_MEMORY"
 	}
 	if errors.Is(err, decision.ErrMerchantNotInCandidateSet) {
 		return "HALLUCINATED_TARGET"

@@ -84,6 +84,7 @@ type Decision struct {
 	CandidateSetID string     `json:"candidate_set_id,omitempty"`
 	Target         *Target    `json:"target,omitempty"`
 	EvidenceRefs   []string   `json:"evidence_refs,omitempty"`
+	MemoryRefs     []string   `json:"memory_refs,omitempty"`
 }
 
 type Target struct {

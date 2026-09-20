@@ -14,6 +14,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/evidence"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
@@ -21,6 +22,7 @@ import (
 const (
 	MaxContextCandidates = 32
 	MaxContextEvidence   = 16
+	MaxContextMemories   = 16
 	MaxContextActions    = 16
 )
 
@@ -117,6 +119,7 @@ type DecisionContext struct {
 	Budget               BudgetSummary             `json:"budget"`
 	LatestValidation     *ValidationSummary        `json:"latest_validation,omitempty"`
 	RetrievedEvidence    []evidence.EvidenceRecord `json:"retrieved_evidence,omitempty"`
+	RetrievedMemories    []memory.MemoryRecord     `json:"retrieved_memories,omitempty"`
 }
 
 type ContextInput struct {
@@ -126,6 +129,7 @@ type ContextInput struct {
 	Recovery          *recovery.RecoveryContext
 	LatestValidation  *invocation.ValidationEvidence
 	RetrievedEvidence []evidence.EvidenceRecord
+	RetrievedMemories []memory.MemoryRecord
 }
 
 // ContextBuilder is deliberately pure: callers provide only the bounded
@@ -186,6 +190,19 @@ func buildDecisionContext(input ContextInput) (DecisionContext, error) {
 		}
 		ctx.RetrievedEvidence = append(ctx.RetrievedEvidence, *record.Clone())
 	}
+	for i, record := range input.RetrievedMemories {
+		if i >= MaxContextMemories {
+			break
+		}
+		if err := record.Validate(); err != nil {
+			return DecisionContext{}, err
+		}
+		copy := record.Clone()
+		if copy.Applicability == "" {
+			copy.Applicability = memory.ApplicabilityCurrent
+		}
+		ctx.RetrievedMemories = append(ctx.RetrievedMemories, *copy)
+	}
 	if err := ctx.Validate(); err != nil {
 		return DecisionContext{}, err
 	}
@@ -214,7 +231,7 @@ func normalizeActions(actions []trace.ActionType) []trace.ActionType {
 }
 
 func (c DecisionContext) Validate() error {
-	if strings.TrimSpace(c.Episode.EpisodeID) == "" || c.Episode.DeadlineAt.IsZero() || c.Episode.Version == 0 || len(c.AllowedActions) == 0 || len(c.AllowedActions) > MaxContextActions || len(c.CandidateSet.Candidates) > MaxContextCandidates || len(c.RetrievedEvidence) > MaxContextEvidence {
+	if strings.TrimSpace(c.Episode.EpisodeID) == "" || c.Episode.DeadlineAt.IsZero() || c.Episode.Version == 0 || len(c.AllowedActions) == 0 || len(c.AllowedActions) > MaxContextActions || len(c.CandidateSet.Candidates) > MaxContextCandidates || len(c.RetrievedEvidence) > MaxContextEvidence || len(c.RetrievedMemories) > MaxContextMemories {
 		return ErrInvalidDecisionContext
 	}
 	if c.CurrentEventSequence != eventSequence(c.Episode.Version) {
@@ -226,6 +243,11 @@ func (c DecisionContext) Validate() error {
 		}
 	}
 	for _, record := range c.RetrievedEvidence {
+		if err := record.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, record := range c.RetrievedMemories {
 		if err := record.Validate(); err != nil {
 			return err
 		}
@@ -244,6 +266,10 @@ func (c DecisionContext) CanonicalSnapshot() ([]byte, error) {
 	copyContext.RetrievedEvidence = make([]evidence.EvidenceRecord, 0, len(c.RetrievedEvidence))
 	for _, record := range c.RetrievedEvidence {
 		copyContext.RetrievedEvidence = append(copyContext.RetrievedEvidence, *record.Clone())
+	}
+	copyContext.RetrievedMemories = make([]memory.MemoryRecord, 0, len(c.RetrievedMemories))
+	for _, record := range c.RetrievedMemories {
+		copyContext.RetrievedMemories = append(copyContext.RetrievedMemories, *record.Clone())
 	}
 	return json.Marshal(copyContext)
 }

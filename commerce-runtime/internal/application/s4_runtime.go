@@ -811,6 +811,9 @@ func (s *Service) commitS4Transition(ctx context.Context, current, next *episode
 		}
 		return nil, false, err
 	}
+	if err := s.projectTerminalMemory(ctx, next); err != nil {
+		return nil, false, err
+	}
 	return event, false, nil
 }
 
