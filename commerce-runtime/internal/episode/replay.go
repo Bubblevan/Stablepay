@@ -6,6 +6,15 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
+func appendUnique(values []string, value string) []string {
+	for _, item := range values {
+		if item == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 // Reconstruct deterministically applies ordered events to an initial
 // projection. It is intentionally small: the persisted episode remains the
 // authoritative projection while this function provides a replay check.
@@ -48,6 +57,20 @@ func Reconstruct(initial *CommerceEpisode, events []*EpisodeEvent) (*CommerceEpi
 		case trace.ActionInvoke:
 			if event.StateBefore == StateInvokingDelivery {
 				result.DeliveryAttemptCount++
+			}
+			if event.Decision.Target != nil {
+				result.AttemptedMerchants = appendUnique(result.AttemptedMerchants, event.Decision.Target.MerchantDID)
+			}
+		case trace.ActionSwitchMerchant:
+			if event.Decision.Target != nil {
+				result.SelectedMerchantDID = event.Decision.Target.MerchantDID
+				result.SelectedCapabilityID = event.Decision.Target.CapabilityID
+				result.SelectedCandidateSetID = event.Decision.CandidateSetID
+				result.SelectedCatalogVersion = event.Decision.Target.CatalogVersion
+				result.SelectedCatalogSnapshotHash = event.Decision.Target.CatalogSnapshotHash
+				result.SelectedCatalogSnapshotRef = event.Decision.Target.CatalogSnapshotRef
+				result.CurrentQuoteHash = ""
+				result.AttemptedMerchants = appendUnique(result.AttemptedMerchants, event.Decision.Target.MerchantDID)
 			}
 		}
 	}

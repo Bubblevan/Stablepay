@@ -14,6 +14,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
 
 // InMemoryStore is a deterministic repository for unit tests and local
@@ -37,6 +38,11 @@ type InMemoryStore struct {
 	deliveryArtifacts        map[string]*invocation.DeliveryArtifact
 	validationEvidence       map[string]*invocation.ValidationEvidence
 	validationByDelivery     map[string]string
+	recoveryContexts         map[string]*recovery.RecoveryContext
+	recoveryByEpisode        map[string]string
+	parentApprovals          map[string]*recovery.ParentApprovalRequest
+	parentDecisions          map[string]*recovery.ParentDecisionFact
+	budgetAmendments         map[string]*recovery.BudgetAmendment
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -58,6 +64,11 @@ func NewInMemoryStore() *InMemoryStore {
 		deliveryArtifacts:        make(map[string]*invocation.DeliveryArtifact),
 		validationEvidence:       make(map[string]*invocation.ValidationEvidence),
 		validationByDelivery:     make(map[string]string),
+		recoveryContexts:         make(map[string]*recovery.RecoveryContext),
+		recoveryByEpisode:        make(map[string]string),
+		parentApprovals:          make(map[string]*recovery.ParentApprovalRequest),
+		parentDecisions:          make(map[string]*recovery.ParentDecisionFact),
+		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
 	}
 }
 
@@ -382,6 +393,14 @@ func (s *InMemoryStore) CommitS4Transition(ctx context.Context, transition S4Tra
 			return err
 		}
 	}
+	if transition.RecoveryContext != nil {
+		if transition.RecoveryContext.EpisodeID != transition.EpisodeID {
+			return recovery.ErrInvalidRecoveryContext
+		}
+		if err := transition.RecoveryContext.Validate(); err != nil {
+			return err
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -409,6 +428,14 @@ func (s *InMemoryStore) CommitS4Transition(ctx context.Context, transition S4Tra
 	if err := s.validateS4FactsLocked(transition); err != nil {
 		return err
 	}
+	if transition.RecoveryContext != nil {
+		if existing, ok := s.recoveryContexts[transition.RecoveryContext.RecoveryID]; ok && existing.EpisodeID != transition.RecoveryContext.EpisodeID {
+			return ErrRecoveryConflict
+		}
+		if existingID, ok := s.recoveryByEpisode[transition.EpisodeID]; ok && existingID != transition.RecoveryContext.RecoveryID {
+			return ErrRecoveryConflict
+		}
+	}
 	s.episodes[transition.EpisodeID] = transition.NextEpisode.Clone()
 	if transition.PaymentRequirement != nil {
 		value := transition.PaymentRequirement.Clone()
@@ -423,6 +450,11 @@ func (s *InMemoryStore) CommitS4Transition(ctx context.Context, transition S4Tra
 		value := transition.ValidationEvidence.Clone()
 		s.validationEvidence[value.ValidationID] = value
 		s.validationByDelivery[validationKey(value.DeliveryID, value.ValidatorName, value.ValidatorVersion)] = value.ValidationID
+	}
+	if transition.RecoveryContext != nil {
+		value := transition.RecoveryContext.Clone()
+		s.recoveryContexts[value.RecoveryID] = value
+		s.recoveryByEpisode[value.EpisodeID] = value.RecoveryID
 	}
 	s.events[transition.EpisodeID] = append(s.events[transition.EpisodeID], transition.Event.Clone())
 	return nil
@@ -568,6 +600,23 @@ func (s *InMemoryStore) FindPaymentIntentByQuoteHash(ctx context.Context, episod
 		}
 	}
 	return nil, ErrPaymentIntentNotFound
+}
+
+func (s *InMemoryStore) ListPaymentIntents(ctx context.Context, episodeID string) ([]*payment.PaymentIntent, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*payment.PaymentIntent, 0)
+	for _, value := range s.intents {
+		if value.EpisodeID == episodeID {
+			copy := *value
+			result = append(result, &copy)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
 }
 
 func (s *InMemoryStore) findPaymentIntent(ctx context.Context, index map[string]string, key string) (*payment.PaymentIntent, error) {

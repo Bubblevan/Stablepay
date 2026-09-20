@@ -25,6 +25,7 @@ const (
 	StateInvokingDelivery   State = "INVOKING_DELIVERY"
 	StateValidatingDelivery State = "VALIDATING_DELIVERY"
 	StateRecovering         State = "RECOVERING"
+	StateAwaitingParent     State = "AWAITING_PARENT"
 	StateFulfilled          State = "FULFILLED"
 	StateFailed             State = "FAILED"
 	StateBlocked            State = "BLOCKED"
@@ -118,6 +119,8 @@ type CommerceEpisode struct {
 	PaymentAttemptCount         int            `json:"payment_attempt_count"`
 	DeliveryAttemptCount        int            `json:"delivery_attempt_count"`
 	RetryCount                  int            `json:"retry_count"`
+	DiscoveryGeneration         int            `json:"discovery_generation"`
+	RecoveryID                  string         `json:"recovery_id,omitempty"`
 	MaxTotalAttempts            int            `json:"max_total_attempts"`
 	MaxPaymentAttempts          int            `json:"max_payment_attempts"`
 	MaxDeliveryAttempts         int            `json:"max_delivery_attempts"`
@@ -250,12 +253,13 @@ func AllowedTransitions(from State) []State {
 		StateAccepted:           {StateDiscovering, StateAborted, StateExpired},
 		StateDiscovering:        {StateInvoking, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateInvoking:           {StateNegotiating, StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
-		StateNegotiating:        {StatePaying, StateBlocked, StateFailed, StateAborted, StateExpired},
+		StateNegotiating:        {StatePaying, StateRecovering, StateBlocked, StateFailed, StateAborted, StateExpired},
 		StatePaying:             {StateClaiming, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateClaiming:           {StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
-		StateInvokingDelivery:   {StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
+		StateInvokingDelivery:   {StateInvoking, StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
 		StateValidatingDelivery: {StateFulfilled, StateRecovering, StateFailed, StateExpired},
-		StateRecovering:         {StateInvokingDelivery, StateFailed, StateAborted, StateExpired},
+		StateRecovering:         {StateDiscovering, StateInvokingDelivery, StateAwaitingParent, StateFailed, StateAborted, StateExpired},
+		StateAwaitingParent:     {StateRecovering, StateFailed, StateAborted, StateExpired},
 	}
 	return append([]State(nil), transitions[from]...)
 }
@@ -273,6 +277,7 @@ func KnownState(state State) bool {
 	switch state {
 	case StateAccepted, StateDiscovering, StateInvoking, StateNegotiating, StatePaying,
 		StateClaiming, StateInvokingDelivery, StateValidatingDelivery, StateRecovering,
+		StateAwaitingParent,
 		StateFulfilled, StateFailed, StateBlocked, StateAborted, StateExpired,
 		StateCompensating, StateDisputed:
 		return true
@@ -331,8 +336,14 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		}
 	case trace.ActionRetrySameMerchant:
 		return StateInvokingDelivery, from == StateRecovering
+	case trace.ActionSwitchMerchant:
+		return StateInvokingDelivery, from == StateRecovering
+	case trace.ActionRediscover:
+		return StateDiscovering, from == StateRecovering
+	case trace.ActionAskParent:
+		return StateAwaitingParent, from == StateRecovering
 	case trace.ActionStop:
-		return StateFailed, from == StateRecovering || from == StateDiscovering || from == StateInvoking || from == StateNegotiating
+		return StateFailed, from == StateRecovering || from == StateAwaitingParent || from == StateDiscovering || from == StateInvoking || from == StateNegotiating
 	}
 	return "", false
 }

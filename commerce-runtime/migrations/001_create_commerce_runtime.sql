@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS commerce_episodes (
     payment_attempt_count      INT NOT NULL DEFAULT 0,
     delivery_attempt_count     INT NOT NULL DEFAULT 0,
     retry_count                INT NOT NULL DEFAULT 0,
+    discovery_generation       INT NOT NULL DEFAULT 0,
+    recovery_id                VARCHAR(128) NULL,
     max_total_attempts         INT NOT NULL,
     max_payment_attempts       INT NOT NULL,
     max_delivery_attempts      INT NOT NULL,
@@ -41,6 +43,78 @@ CREATE TABLE IF NOT EXISTS commerce_episodes (
     created_at                  DATETIME(6) NOT NULL,
     updated_at                  DATETIME(6) NOT NULL,
     UNIQUE KEY uk_commerce_episode_request_id (request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS recovery_contexts (
+    recovery_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id VARCHAR(128) NOT NULL UNIQUE,
+    trigger_event_id VARCHAR(128) NOT NULL,
+    reason_code VARCHAR(64) NOT NULL,
+    current_merchant_did VARCHAR(128) NULL,
+    current_capability_id VARCHAR(128) NULL,
+    candidate_set_id VARCHAR(128) NULL,
+    attempted_merchants JSON NOT NULL,
+    payment_intent_ids JSON NOT NULL,
+    settled_minor BIGINT NOT NULL,
+    refunded_minor BIGINT NOT NULL,
+    consumed_minor BIGINT NOT NULL,
+    available_minor BIGINT NOT NULL,
+    sunk_cost_minor BIGINT NOT NULL,
+    delivery_attempt_count INT NOT NULL,
+    retry_count INT NOT NULL,
+    deadline_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    facts_ref VARCHAR(255) NOT NULL,
+    payload_hash CHAR(71) NOT NULL,
+    CONSTRAINT fk_recovery_contexts_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS parent_approval_requests (
+    approval_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id VARCHAR(128) NOT NULL,
+    recovery_id VARCHAR(128) NOT NULL,
+    reason_code VARCHAR(64) NOT NULL,
+    requested_action VARCHAR(64) NOT NULL,
+    approval_scope VARCHAR(64) NOT NULL,
+    current_budget_minor BIGINT NOT NULL,
+    consumed_minor BIGINT NOT NULL,
+    available_minor BIGINT NOT NULL,
+    sunk_cost_minor BIGINT NOT NULL,
+    current_merchant_did VARCHAR(128) NULL,
+    candidate_set_id VARCHAR(128) NULL,
+    candidate_merchant_did VARCHAR(128) NULL,
+    candidate_capability_id VARCHAR(128) NULL,
+    requested_budget_increase_minor BIGINT NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    facts_ref VARCHAR(255) NOT NULL,
+    payload_hash CHAR(71) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_parent_approval_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS parent_decisions (
+    approval_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id VARCHAR(128) NOT NULL,
+    decision VARCHAR(16) NOT NULL,
+    actor_ref VARCHAR(255) NOT NULL,
+    occurred_at DATETIME(6) NOT NULL,
+    facts_ref VARCHAR(255) NOT NULL,
+    payload_hash CHAR(71) NOT NULL,
+    CONSTRAINT fk_parent_decision_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS budget_amendments (
+    amendment_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    episode_id VARCHAR(128) NOT NULL,
+    old_limit_minor BIGINT NOT NULL,
+    new_limit_minor BIGINT NOT NULL,
+    delta_minor BIGINT NOT NULL,
+    approved_by VARCHAR(255) NOT NULL,
+    approval_ref VARCHAR(128) NOT NULL,
+    occurred_at DATETIME(6) NOT NULL,
+    facts_ref VARCHAR(255) NOT NULL,
+    payload_hash CHAR(71) NOT NULL,
+    CONSTRAINT fk_budget_amendment_episode FOREIGN KEY (episode_id) REFERENCES commerce_episodes (episode_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS episode_events (
@@ -167,6 +241,7 @@ CREATE TABLE IF NOT EXISTS candidate_sets (
     candidate_set_id            VARCHAR(128) NOT NULL PRIMARY KEY,
     episode_id                  VARCHAR(128) NOT NULL,
     request_id                  VARCHAR(128) NOT NULL,
+    generation                  INT NOT NULL DEFAULT 0,
     query_hash                  CHAR(71) NOT NULL,
     catalog_snapshot_refs       JSON NOT NULL,
     candidates                  JSON NOT NULL,

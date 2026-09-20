@@ -131,7 +131,7 @@ func (RuntimeGuard) Evaluate(current *episode.CommerceEpisode, proposal Decision
 	if !now.Before(current.DeadlineAt) {
 		return addFailure("episode_deadline", episode.ErrEpisodeExpired)
 	}
-	if current.ActionCount >= current.MaxTotalAttempts {
+	if current.ActionCount >= current.MaxTotalAttempts && proposal.ProposedAction != trace.ActionStop {
 		return addFailure("total_attempts", ErrAttemptLimit)
 	}
 	if proposal.ProposedAction == trace.ActionCreatePayment && current.PaymentAttemptCount >= current.MaxPaymentAttempts {

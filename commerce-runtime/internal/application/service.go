@@ -400,11 +400,12 @@ func (s *Service) CommitMerchantSelection(ctx context.Context, request SelectMer
 }
 
 type CommitRequest struct {
-	Proposal    decision.DecisionProposal
-	Action      trace.Action
-	Observation trace.Observation
-	Actor       string
-	TraceID     string
+	Proposal                 decision.DecisionProposal
+	Action                   trace.Action
+	Observation              trace.Observation
+	Actor                    string
+	TraceID                  string
+	runtimeRecoveryValidated bool
 }
 
 type CommitResult struct {
@@ -492,8 +493,33 @@ func (s *Service) CommitProposal(ctx context.Context, request CommitRequest) (Co
 	if request.Action.Type != request.Proposal.ProposedAction {
 		return CommitResult{}, fmt.Errorf("%w: action type does not match proposal", decision.ErrInvalidProposal)
 	}
-	if runtimeOwnedProposalAction(request.Action.Type) {
+	if !providerAllowedAction(request.Action.Type) {
 		return CommitResult{}, decision.ErrActionNotAllowed
+	}
+	// S5 actions have dedicated runtime boundaries because their guards depend
+	// on persisted recovery/candidate facts. A provider may propose them, but
+	// the generic event writer must not bypass those checks.
+	switch request.Action.Type {
+	case trace.ActionRetrySameMerchant:
+		if !request.runtimeRecoveryValidated {
+			return s.RetrySameMerchant(ctx, RetrySameMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+		}
+	case trace.ActionSwitchMerchant:
+		return s.SwitchMerchant(ctx, SwitchMerchantRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+	case trace.ActionRediscover:
+		return s.Rediscover(ctx, RediscoverRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+	case trace.ActionAskParent:
+		return s.AskParent(ctx, AskParentRequest{EpisodeID: request.Proposal.EpisodeID, Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID, CandidateSetID: request.Proposal.CandidateSetID, CandidateMerchantDID: func() string {
+			if request.Proposal.Target != nil {
+				return request.Proposal.Target.MerchantDID
+			}
+			return ""
+		}(), CandidateCapabilityID: func() string {
+			if request.Proposal.Target != nil {
+				return request.Proposal.Target.CapabilityID
+			}
+			return ""
+		}()})
 	}
 
 	// Idempotency is checked before proposal expiry/sequence validation: a
@@ -630,6 +656,13 @@ func runtimeOwnedProposalAction(action trace.ActionType) bool {
 	default:
 		return false
 	}
+}
+
+// providerAllowedAction is intentionally positive. Runtime facts and every
+// future action are denied until their proposal authority is explicitly
+// reviewed and added.
+func providerAllowedAction(action trace.ActionType) bool {
+	return decision.ProviderAllowedAction(action)
 }
 
 func (s *Service) replayIfCommitted(ctx context.Context, episodeID string, request CommitRequest) (CommitResult, error) {

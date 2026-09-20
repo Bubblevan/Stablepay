@@ -10,6 +10,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/recovery"
 )
 
 var (
@@ -29,6 +30,8 @@ var (
 	ErrCandidateSetConflict       = errors.New("candidate set conflicts with an existing fact")
 	ErrFactNotFound               = errors.New("commerce runtime fact not found")
 	ErrFactConflict               = errors.New("commerce runtime fact conflicts with an existing identity")
+	ErrParentDecisionConflict     = errors.New("parent decision conflicts with an existing approval")
+	ErrRecoveryConflict           = errors.New("recovery context conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {
@@ -65,6 +68,7 @@ type PaymentIntentRepository interface {
 	FindPaymentIntentByIdempotencyKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
 	FindPaymentIntentByEconomicKey(ctx context.Context, episodeID, key string) (*payment.PaymentIntent, error)
 	FindPaymentIntentByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*payment.PaymentIntent, error)
+	ListPaymentIntents(ctx context.Context, episodeID string) ([]*payment.PaymentIntent, error)
 	UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error
 }
 
@@ -159,4 +163,50 @@ type S4Transition struct {
 	PaymentRequirement     *invocation.PaymentRequirementFact
 	DeliveryArtifact       *invocation.DeliveryArtifact
 	ValidationEvidence     *invocation.ValidationEvidence
+	RecoveryContext        *recovery.RecoveryContext
+}
+
+type RecoveryRepository interface {
+	SaveRecoveryContext(context.Context, *recovery.RecoveryContext) error
+	GetRecoveryContext(context.Context, string) (*recovery.RecoveryContext, error)
+	GetRecoveryContextByEpisode(context.Context, string) (*recovery.RecoveryContext, error)
+}
+
+type ParentApprovalRepository interface {
+	SaveParentApprovalRequest(context.Context, *recovery.ParentApprovalRequest) error
+	GetParentApprovalRequest(context.Context, string) (*recovery.ParentApprovalRequest, error)
+	SaveParentDecision(context.Context, *recovery.ParentDecisionFact) error
+	GetParentDecision(context.Context, string) (*recovery.ParentDecisionFact, error)
+	SaveBudgetAmendment(context.Context, *recovery.BudgetAmendment) error
+	GetBudgetAmendment(context.Context, string) (*recovery.BudgetAmendment, error)
+}
+
+// S5Store extends the S4 local transaction boundary with recovery facts. The
+// methods are separate from generic proposal commits so parent decisions and
+// budget amendments can only enter through trusted APIs.
+type S5Store interface {
+	S4Store
+	RecoveryRepository
+	ParentApprovalRepository
+	CommitRecoveryTransition(context.Context, RecoveryTransition) error
+	CommitParentDecision(context.Context, ParentDecisionTransition) error
+}
+
+type RecoveryTransition struct {
+	EpisodeID              string
+	ExpectedEpisodeVersion uint64
+	NextEpisode            *episode.CommerceEpisode
+	Event                  *episode.EpisodeEvent
+	RecoveryContext        *recovery.RecoveryContext
+	ParentApproval         *recovery.ParentApprovalRequest
+}
+
+type ParentDecisionTransition struct {
+	EpisodeID              string
+	ExpectedEpisodeVersion uint64
+	NextEpisode            *episode.CommerceEpisode
+	Event                  *episode.EpisodeEvent
+	Decision               *recovery.ParentDecisionFact
+	BudgetAmendment        *recovery.BudgetAmendment
+	RecoveryContext        *recovery.RecoveryContext
 }

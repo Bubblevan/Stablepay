@@ -217,6 +217,9 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	intent.RequestFingerprint = payment.RequestFingerprint(*intent)
 	entry.PaymentIntentID = intent.IntentID
 	if err := projection.Apply(*entry); err != nil {
+		if errors.Is(err, ledger.ErrInsufficientBudget) {
+			return s.persistBudgetInsufficient(ctx, current, request.TraceID)
+		}
 		return PaymentIntentResult{}, err
 	}
 	next := current.Clone()

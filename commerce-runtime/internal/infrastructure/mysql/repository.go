@@ -18,6 +18,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 	"gorm.io/driver/mysql"
@@ -50,6 +51,8 @@ type EpisodeModel struct {
 	PaymentAttemptCount         int       `gorm:"column:payment_attempt_count;not null"`
 	DeliveryAttemptCount        int       `gorm:"column:delivery_attempt_count;not null"`
 	RetryCount                  int       `gorm:"column:retry_count;not null"`
+	DiscoveryGeneration         int       `gorm:"column:discovery_generation;not null;default:0"`
+	RecoveryID                  string    `gorm:"column:recovery_id;type:varchar(128)"`
 	MaxTotalAttempts            int       `gorm:"column:max_total_attempts;not null"`
 	MaxPaymentAttempts          int       `gorm:"column:max_payment_attempts;not null"`
 	MaxDeliveryAttempts         int       `gorm:"column:max_delivery_attempts;not null"`
@@ -184,6 +187,7 @@ type CandidateSetModel struct {
 	CandidateSetID      string    `gorm:"column:candidate_set_id;type:varchar(128);primaryKey"`
 	EpisodeID           string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_candidate_set_episode"`
 	RequestID           string    `gorm:"column:request_id;type:varchar(128);not null"`
+	Generation          int       `gorm:"column:generation;not null;default:0"`
 	QueryHash           string    `gorm:"column:query_hash;type:char(71);not null"`
 	CatalogSnapshotRefs []byte    `gorm:"column:catalog_snapshot_refs;type:json;not null"`
 	Candidates          []byte    `gorm:"column:candidates;type:json;not null"`
@@ -301,7 +305,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{})
+	return db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{})
 }
 
 func (s *Store) SaveMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
@@ -876,6 +880,22 @@ func (s *Store) FindPaymentIntentByQuoteHash(ctx context.Context, episodeID, quo
 	return modelToPaymentIntent(row)
 }
 
+func (s *Store) ListPaymentIntents(ctx context.Context, episodeID string) ([]*payment.PaymentIntent, error) {
+	var rows []PaymentIntentModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", episodeID).Order("created_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*payment.PaymentIntent, 0, len(rows))
+	for _, row := range rows {
+		value, err := modelToPaymentIntent(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
 func (s *Store) UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error {
 	if next == nil || next.IntentID != intentID {
 		return payment.ErrInvalidIntent
@@ -1028,6 +1048,19 @@ func (s *Store) CommitS4Transition(ctx context.Context, transition repository.S4
 			return err
 		}
 	}
+	var recoveryModel *RecoveryContextModel
+	if transition.RecoveryContext != nil {
+		if transition.RecoveryContext.EpisodeID != transition.EpisodeID {
+			return recovery.ErrInvalidRecoveryContext
+		}
+		if err := transition.RecoveryContext.Validate(); err != nil {
+			return err
+		}
+		recoveryModel, err = recoveryContextToModel(transition.RecoveryContext)
+		if err != nil {
+			return err
+		}
+	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existingEvent EventModel
@@ -1095,6 +1128,20 @@ func (s *Store) CommitS4Transition(ctx context.Context, transition repository.S4
 					return err
 				}
 			} else if err != nil {
+				return err
+			}
+		}
+		if recoveryModel != nil {
+			var existing RecoveryContextModel
+			if err := tx.Where("recovery_id = ?", recoveryModel.RecoveryID).First(&existing).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := tx.Create(recoveryModel).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			} else if existing.EpisodeID != recoveryModel.EpisodeID {
+				return repository.ErrRecoveryConflict
+			} else if err := tx.Model(&RecoveryContextModel{}).Where("recovery_id = ?", recoveryModel.RecoveryID).Updates(recoveryModel).Error; err != nil {
 				return err
 			}
 		}
@@ -1455,12 +1502,12 @@ func candidateSetToModel(value *catalog.CandidateSet) (*CandidateSetModel, error
 	if err != nil {
 		return nil, err
 	}
-	return &CandidateSetModel{CandidateSetID: normalized.CandidateSetID, EpisodeID: normalized.EpisodeID, RequestID: normalized.RequestID, QueryHash: normalized.QueryHash,
+	return &CandidateSetModel{CandidateSetID: normalized.CandidateSetID, EpisodeID: normalized.EpisodeID, RequestID: normalized.RequestID, Generation: normalized.Generation, QueryHash: normalized.QueryHash,
 		CatalogSnapshotRefs: refs, Candidates: candidates, GeneratedAt: normalized.GeneratedAt, ExpiresAt: normalized.ExpiresAt, FactsRef: normalized.FactsRef, PayloadHash: normalized.PayloadHash}, nil
 }
 
 func modelToCandidateSet(row CandidateSetModel) (*catalog.CandidateSet, error) {
-	value := &catalog.CandidateSet{CandidateSetID: row.CandidateSetID, EpisodeID: row.EpisodeID, RequestID: row.RequestID, QueryHash: row.QueryHash,
+	value := &catalog.CandidateSet{CandidateSetID: row.CandidateSetID, EpisodeID: row.EpisodeID, RequestID: row.RequestID, Generation: row.Generation, QueryHash: row.QueryHash,
 		GeneratedAt: row.GeneratedAt, ExpiresAt: row.ExpiresAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
 	if len(row.CatalogSnapshotRefs) > 0 {
 		if err := json.Unmarshal(row.CatalogSnapshotRefs, &value.CatalogSnapshotRefs); err != nil {
@@ -1612,7 +1659,7 @@ func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 		SelectedWorkflowVersion: value.SelectedWorkflowVersion, CurrentQuoteHash: value.CurrentQuoteHash,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: value.ActionCount, PaymentAttemptCount: value.PaymentAttemptCount, DeliveryAttemptCount: value.DeliveryAttemptCount,
-		RetryCount: value.RetryCount, MaxTotalAttempts: value.MaxTotalAttempts, MaxPaymentAttempts: value.MaxPaymentAttempts,
+		RetryCount: value.RetryCount, DiscoveryGeneration: value.DiscoveryGeneration, RecoveryID: value.RecoveryID, MaxTotalAttempts: value.MaxTotalAttempts, MaxPaymentAttempts: value.MaxPaymentAttempts,
 		MaxDeliveryAttempts: value.MaxDeliveryAttempts, BudgetCurrency: value.Budget.Currency,
 		BudgetLimitMinor: value.Budget.BudgetLimitMinor, ReservedAmount: value.Budget.ReservedAmount,
 		SettledAmount: value.Budget.SettledAmount, RefundedAmount: value.Budget.RefundedAmount,
@@ -1658,7 +1705,7 @@ func modelToEpisode(row EpisodeModel) (*episode.CommerceEpisode, error) {
 		SelectedWorkflowVersion: row.SelectedWorkflowVersion, CurrentQuoteHash: row.CurrentQuoteHash,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: row.ActionCount, PaymentAttemptCount: row.PaymentAttemptCount, DeliveryAttemptCount: row.DeliveryAttemptCount,
-		RetryCount: row.RetryCount, MaxTotalAttempts: row.MaxTotalAttempts, MaxPaymentAttempts: row.MaxPaymentAttempts,
+		RetryCount: row.RetryCount, DiscoveryGeneration: row.DiscoveryGeneration, RecoveryID: row.RecoveryID, MaxTotalAttempts: row.MaxTotalAttempts, MaxPaymentAttempts: row.MaxPaymentAttempts,
 		MaxDeliveryAttempts: row.MaxDeliveryAttempts, Budget: episode.BudgetSnapshot{
 			Currency: row.BudgetCurrency, BudgetLimitMinor: row.BudgetLimitMinor, ReservedAmount: row.ReservedAmount,
 			SettledAmount: row.SettledAmount, RefundedAmount: row.RefundedAmount, AvailableBudget: row.AvailableBudget, SunkCost: row.SunkCost,
@@ -1684,7 +1731,7 @@ func episodeUpdates(value *episode.CommerceEpisode) (map[string]any, error) {
 		"entitlement_refs": model.EntitlementRefs, "delivery_refs": model.DeliveryRefs,
 		"validation_evidence_refs": model.ValidationEvidenceRefs, "attempted_merchants": model.AttemptedMerchants,
 		"action_count": model.ActionCount, "payment_attempt_count": model.PaymentAttemptCount,
-		"delivery_attempt_count": model.DeliveryAttemptCount, "retry_count": model.RetryCount,
+		"delivery_attempt_count": model.DeliveryAttemptCount, "retry_count": model.RetryCount, "discovery_generation": model.DiscoveryGeneration, "recovery_id": model.RecoveryID,
 		"max_total_attempts": model.MaxTotalAttempts, "max_payment_attempts": model.MaxPaymentAttempts,
 		"max_delivery_attempts": model.MaxDeliveryAttempts, "budget_currency": model.BudgetCurrency,
 		"budget_limit_minor": model.BudgetLimitMinor, "reserved_amount": model.ReservedAmount,

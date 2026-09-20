@@ -20,6 +20,10 @@ const (
 	ActionValidateDelivery            ActionType = "VALIDATE_DELIVERY"
 	ActionRetrySameMerchant           ActionType = "RETRY_SAME_MERCHANT"
 	ActionStop                        ActionType = "STOP"
+	ActionSwitchMerchant              ActionType = "SWITCH_MERCHANT"
+	ActionRediscover                  ActionType = "REDISCOVER"
+	ActionAskParent                   ActionType = "ASK_PARENT"
+	ActionParentDecision              ActionType = "PARENT_DECISION"
 	ActionSelectMerchant              ActionType = "SELECT_MERCHANT"
 	ActionNegotiateAndPay             ActionType = "NEGOTIATE_AND_PAY"
 	ActionPaymentSubmitted            ActionType = "PAYMENT_SUBMITTED"
@@ -55,6 +59,8 @@ const (
 	ObservationPaymentUnknown       ObservationType = "PAYMENT_UNKNOWN"
 	ObservationEntitlementInvalid   ObservationType = "ENTITLEMENT_INVALID"
 	ObservationEntitlementUnknown   ObservationType = "ENTITLEMENT_UNKNOWN"
+	ObservationParentApproved       ObservationType = "PARENT_APPROVED"
+	ObservationParentDenied         ObservationType = "PARENT_DENIED"
 )
 
 type Action struct {
@@ -130,6 +136,8 @@ func KnownAction(action ActionType) bool {
 	switch action {
 	case ActionDiscover, ActionInvoke, ActionParse402, ActionReserveBudget, ActionCreatePayment,
 		ActionVerifyEntitlement, ActionValidateDelivery, ActionRetrySameMerchant, ActionStop,
+		ActionSwitchMerchant, ActionRediscover, ActionAskParent,
+		ActionParentDecision,
 		ActionSelectMerchant, ActionNegotiateAndPay, ActionPaymentSubmitted, ActionPaymentPending,
 		ActionPaymentStatusQueried, ActionPaymentAuthorizationChecked, ActionPaymentConfirmed,
 		ActionPaymentFailed, ActionPaymentUnknown:

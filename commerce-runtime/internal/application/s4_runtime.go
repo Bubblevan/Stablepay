@@ -16,6 +16,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 	"github.com/stablepay/commerce-runtime/internal/validator"
@@ -128,8 +129,8 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 	if traceID == "" {
 		traceID = current.EpisodeID + ":initial-invoke"
 	}
-	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, Attempt: 1, Phase: invocation.PhaseInitial, TraceID: traceID, IdempotencyKey: "invoke:initial:" + current.EpisodeID, Endpoint: capability.InvokeEndpoint, PaymentSignature: request.PaymentSignature}
-	if _, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); errors.Is(findErr, repository.ErrFactNotFound) && current.State != episode.StateInvoking {
+	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, Attempt: 1, Phase: invocation.PhaseInitial, TraceID: traceID, IdempotencyKey: "invoke:initial:" + current.EpisodeID + ":" + current.SelectedMerchantDID, Endpoint: capability.InvokeEndpoint, PaymentSignature: request.PaymentSignature}
+	if _, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); errors.Is(findErr, repository.ErrFactNotFound) && current.State != episode.StateInvoking && current.State != episode.StateInvokingDelivery {
 		return MerchantInvocationResult{}, decision.ErrActionNotAllowed
 	} else if findErr != nil && !errors.Is(findErr, repository.ErrFactNotFound) {
 		return MerchantInvocationResult{}, findErr
@@ -146,7 +147,7 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 		}
 		return MerchantInvocationResult{Episode: latest, Invocation: fact, Response: response, Event: existing, Replayed: true}, adapterErr
 	}
-	if current.State != episode.StateInvoking {
+	if current.State != episode.StateInvoking && current.State != episode.StateInvokingDelivery {
 		return MerchantInvocationResult{}, decision.ErrActionNotAllowed
 	}
 	observationType := trace.ObservationMerchantResponse
@@ -154,8 +155,13 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 		observationType = trace.ObservationHTTP402
 	}
 	next := current.Clone()
+	next.AttemptedMerchants = appendUnique(next.AttemptedMerchants, current.SelectedMerchantDID)
 	next.ActionCount++
-	if err := next.ApplyCommittedState(episode.StateInvoking, response.OccurredAt, ""); err != nil {
+	after := episode.StateInvoking
+	if current.State == episode.StateInvoking && response.HTTPStatus != 402 {
+		after = episode.StateInvoking
+	}
+	if err := next.ApplyCommittedState(after, response.OccurredAt, ""); err != nil {
 		return MerchantInvocationResult{}, err
 	}
 	event, replay, err := s.commitS4Event(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: key, InputRef: operation.InputRef, InputHash: operation.InputHash}, trace.Observation{Type: observationType, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID)
@@ -353,7 +359,14 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 		delivery = &invocation.DeliveryArtifact{DeliveryID: "delivery:" + fact.InvocationID, EpisodeID: current.EpisodeID, InvocationID: fact.InvocationID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, ContentType: response.ContentType, PayloadRef: response.PayloadRef, PayloadHash: response.PayloadHash, Body: append([]byte(nil), response.Body...), PaymentIntentID: intent.IntentID, EntitlementRef: entitlementRef, Attempt: attempt, HTTPStatus: response.HTTPStatus, ReceivedAt: response.OccurredAt}
 		next.DeliveryRefs = appendUnique(next.DeliveryRefs, delivery.DeliveryID)
 	}
-	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: operation.IdempotencyKey, InputRef: operation.EntitlementRef, InputHash: operation.InputHash}, trace.Observation{Type: observationType, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID, nil, delivery, nil)
+	var recoveryContext *recovery.RecoveryContext
+	if response.HTTPStatus == 402 {
+		recoveryContext, err = s.currentRecoveryContext(ctx, current, recovery.ReasonMerchantAccessRejected, current.SelectedCandidateSetID, operation.IdempotencyKey)
+		if err != nil {
+			return DeliveryInvocationResult{}, err
+		}
+	}
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionInvoke, IdempotencyKey: operation.IdempotencyKey, InputRef: operation.EntitlementRef, InputHash: operation.InputHash}, trace.Observation{Type: observationType, Code: fmt.Sprintf("HTTP_%d", response.HTTPStatus), FactsRef: "invocation://" + fact.InvocationID, PayloadHash: response.PayloadHash}, nil, traceID, nil, delivery, nil, recoveryContext)
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
@@ -402,7 +415,14 @@ func (s *Service) ValidateDelivery(ctx context.Context, request ValidateDelivery
 				return DeliveryValidationResult{}, err
 			}
 			var commitErr error
-			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: existing.ReasonCode, FactsRef: "validation://" + existing.ValidationID, PayloadHash: existing.PayloadHash}, nil, current.EpisodeID+":validate:"+artifact.DeliveryID, nil, nil, nil)
+			var recoveryContext *recovery.RecoveryContext
+			if after == episode.StateRecovering {
+				recoveryContext, commitErr = s.currentRecoveryContext(ctx, current, recovery.ReasonDeliveryInvalid, current.SelectedCandidateSetID, key)
+				if commitErr != nil {
+					return DeliveryValidationResult{}, commitErr
+				}
+			}
+			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: existing.ReasonCode, FactsRef: "validation://" + existing.ValidationID, PayloadHash: existing.PayloadHash}, nil, current.EpisodeID+":validate:"+artifact.DeliveryID, nil, nil, nil, recoveryContext)
 			if commitErr != nil {
 				return DeliveryValidationResult{}, commitErr
 			}
@@ -443,7 +463,14 @@ func (s *Service) ValidateDelivery(ctx context.Context, request ValidateDelivery
 		traceID = current.EpisodeID + ":validate:" + artifact.DeliveryID
 	}
 	key := "validate:" + artifact.DeliveryID + ":" + acquire.Validator.Name + ":" + acquire.Validator.Version
-	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: result.ReasonCode, FactsRef: "validation://" + evidence.ValidationID, PayloadHash: evidence.PayloadHash}, nil, traceID, nil, nil, evidence)
+	var recoveryContext *recovery.RecoveryContext
+	if after == episode.StateRecovering {
+		recoveryContext, err = s.currentRecoveryContext(ctx, current, recovery.ReasonDeliveryInvalid, current.SelectedCandidateSetID, key)
+		if err != nil {
+			return DeliveryValidationResult{}, err
+		}
+	}
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionValidateDelivery, IdempotencyKey: key}, trace.Observation{Type: observation, Code: result.ReasonCode, FactsRef: "validation://" + evidence.ValidationID, PayloadHash: evidence.PayloadHash}, nil, traceID, nil, nil, evidence, recoveryContext)
 	if err != nil {
 		return DeliveryValidationResult{}, err
 	}
@@ -467,6 +494,9 @@ func (s *Service) RetrySameMerchant(ctx context.Context, request RetrySameMercha
 	}
 	if current.State != episode.StateRecovering {
 		return CommitResult{}, decision.ErrActionNotAllowed
+	}
+	if current.RetryCount >= 1 {
+		return CommitResult{}, decision.ErrAttemptLimit
 	}
 	intent, err := store.FindPaymentIntentByQuoteHash(ctx, current.EpisodeID, current.CurrentQuoteHash)
 	if err != nil {
@@ -511,7 +541,7 @@ func (s *Service) RetrySameMerchant(ctx context.Context, request RetrySameMercha
 	if request.Proposal.Target != nil && (request.Proposal.Target.MerchantDID != current.SelectedMerchantDID || request.Proposal.Target.CapabilityID != current.SelectedCapabilityID) {
 		return CommitResult{}, decision.ErrPaymentBindingMismatch
 	}
-	return s.CommitProposal(ctx, CommitRequest{Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID})
+	return s.CommitProposal(ctx, CommitRequest{Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID, runtimeRecoveryValidated: true})
 }
 
 func (s *Service) executeMerchantInvocation(ctx context.Context, store repository.S4Store, request adapters.MerchantInvokeRequest) (*invocation.MerchantInvocation, adapters.MerchantInvokeResult, error, bool, error) {
@@ -722,7 +752,7 @@ func (s *Service) commitS4Event(ctx context.Context, current, next *episode.Comm
 	return s.commitS4Transition(ctx, current, next, action, observation, target, traceID, nil, nil, nil)
 }
 
-func (s *Service) commitS4Transition(ctx context.Context, current, next *episode.CommerceEpisode, action trace.Action, observation trace.Observation, target *trace.Target, traceID string, requirement *invocation.PaymentRequirementFact, delivery *invocation.DeliveryArtifact, evidence *invocation.ValidationEvidence) (*episode.EpisodeEvent, bool, error) {
+func (s *Service) commitS4Transition(ctx context.Context, current, next *episode.CommerceEpisode, action trace.Action, observation trace.Observation, target *trace.Target, traceID string, requirement *invocation.PaymentRequirementFact, delivery *invocation.DeliveryArtifact, evidence *invocation.ValidationEvidence, recoveryContext ...*recovery.RecoveryContext) (*episode.EpisodeEvent, bool, error) {
 	store, err := s.s4Store()
 	if err != nil {
 		return nil, false, err
@@ -732,11 +762,21 @@ func (s *Service) commitS4Transition(ctx context.Context, current, next *episode
 	} else if !errors.Is(err, repository.ErrNotFound) {
 		return nil, false, err
 	}
+	if target == nil && action.Type == trace.ActionInvoke && current.SelectedMerchantDID != "" {
+		target = &trace.Target{MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef}
+	}
 	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, next.UpdatedAt, current.State, action, observation, trace.Decision{ProposedAction: action.Type, ProposalID: "runtime:" + action.IdempotencyKey, Reason: "runtime-owned merchant fact", Target: target}, trace.RuntimeVerdict{Allowed: true, Checks: []trace.RuntimeCheck{trace.Check("runtime_fact", true, "environment fact committed by runtime")}}, next.State, "runtime", traceID, s.runtimeVersion)
 	if err != nil {
 		return nil, false, err
 	}
-	if err := store.CommitS4Transition(ctx, repository.S4Transition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, PaymentRequirement: requirement, DeliveryArtifact: delivery, ValidationEvidence: evidence}); err != nil {
+	var durableRecovery *recovery.RecoveryContext
+	if len(recoveryContext) > 0 {
+		durableRecovery = recoveryContext[0]
+		if durableRecovery != nil {
+			next.RecoveryID = durableRecovery.RecoveryID
+		}
+	}
+	if err := store.CommitS4Transition(ctx, repository.S4Transition{EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event, PaymentRequirement: requirement, DeliveryArtifact: delivery, ValidationEvidence: evidence, RecoveryContext: durableRecovery}); err != nil {
 		if errors.Is(err, repository.ErrIdempotentReplay) || errors.Is(err, repository.ErrVersionConflict) {
 			if replay, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, action.IdempotencyKey); findErr == nil {
 				return replay, true, nil

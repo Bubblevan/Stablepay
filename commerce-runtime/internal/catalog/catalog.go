@@ -405,6 +405,7 @@ type CandidateSet struct {
 	CandidateSetID      string               `json:"candidate_set_id"`
 	EpisodeID           string               `json:"episode_id"`
 	RequestID           string               `json:"request_id"`
+	Generation          int                  `json:"generation"`
 	QueryHash           string               `json:"query_hash"`
 	CatalogSnapshotRefs []CatalogSnapshotRef `json:"catalog_snapshot_refs"`
 	Candidates          []Candidate          `json:"candidates"`
@@ -418,6 +419,9 @@ func (s CandidateSet) Normalize() CandidateSet {
 	s.CandidateSetID = strings.TrimSpace(s.CandidateSetID)
 	s.EpisodeID = strings.TrimSpace(s.EpisodeID)
 	s.RequestID = strings.TrimSpace(s.RequestID)
+	if s.Generation < 0 {
+		s.Generation = 0
+	}
 	s.QueryHash = strings.ToLower(strings.TrimSpace(s.QueryHash))
 	s.GeneratedAt = s.GeneratedAt.UTC().Truncate(time.Nanosecond)
 	s.ExpiresAt = s.ExpiresAt.UTC().Truncate(time.Nanosecond)
@@ -479,7 +483,7 @@ func candidateLess(left, right Candidate) bool {
 
 func (s CandidateSet) Validate() error {
 	s = s.Normalize()
-	if s.CandidateSetID == "" || s.EpisodeID == "" || s.RequestID == "" || s.QueryHash == "" || s.GeneratedAt.IsZero() || s.ExpiresAt.IsZero() || !s.ExpiresAt.After(s.GeneratedAt) || s.FactsRef == "" || s.PayloadHash == "" {
+	if s.CandidateSetID == "" || s.EpisodeID == "" || s.RequestID == "" || s.Generation < 0 || s.QueryHash == "" || s.GeneratedAt.IsZero() || s.ExpiresAt.IsZero() || !s.ExpiresAt.After(s.GeneratedAt) || s.FactsRef == "" || s.PayloadHash == "" {
 		return ErrInvalidCandidateSet
 	}
 	seen := make(map[string]struct{}, len(s.Candidates))
@@ -524,6 +528,7 @@ type canonicalCandidateSet struct {
 	CandidateSetID      string               `json:"candidate_set_id"`
 	EpisodeID           string               `json:"episode_id"`
 	RequestID           string               `json:"request_id"`
+	Generation          int                  `json:"generation"`
 	QueryHash           string               `json:"query_hash"`
 	CatalogSnapshotRefs []CatalogSnapshotRef `json:"catalog_snapshot_refs"`
 	Candidates          []Candidate          `json:"candidates"`
@@ -534,7 +539,7 @@ type canonicalCandidateSet struct {
 
 func (s CandidateSet) canonical() canonicalCandidateSet {
 	s = s.Normalize()
-	return canonicalCandidateSet{CandidateSetID: s.CandidateSetID, EpisodeID: s.EpisodeID, RequestID: s.RequestID, QueryHash: s.QueryHash,
+	return canonicalCandidateSet{CandidateSetID: s.CandidateSetID, EpisodeID: s.EpisodeID, RequestID: s.RequestID, Generation: s.Generation, QueryHash: s.QueryHash,
 		CatalogSnapshotRefs: s.CatalogSnapshotRefs, Candidates: s.Candidates, GeneratedAt: s.GeneratedAt, ExpiresAt: s.ExpiresAt, FactsRef: s.FactsRef}
 }
 
