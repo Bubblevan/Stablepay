@@ -36,6 +36,7 @@ $payloadFile = Join-Path $root ".local-run\e2e-payment-event.json"
 $defaultWallet = Join-Path $root "blockchain-adapter\config\hotwallet.json"
 $defaultAgentKeypair = Join-Path $root ".local-run\secrets\e2e-agent.json"
 $defaultPreparedInputs = Join-Path $root ".local-run\e2e-prepared.json"
+$verificationDatabase = "stablepay_verification_e2e_$([guid]::NewGuid().ToString('N'))"
 
 if ($ManualInputs) { $AutoPrepareIdentity = $false }
 if ([string]::IsNullOrWhiteSpace($WalletPath)) { $WalletPath = $defaultWallet }
@@ -113,6 +114,7 @@ if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf)) { Fail "infra com
 $infraStarted = $false
 $servicesStarted = $false
 $previousVerificationGroup = $env:VERIFICATION_ROCKETMQ_GROUP
+$previousVerificationDSN = $env:VERIFICATION_MYSQL_DSN
 $env:VERIFICATION_ROCKETMQ_GROUP = "verification_e2e_$([guid]::NewGuid().ToString('N'))"
 try {
     Push-Location $infraDir
@@ -126,6 +128,33 @@ try {
     Wait-Tcp 6379 "Redis"
     Wait-Tcp 9876 "RocketMQ nameserver"
     Wait-Tcp 10911 "RocketMQ broker"
+
+    # Verification enforces one purchase per Agent/Skill pair. Keep the
+    # reusable local E2E Agent identity, but isolate each run's projection so
+    # a previous successful Devnet payment cannot shadow the current tx_id.
+    $databaseSQL = "CREATE DATABASE IF NOT EXISTS $verificationDatabase; GRANT ALL PRIVILEGES ON $verificationDatabase.* TO 'stablepay'@'%'; FLUSH PRIVILEGES;"
+    $databaseReady = $false
+    $databaseOutput = @()
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $databaseOutput = & $dockerExe exec -e MYSQL_PWD=root123 stablepay-mysql mysql --protocol=TCP -h 127.0.0.1 -uroot -e $databaseSQL 2>&1
+            $databaseExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($databaseExitCode -eq 0) {
+            $databaseReady = $true
+            break
+        }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $databaseReady) {
+        Fail "could not create isolated verification database: $($databaseOutput -join ' ')"
+    }
+    $env:VERIFICATION_MYSQL_DSN = "stablepay:stablepay123@tcp(127.0.0.1:3307)/${verificationDatabase}?charset=utf8mb4&parseTime=True&loc=Local"
+    Write-Host "[deterministic-e2e] isolated verification database=$verificationDatabase"
 
     $topicReady = $false
     for ($attempt = 1; $attempt -le 30; $attempt++) {
@@ -340,6 +369,11 @@ try {
         Remove-Item Env:VERIFICATION_ROCKETMQ_GROUP -ErrorAction SilentlyContinue
     } else {
         $env:VERIFICATION_ROCKETMQ_GROUP = $previousVerificationGroup
+    }
+    if ($null -eq $previousVerificationDSN) {
+        Remove-Item Env:VERIFICATION_MYSQL_DSN -ErrorAction SilentlyContinue
+    } else {
+        $env:VERIFICATION_MYSQL_DSN = $previousVerificationDSN
     }
     if (-not $KeepServices -and $servicesStarted) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $stopScript
