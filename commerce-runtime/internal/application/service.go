@@ -31,22 +31,24 @@ const DefaultRuntimeVersion = "commerce-runtime-mvp.1"
 const DefaultCandidateSetTTL = 5 * time.Minute
 
 type Service struct {
-	store                repository.TransitionStore
-	clock                func() time.Time
-	idGenerator          func(prefix string) string
-	runtimeVersion       string
-	candidateSetTTL      time.Duration
-	guard                decision.RuntimeGuard
-	paymentDeps          PaymentDependencies
-	merchantAdapter      adapters.MerchantAdapter
-	validatorRegistry    *validator.Registry
-	settlementPolicy     SettlementPolicy
-	invocationStaleAfter time.Duration
-	llmProvider          *llm.LLMDecisionProvider
-	evidenceRetriever    evidence.Retriever
-	allowRuleFallback    bool
-	memoryStore          memory.MemoryStore
-	memoryProjector      *memory.Projector
+	store                 repository.TransitionStore
+	clock                 func() time.Time
+	idGenerator           func(prefix string) string
+	runtimeVersion        string
+	candidateSetTTL       time.Duration
+	guard                 decision.RuntimeGuard
+	paymentDeps           PaymentDependencies
+	merchantAdapter       adapters.MerchantAdapter
+	validatorRegistry     *validator.Registry
+	settlementPolicy      SettlementPolicy
+	invocationStaleAfter  time.Duration
+	llmProvider           *llm.LLMDecisionProvider
+	evidenceRetriever     evidence.Retriever
+	allowRuleFallback     bool
+	memoryStore           memory.MemoryStore
+	memoryProjector       *memory.Projector
+	memoryRetrievalPolicy memory.MemoryRetrievalPolicy
+	memoryUseTraceStore   memory.MemoryUseTraceStore
 }
 
 // SettlementPolicy binds merchant challenges to the configured payment
@@ -161,8 +163,19 @@ func WithMemoryStore(store memory.MemoryStore) Option {
 			return
 		}
 		s.memoryStore = store
+		if traceStore, ok := store.(memory.MemoryUseTraceStore); ok {
+			s.memoryUseTraceStore = traceStore
+		}
 		if source, ok := s.store.(memory.EpisodeSource); ok {
 			s.memoryProjector = memory.NewProjector(source, store, memory.WithProjectorClock(s.clock))
+		}
+	}
+}
+
+func WithMemoryRetrievalPolicy(policy memory.MemoryRetrievalPolicy) Option {
+	return func(s *Service) {
+		if policy != nil {
+			s.memoryRetrievalPolicy = policy
 		}
 	}
 }
@@ -177,15 +190,16 @@ func WithMemoryProjector(projector *memory.Projector) Option {
 
 func NewService(store repository.TransitionStore, options ...Option) *Service {
 	service := &Service{
-		store:                store,
-		clock:                func() time.Time { return time.Now().UTC() },
-		idGenerator:          randomID,
-		runtimeVersion:       DefaultRuntimeVersion,
-		candidateSetTTL:      DefaultCandidateSetTTL,
-		guard:                decision.NewRuntimeGuard(),
-		validatorRegistry:    validator.NewBuiltinRegistry(),
-		settlementPolicy:     settlementPolicyFromEnvironment(),
-		invocationStaleAfter: 30 * time.Second,
+		store:                 store,
+		clock:                 func() time.Time { return time.Now().UTC() },
+		idGenerator:           randomID,
+		runtimeVersion:        DefaultRuntimeVersion,
+		candidateSetTTL:       DefaultCandidateSetTTL,
+		guard:                 decision.NewRuntimeGuard(),
+		validatorRegistry:     validator.NewBuiltinRegistry(),
+		settlementPolicy:      settlementPolicyFromEnvironment(),
+		invocationStaleAfter:  30 * time.Second,
+		memoryRetrievalPolicy: memory.DeterministicMemoryRetrievalPolicy{},
 	}
 	for _, option := range options {
 		option(service)

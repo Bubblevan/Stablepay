@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
 	"github.com/stablepay/commerce-runtime/internal/llm"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
@@ -120,6 +122,83 @@ func switchBResponse(set *catalog.CandidateSet, recoveryContext *recovery.Recove
 	value := map[string]any{"proposed_action": trace.ActionSwitchMerchant, "candidate_set_id": set.CandidateSetID, "target": map[string]string{"merchant_did": candidate.MerchantDID, "capability_id": candidate.CapabilityID, "catalog_version": candidate.CatalogVersion, "catalog_snapshot_hash": candidate.CatalogSnapshotHash, "catalog_snapshot_ref": candidate.CatalogSnapshotRef}, "evidence_refs": []string{recoveryContext.FactsRef, set.FactsRef, evidenceRef}, "rationale": "B is the eligible unattempted candidate", "confidence": 0.84}
 	encoded, _ := json.Marshal(value)
 	return encoded
+}
+
+func switchBMemoryResponse(set *catalog.CandidateSet, recoveryContext *recovery.RecoveryContext, evidenceRef string) []byte {
+	response := map[string]any{}
+	_ = json.Unmarshal(switchBResponse(set, recoveryContext, evidenceRef), &response)
+	response["evidence_refs"] = []string{recoveryContext.FactsRef, set.FactsRef}
+	candidate, _ := set.FindCandidate("did:merchant:b", "transcription")
+	response["memory_refs"] = []string{"memory://" + memory.MemoryIDForSnapshot(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", candidate.MerchantDID, candidate.CapabilityID, candidate.CatalogVersion, candidate.CatalogSnapshotHash)}
+	encoded, _ := json.Marshal(response)
+	return encoded
+}
+
+func seedCandidateOutcomeMemories(t *testing.T, fixture s6SwitchFixture) {
+	t.Helper()
+	now := fixture.now
+	for _, candidate := range fixture.set.Candidates {
+		facts := memory.OutcomeFacts{AttemptCount: 3, LastOutcome: "DELIVERY_INVALID", LastOutcomeAt: now, DeliveryInvalidCount: 2, SwitchAwayCount: 1, RecentFailureStreak: 2}
+		if candidate.MerchantDID == "did:merchant:b" {
+			facts.LastOutcome, facts.DeliveryValidCount, facts.FulfilledCount, facts.DeliveryInvalidCount, facts.RecentFailureStreak = "DELIVERY_VALID", 3, 3, 0, 0
+		}
+		id := memory.MemoryIDForSnapshot(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", candidate.MerchantDID, candidate.CapabilityID, candidate.CatalogVersion, candidate.CatalogSnapshotHash)
+		expires := now.Add(24 * time.Hour)
+		record := &memory.MemoryRecord{MemoryID: id, Type: memory.MemoryCapabilityOutcome, Scope: memory.ScopeMerchantCapability, MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef, Summary: "candidate outcome history", StructuredFacts: facts, SourceEpisodeIDs: []string{"prior-" + candidate.MerchantDID}, SourceEventRefs: []string{"event-" + candidate.MerchantDID}, ObservationCount: 1, Confidence: 0.5, FirstObservedAt: now, LastObservedAt: now, ValidFrom: now, ValidUntil: &expires, CreatedAt: now, UpdatedAt: now, FactsRef: "memory://" + id}
+		record.Summary = memory.Summarize(*record)
+		if err := record.RefreshPayloadHash(); err != nil {
+			t.Fatal(err)
+		}
+		observation := &memory.MemoryObservation{ObservationID: memory.ObservationIDFor(id, record.SourceEpisodeIDs[0], string(record.Type)), MemoryID: id, SourceEpisodeID: record.SourceEpisodeIDs[0], SourceEventRef: record.SourceEventRefs[0], ObservationKind: string(record.Type), Outcome: facts.LastOutcome, ObservedAt: now, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}
+		if err := observation.RefreshPayloadHash(); err != nil {
+			t.Fatal(err)
+		}
+		if err := fixture.store.SaveObservationAndUpdateAggregate(context.Background(), record, observation, facts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.service.memoryStore = fixture.store
+	fixture.service.memoryUseTraceStore = fixture.store
+	fixture.service.memoryRetrievalPolicy = memory.DeterministicMemoryRetrievalPolicy{}
+}
+
+func TestS71CandidateMemoryGuidesNeutralActionAndPersistsUseTrace(t *testing.T) {
+	fixture := makeS6SwitchFixture(t, switchBResponse)
+	seedCandidateOutcomeMemories(t, fixture)
+	contextValue, err := fixture.service.BuildDecisionContext(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "which eligible recovery option has the strongest persisted outcome history?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contextValue.CandidateMemories) != 2 {
+		t.Fatalf("candidate memory groups=%#v", contextValue.CandidateMemories)
+	}
+	if contextValue.CandidateMemories[0].MerchantDID != "did:merchant:a" || contextValue.CandidateMemories[1].MerchantDID != "did:merchant:b" {
+		t.Fatalf("candidate order=%#v", contextValue.CandidateMemories)
+	}
+	for _, candidate := range contextValue.CandidateMemories {
+		if len(candidate.Memories) != 1 {
+			t.Fatalf("candidate memories=%#v", contextValue.CandidateMemories)
+		}
+	}
+	prompt, err := llm.BuildPrompt(contextValue)
+	if err != nil || !strings.Contains(prompt.User, "CANDIDATE_MEMORY") || !strings.Contains(prompt.User, "did:merchant:b") {
+		t.Fatalf("candidate memory prompt err=%v prompt=%s", err, prompt.User)
+	}
+	fixture.client.response = switchBMemoryResponse(fixture.set, fixture.recovery, fixture.evidenceRef)
+	commit, result, err := fixture.service.ExecuteRecoveryDecision(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "which eligible recovery option has the strongest persisted outcome history?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Proposal.ProposedAction != trace.ActionSwitchMerchant || result.Proposal.Target == nil || result.Proposal.Target.MerchantDID != "did:merchant:b" || len(result.Proposal.MemoryRefs) != 1 {
+		t.Fatalf("result=%#v", result)
+	}
+	if !commit.Event.RuntimeVerdict.Allowed {
+		t.Fatalf("guard rejected=%#v", commit.Event.RuntimeVerdict)
+	}
+	traces, err := fixture.store.ListMemoryUseTraces(context.Background(), fixture.current)
+	if err != nil || len(traces) != 1 || !traces[0].GuardAccepted || len(traces[0].CitedMemoryRefs) != 1 {
+		t.Fatalf("memory use traces=%#v err=%v", traces, err)
+	}
 }
 
 func TestS6RealProviderProposalPassesExistingGuardAndSwitchesDeterministically(t *testing.T) {

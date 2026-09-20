@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -87,24 +89,80 @@ func (s *Service) BuildDecisionContext(ctx context.Context, request S6DecisionRe
 		}
 	}
 	var retrievedMemories []memory.MemoryRecord
-	if s.memoryStore != nil {
-		merchantDID := current.SelectedMerchantDID
-		capabilityID := current.SelectedCapabilityID
-		if recoveryContext != nil && merchantDID == "" {
-			merchantDID = recoveryContext.CurrentMerchantDID
-			capabilityID = recoveryContext.CurrentCapabilityID
-		}
-		values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: merchantDID, CapabilityID: capabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, Now: s.clock().UTC(), Limit: llm.MaxContextMemories})
-		if memoryErr != nil {
-			return llm.DecisionContext{}, memoryErr
-		}
-		for _, value := range values {
-			if value != nil {
-				retrievedMemories = append(retrievedMemories, *value.Clone())
+	var candidateMemories []llm.CandidateMemorySummary
+	if s.memoryStore != nil && s.memoryRetrievalPolicy != nil {
+		policyPlan := s.memoryRetrievalPolicy.Plan(memory.EpisodeSnapshot{State: current.State, SelectedMerchantDID: current.SelectedMerchantDID, SelectedCapabilityID: current.SelectedCapabilityID, RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID}, recoveryContext, candidateSet)
+		if policyPlan.Enabled {
+			seen := make(map[string]struct{})
+			candidateValues := make([]catalog.Candidate, 0, llm.MaxMemoryCandidates)
+			currentMerchantDID, currentCapabilityID := current.SelectedMerchantDID, current.SelectedCapabilityID
+			if currentMerchantDID == "" && recoveryContext != nil {
+				currentMerchantDID, currentCapabilityID = recoveryContext.CurrentMerchantDID, recoveryContext.CurrentCapabilityID
+			}
+			if policyPlan.IncludeCandidates && candidateSet != nil {
+				for pass := 0; pass < 2; pass++ {
+					for _, candidate := range candidateSet.Candidates {
+						if len(candidateValues) >= policyPlan.CandidateLimit || len(candidateValues) >= llm.MaxMemoryCandidates {
+							break
+						}
+						if !candidate.Eligibility.Eligible() {
+							continue
+						}
+						isCurrent := candidate.MerchantDID == currentMerchantDID && strings.EqualFold(candidate.CapabilityID, currentCapabilityID)
+						if (pass == 0) != isCurrent {
+							continue
+						}
+						candidateValues = append(candidateValues, candidate)
+					}
+				}
+			}
+			for _, candidate := range candidateValues {
+				values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, Now: s.clock().UTC(), Limit: policyPlan.PerCandidateLimit})
+				if memoryErr != nil {
+					return llm.DecisionContext{}, memoryErr
+				}
+				summary := llm.CandidateMemorySummary{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash}
+				for _, value := range values {
+					if value == nil || len(summary.Memories) >= llm.MaxMemoriesPerCandidate || len(seen) >= policyPlan.TotalLimit {
+						break
+					}
+					if _, ok := seen[value.MemoryID]; ok {
+						continue
+					}
+					seen[value.MemoryID] = struct{}{}
+					summary.Memories = append(summary.Memories, *value.Clone())
+				}
+				if len(summary.Memories) > 0 {
+					candidateMemories = append(candidateMemories, summary)
+				}
+			}
+			if policyPlan.IncludeCurrentMerchant || policyPlan.IncludeRequester || policyPlan.IncludeParentSession {
+				merchantDID, capabilityID := "", ""
+				catalogVersion, catalogHash := "", ""
+				if policyPlan.IncludeCurrentMerchant {
+					merchantDID, capabilityID = currentMerchantDID, currentCapabilityID
+					catalogVersion, catalogHash = current.SelectedCatalogVersion, current.SelectedCatalogSnapshotHash
+				}
+				remaining := policyPlan.TotalLimit - len(seen)
+				if remaining > 0 {
+					values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: merchantDID, CapabilityID: capabilityID, CatalogVersion: catalogVersion, CatalogSnapshotHash: catalogHash, Now: s.clock().UTC(), Limit: remaining})
+					if memoryErr != nil {
+						return llm.DecisionContext{}, memoryErr
+					}
+					for _, value := range values {
+						if value != nil {
+							if _, ok := seen[value.MemoryID]; ok {
+								continue
+							}
+							seen[value.MemoryID] = struct{}{}
+							retrievedMemories = append(retrievedMemories, *value.Clone())
+						}
+					}
+				}
 			}
 		}
 	}
-	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(current.State), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved, RetrievedMemories: retrievedMemories})
+	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(current.State), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved, RetrievedMemories: retrievedMemories, CandidateMemories: candidateMemories})
 }
 
 // ProposeRecoveryDecision invokes the configured LLM provider. It returns a
@@ -167,6 +225,7 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = "CONTEXT_EVIDENCE_MISMATCH"
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, evidenceErr
 	}
 	if memoryErr := llm.ValidateProposalMemoryRefsAgainstContext(result.Context, result.Proposal); memoryErr != nil {
@@ -176,6 +235,7 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = "CONTEXT_MEMORY_MISMATCH"
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, memoryErr
 	}
 	key := "s6:" + result.Proposal.ProposalID
@@ -192,7 +252,11 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = errorCodeForS6(commitErr)
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, commitErr
+	}
+	if err := s.persistMemoryUseTrace(ctx, result, true); err != nil {
+		return CommitResult{}, result, err
 	}
 	return commit, result, nil
 }
@@ -276,7 +340,37 @@ func fallbackMemoryRefs(value llm.DecisionContext) []string {
 			refs = append(refs, record.FactsRef)
 		}
 	}
+	for _, candidate := range value.CandidateMemories {
+		for _, record := range candidate.Memories {
+			if strings.TrimSpace(record.FactsRef) != "" {
+				refs = append(refs, record.FactsRef)
+			}
+		}
+	}
 	return uniqueS6Strings(refs)
+}
+
+func (s *Service) persistMemoryUseTrace(ctx context.Context, result S6DecisionResult, accepted bool) error {
+	if s == nil || s.memoryUseTraceStore == nil {
+		return nil
+	}
+	traceID := result.Trace.TraceID
+	if strings.TrimSpace(traceID) == "" {
+		traceID = "unknown-trace"
+	}
+	contextHash := contextHashOrEmpty(result.Context)
+	seed := traceID + "\x00" + contextHash + "\x00" + fmt.Sprint(accepted)
+	digest := sha256.Sum256([]byte(seed))
+	id := "mut_" + hex.EncodeToString(digest[:])
+	action := string(result.Proposal.ProposedAction)
+	if strings.TrimSpace(action) == "" {
+		action = "UNKNOWN"
+	}
+	value := &memory.MemoryUseTrace{MemoryUseTraceID: id, EpisodeID: result.Context.Episode.EpisodeID, ModelDecisionTraceID: result.Trace.TraceID, ContextHash: contextHash, RetrievedMemoryRefs: fallbackMemoryRefs(result.Context), CitedMemoryRefs: append([]string(nil), result.Proposal.MemoryRefs...), ProposedAction: action, GuardAccepted: accepted, CreatedAt: s.clock().UTC(), FactsRef: "memory-use-trace://" + id}
+	if err := value.RefreshPayloadHash(); err != nil {
+		return err
+	}
+	return s.memoryUseTraceStore.SaveMemoryUseTrace(ctx, value)
 }
 
 func contextHashOrEmpty(value llm.DecisionContext) string {

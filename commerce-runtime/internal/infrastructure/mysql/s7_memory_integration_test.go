@@ -76,6 +76,25 @@ func TestMySQLS7MemoryAtomicIdempotencyConcurrencyAndRollback(t *testing.T) {
 	if _, getErr := store.GetMemory(context.Background(), rollbackRecord.MemoryID); !errors.Is(getErr, memory.ErrMemoryNotFound) {
 		t.Fatalf("transaction did not roll back aggregate: %v", getErr)
 	}
+	useTrace := &memory.MemoryUseTrace{MemoryUseTraceID: "mut_mysql_s7", EpisodeID: "s7-episode-trace", ModelDecisionTraceID: "trace_mysql_s7", ContextHash: "sha256:" + strings.Repeat("a", 64), RetrievedMemoryRefs: []string{"memory://" + record.MemoryID}, CitedMemoryRefs: []string{"memory://" + record.MemoryID}, ProposedAction: "SWITCH_MERCHANT", GuardAccepted: true, CreatedAt: now, FactsRef: "memory-use-trace://mut_mysql_s7"}
+	if err := useTrace.RefreshPayloadHash(); err != nil {
+		t.Fatal(err)
+	}
+	db.Exec("DELETE FROM memory_use_traces WHERE memory_use_trace_id = ?", useTrace.MemoryUseTraceID)
+	if err := store.SaveMemoryUseTrace(context.Background(), useTrace); err != nil {
+		t.Fatal(err)
+	}
+	readTrace, err := store.GetMemoryUseTrace(context.Background(), useTrace.MemoryUseTraceID)
+	if err != nil || readTrace.PayloadHash != useTrace.PayloadHash || !readTrace.GuardAccepted {
+		t.Fatalf("memory use trace=%#v err=%v", readTrace, err)
+	}
+	traces, err := store.ListMemoryUseTraces(context.Background(), useTrace.EpisodeID)
+	if err != nil || len(traces) != 1 {
+		t.Fatalf("memory use trace list=%#v err=%v", traces, err)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM memory_use_traces WHERE memory_use_trace_id = ?", useTrace.MemoryUseTraceID)
+	})
 }
 
 func s7IntegrationRecord(now time.Time, merchant string) *memory.MemoryRecord {

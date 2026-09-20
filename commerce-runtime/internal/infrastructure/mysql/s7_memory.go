@@ -23,7 +23,8 @@ type MemoryRecordModel struct {
 	MerchantDID         string     `gorm:"column:merchant_did;type:varchar(128);not null;uniqueIndex:uk_memory_identity"`
 	CapabilityID        string     `gorm:"column:capability_id;type:varchar(128);not null;uniqueIndex:uk_memory_identity"`
 	CatalogVersion      string     `gorm:"column:catalog_version;type:varchar(64);not null;uniqueIndex:uk_memory_identity"`
-	CatalogSnapshotHash string     `gorm:"column:catalog_snapshot_hash;type:char(71);not null"`
+	CatalogSnapshotHash string     `gorm:"column:catalog_snapshot_hash;type:char(71);not null;uniqueIndex:uk_memory_identity"`
+	CatalogSnapshotRef  string     `gorm:"column:catalog_snapshot_ref;type:varchar(255);not null"`
 	Summary             string     `gorm:"column:summary;type:varchar(1024);not null"`
 	StructuredFacts     []byte     `gorm:"column:structured_facts;type:json;not null"`
 	SourceEpisodeIDs    []byte     `gorm:"column:source_episode_ids;type:json;not null"`
@@ -44,17 +45,22 @@ type MemoryRecordModel struct {
 func (MemoryRecordModel) TableName() string { return "memory_records" }
 
 type MemoryObservationModel struct {
-	ObservationID       string    `gorm:"column:observation_id;type:varchar(128);primaryKey"`
-	MemoryID            string    `gorm:"column:memory_id;type:varchar(128);not null;index:idx_memory_observation_memory"`
-	SourceEpisodeID     string    `gorm:"column:source_episode_id;type:varchar(128);not null;uniqueIndex:uk_memory_observation_identity"`
-	SourceEventRef      string    `gorm:"column:source_event_ref;type:varchar(255);not null"`
-	SourceEvidenceRefs  []byte    `gorm:"column:source_evidence_refs;type:json"`
-	ObservationKind     string    `gorm:"column:observation_kind;type:varchar(64);not null;uniqueIndex:uk_memory_observation_identity"`
-	Outcome             string    `gorm:"column:outcome;type:varchar(128)"`
-	ObservedAt          time.Time `gorm:"column:observed_at;type:datetime(6);not null"`
-	CatalogVersion      string    `gorm:"column:catalog_version;type:varchar(64)"`
-	CatalogSnapshotHash string    `gorm:"column:catalog_snapshot_hash;type:char(71)"`
-	PayloadHash         string    `gorm:"column:payload_hash;type:char(71);not null"`
+	ObservationID          string    `gorm:"column:observation_id;type:varchar(128);primaryKey"`
+	MemoryID               string    `gorm:"column:memory_id;type:varchar(128);not null;index:idx_memory_observation_memory"`
+	SourceEpisodeID        string    `gorm:"column:source_episode_id;type:varchar(128);not null;uniqueIndex:uk_memory_observation_identity"`
+	SourceEventRef         string    `gorm:"column:source_event_ref;type:varchar(255);not null"`
+	SourceEvidenceRefs     []byte    `gorm:"column:source_evidence_refs;type:json"`
+	ObservationKind        string    `gorm:"column:observation_kind;type:varchar(64);not null;uniqueIndex:uk_memory_observation_identity"`
+	Outcome                string    `gorm:"column:outcome;type:varchar(128)"`
+	ObservedAt             time.Time `gorm:"column:observed_at;type:datetime(6);not null"`
+	CatalogVersion         string    `gorm:"column:catalog_version;type:varchar(64)"`
+	CatalogSnapshotHash    string    `gorm:"column:catalog_snapshot_hash;type:char(71)"`
+	CatalogSnapshotRef     string    `gorm:"column:catalog_snapshot_ref;type:varchar(255)"`
+	TriggerEventRef        string    `gorm:"column:trigger_event_ref;type:varchar(255)"`
+	RecoveryActionEventRef string    `gorm:"column:recovery_action_event_ref;type:varchar(255)"`
+	TerminalEventRef       string    `gorm:"column:terminal_event_ref;type:varchar(255)"`
+	RelatedEventRefs       []byte    `gorm:"column:related_event_refs;type:json"`
+	PayloadHash            string    `gorm:"column:payload_hash;type:char(71);not null"`
 }
 
 func (MemoryObservationModel) TableName() string { return "memory_observations" }
@@ -79,11 +85,11 @@ func memoryRecordToModel(value *memory.MemoryRecord) (*MemoryRecordModel, error)
 	if err != nil {
 		return nil, err
 	}
-	return &MemoryRecordModel{MemoryID: value.MemoryID, Type: string(value.Type), Scope: string(value.Scope), RequesterDID: value.RequesterDID, ParentSessionID: value.ParentSessionID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, Summary: value.Summary, StructuredFacts: facts, SourceEpisodeIDs: episodes, SourceEventRefs: events, SourceEvidenceRefs: evidence, ObservationCount: value.ObservationCount, Confidence: value.Confidence, FirstObservedAt: value.FirstObservedAt, LastObservedAt: value.LastObservedAt, ValidFrom: value.ValidFrom, ValidUntil: value.ValidUntil, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, FactsRef: value.FactsRef, PayloadHash: value.PayloadHash}, nil
+	return &MemoryRecordModel{MemoryID: value.MemoryID, Type: string(value.Type), Scope: string(value.Scope), RequesterDID: value.RequesterDID, ParentSessionID: value.ParentSessionID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, CatalogSnapshotRef: value.CatalogSnapshotRef, Summary: value.Summary, StructuredFacts: facts, SourceEpisodeIDs: episodes, SourceEventRefs: events, SourceEvidenceRefs: evidence, ObservationCount: value.ObservationCount, Confidence: value.Confidence, FirstObservedAt: value.FirstObservedAt, LastObservedAt: value.LastObservedAt, ValidFrom: value.ValidFrom, ValidUntil: value.ValidUntil, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, FactsRef: value.FactsRef, PayloadHash: value.PayloadHash}, nil
 }
 
 func modelToMemoryRecord(row MemoryRecordModel) (*memory.MemoryRecord, error) {
-	value := &memory.MemoryRecord{MemoryID: row.MemoryID, Type: memory.MemoryType(row.Type), Scope: memory.MemoryScope(row.Scope), RequesterDID: row.RequesterDID, ParentSessionID: row.ParentSessionID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, Summary: row.Summary, ObservationCount: row.ObservationCount, Confidence: row.Confidence, FirstObservedAt: row.FirstObservedAt, LastObservedAt: row.LastObservedAt, ValidFrom: row.ValidFrom, ValidUntil: row.ValidUntil, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
+	value := &memory.MemoryRecord{MemoryID: row.MemoryID, Type: memory.MemoryType(row.Type), Scope: memory.MemoryScope(row.Scope), RequesterDID: row.RequesterDID, ParentSessionID: row.ParentSessionID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, CatalogSnapshotRef: row.CatalogSnapshotRef, Summary: row.Summary, ObservationCount: row.ObservationCount, Confidence: row.Confidence, FirstObservedAt: row.FirstObservedAt, LastObservedAt: row.LastObservedAt, ValidFrom: row.ValidFrom, ValidUntil: row.ValidUntil, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
 	if err := json.Unmarshal(row.StructuredFacts, &value.StructuredFacts); err != nil {
 		return nil, err
 	}
@@ -112,11 +118,20 @@ func memoryObservationToModel(value *memory.MemoryObservation) (*MemoryObservati
 	if err != nil {
 		return nil, err
 	}
-	return &MemoryObservationModel{ObservationID: value.ObservationID, MemoryID: value.MemoryID, SourceEpisodeID: value.SourceEpisodeID, SourceEventRef: value.SourceEventRef, SourceEvidenceRefs: refs, ObservationKind: value.ObservationKind, Outcome: value.Outcome, ObservedAt: value.ObservedAt, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, PayloadHash: value.PayloadHash}, nil
+	related, err := json.Marshal(value.RelatedEventRefs)
+	if err != nil {
+		return nil, err
+	}
+	return &MemoryObservationModel{ObservationID: value.ObservationID, MemoryID: value.MemoryID, SourceEpisodeID: value.SourceEpisodeID, SourceEventRef: value.SourceEventRef, SourceEvidenceRefs: refs, ObservationKind: value.ObservationKind, Outcome: value.Outcome, ObservedAt: value.ObservedAt, CatalogVersion: value.CatalogVersion, CatalogSnapshotHash: value.CatalogSnapshotHash, CatalogSnapshotRef: value.CatalogSnapshotRef, TriggerEventRef: value.TriggerEventRef, RecoveryActionEventRef: value.RecoveryActionEventRef, TerminalEventRef: value.TerminalEventRef, RelatedEventRefs: related, PayloadHash: value.PayloadHash}, nil
 }
 
 func modelToMemoryObservation(row MemoryObservationModel) (*memory.MemoryObservation, error) {
-	value := &memory.MemoryObservation{ObservationID: row.ObservationID, MemoryID: row.MemoryID, SourceEpisodeID: row.SourceEpisodeID, SourceEventRef: row.SourceEventRef, ObservationKind: row.ObservationKind, Outcome: row.Outcome, ObservedAt: row.ObservedAt, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, PayloadHash: row.PayloadHash}
+	value := &memory.MemoryObservation{ObservationID: row.ObservationID, MemoryID: row.MemoryID, SourceEpisodeID: row.SourceEpisodeID, SourceEventRef: row.SourceEventRef, ObservationKind: row.ObservationKind, Outcome: row.Outcome, ObservedAt: row.ObservedAt, CatalogVersion: row.CatalogVersion, CatalogSnapshotHash: row.CatalogSnapshotHash, CatalogSnapshotRef: row.CatalogSnapshotRef, TriggerEventRef: row.TriggerEventRef, RecoveryActionEventRef: row.RecoveryActionEventRef, TerminalEventRef: row.TerminalEventRef, PayloadHash: row.PayloadHash}
+	if len(row.RelatedEventRefs) > 0 {
+		if err := json.Unmarshal(row.RelatedEventRefs, &value.RelatedEventRefs); err != nil {
+			return nil, err
+		}
+	}
 	if len(row.SourceEvidenceRefs) > 0 {
 		if err := json.Unmarshal(row.SourceEvidenceRefs, &value.SourceEvidenceRefs); err != nil {
 			return nil, err
@@ -203,7 +218,7 @@ func (s *Store) saveObservationAndUpdateAggregate(ctx context.Context, value *me
 		lookup := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("memory_id = ?", value.MemoryID).First(&existingRow).Error
 		if errors.Is(lookup, gorm.ErrRecordNotFound) {
 			var identity MemoryRecordModel
-			identityErr := tx.Where("type = ? AND scope = ? AND requester_did = ? AND parent_session_id = ? AND merchant_did = ? AND capability_id = ? AND catalog_version = ?", recordModel.Type, recordModel.Scope, recordModel.RequesterDID, recordModel.ParentSessionID, recordModel.MerchantDID, recordModel.CapabilityID, recordModel.CatalogVersion).First(&identity).Error
+			identityErr := tx.Where("type = ? AND scope = ? AND requester_did = ? AND parent_session_id = ? AND merchant_did = ? AND capability_id = ? AND catalog_version = ? AND catalog_snapshot_hash = ?", recordModel.Type, recordModel.Scope, recordModel.RequesterDID, recordModel.ParentSessionID, recordModel.MerchantDID, recordModel.CapabilityID, recordModel.CatalogVersion, recordModel.CatalogSnapshotHash).First(&identity).Error
 			if identityErr == nil && identity.MemoryID != value.MemoryID {
 				return memory.ErrMemoryConflict
 			} else if !errors.Is(identityErr, gorm.ErrRecordNotFound) && identityErr != nil {
@@ -272,6 +287,26 @@ func (s *Store) GetMemory(ctx context.Context, id string) (*memory.MemoryRecord,
 	return modelToMemoryRecord(row)
 }
 
+func (s *Store) Resolve(ctx context.Context, memoryID string, limit int) ([]*memory.MemoryObservation, error) {
+	var rows []MemoryObservationModel
+	query := s.db.WithContext(ctx).Where("memory_id = ?", strings.TrimSpace(memoryID)).Order("observed_at DESC, observation_id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*memory.MemoryObservation, 0, len(rows))
+	for _, row := range rows {
+		value, err := modelToMemoryObservation(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
 func (s *Store) ListMemories(ctx context.Context, query memory.MemoryQuery) ([]*memory.MemoryRecord, error) {
 	return s.listMemories(ctx, query, false)
 }
@@ -303,13 +338,10 @@ func (s *Store) listMemories(ctx context.Context, query memory.MemoryQuery, lexi
 			continue
 		}
 		_ = lexical
-		value.Applicability = memory.ApplicabilityCurrent
-		if query.CatalogVersion != "" && value.CatalogVersion != "" && value.CatalogVersion != query.CatalogVersion {
-			value.Applicability = memory.ApplicabilityHistoricalVersion
-		}
+		value.Applicability = memoryApplicability(value, query)
 		result = append(result, value)
 	}
-	sort.Slice(result, func(i, j int) bool { return memoryRank(result[i], query) < memoryRank(result[j], query) })
+	sort.SliceStable(result, func(i, j int) bool { return memoryRankLess(result[i], result[j], query) })
 	if query.Limit > 0 && len(result) > query.Limit {
 		result = result[:query.Limit]
 	}
@@ -317,7 +349,7 @@ func (s *Store) listMemories(ctx context.Context, query memory.MemoryQuery, lexi
 }
 
 func sameMemoryIdentity(left, right *memory.MemoryRecord) bool {
-	return left.MemoryID == right.MemoryID && left.Type == right.Type && left.Scope == right.Scope && left.RequesterDID == right.RequesterDID && left.ParentSessionID == right.ParentSessionID && left.MerchantDID == right.MerchantDID && left.CapabilityID == right.CapabilityID && left.CatalogVersion == right.CatalogVersion
+	return left.MemoryID == right.MemoryID && left.Type == right.Type && left.Scope == right.Scope && left.RequesterDID == right.RequesterDID && left.ParentSessionID == right.ParentSessionID && left.MerchantDID == right.MerchantDID && left.CapabilityID == right.CapabilityID && left.CatalogVersion == right.CatalogVersion && left.CatalogSnapshotHash == right.CatalogSnapshotHash
 }
 
 func mergeMemoryRecord(value, proposed *memory.MemoryRecord, observation *memory.MemoryObservation, delta memory.OutcomeFacts) {
@@ -330,6 +362,12 @@ func mergeMemoryRecord(value, proposed *memory.MemoryRecord, observation *memory
 	value.StructuredFacts.SwitchAwayCount += delta.SwitchAwayCount
 	value.StructuredFacts.RecoveryAttemptCount += delta.RecoveryAttemptCount
 	value.StructuredFacts.RecoverySuccessCount += delta.RecoverySuccessCount
+	value.StructuredFacts.RetryAfterDeliveryInvalidCount += delta.RetryAfterDeliveryInvalidCount
+	value.StructuredFacts.RetryAfterDeliveryInvalidSuccessCount += delta.RetryAfterDeliveryInvalidSuccessCount
+	value.StructuredFacts.SwitchAfterDeliveryInvalidCount += delta.SwitchAfterDeliveryInvalidCount
+	value.StructuredFacts.SwitchAfterDeliveryInvalidSuccessCount += delta.SwitchAfterDeliveryInvalidSuccessCount
+	value.StructuredFacts.RediscoverCount += delta.RediscoverCount
+	value.StructuredFacts.AskParentCount += delta.AskParentCount
 	value.StructuredFacts.ParentApprovalCount += delta.ParentApprovalCount
 	value.StructuredFacts.ParentDenialCount += delta.ParentDenialCount
 	if delta.LastOutcome != "" {
@@ -346,6 +384,12 @@ func mergeMemoryRecord(value, proposed *memory.MemoryRecord, observation *memory
 	if delta.RecoveryAction != "" {
 		value.StructuredFacts.RecoveryAction = delta.RecoveryAction
 	}
+	if delta.RecoveryTriggerReason != "" {
+		value.StructuredFacts.RecoveryTriggerReason = delta.RecoveryTriggerReason
+	}
+	if delta.RecoveryResult != "" {
+		value.StructuredFacts.RecoveryResult = delta.RecoveryResult
+	}
 	if delta.PreferenceKey != "" {
 		value.StructuredFacts.PreferenceKey = delta.PreferenceKey
 		value.StructuredFacts.PreferenceValue = delta.PreferenceValue
@@ -355,11 +399,9 @@ func mergeMemoryRecord(value, proposed *memory.MemoryRecord, observation *memory
 	if observation.ObservedAt.After(value.LastObservedAt) {
 		value.LastObservedAt = observation.ObservedAt.UTC()
 	}
-	if proposed != nil && proposed.ValidUntil != nil {
-		if value.ValidUntil == nil || proposed.ValidUntil.After(*value.ValidUntil) {
-			expires := proposed.ValidUntil.UTC()
-			value.ValidUntil = &expires
-		}
+	if proposed != nil && proposed.ValidUntil != nil && (value.ValidUntil == nil || observation.ObservedAt.After(value.LastObservedAt) || observation.ObservedAt.Equal(value.LastObservedAt)) {
+		expires := proposed.ValidUntil.UTC()
+		value.ValidUntil = &expires
 	}
 	value.UpdatedAt = value.LastObservedAt
 	value.SourceEpisodeIDs = appendUnique(value.SourceEpisodeIDs, observation.SourceEpisodeID)
@@ -400,18 +442,43 @@ func memoryQueryMatches(value *memory.MemoryRecord, query memory.MemoryQuery) bo
 	}
 }
 
-func memoryRank(value *memory.MemoryRecord, query memory.MemoryQuery) string {
-	score := "9"
+func memoryRankTier(value *memory.MemoryRecord, query memory.MemoryQuery) int {
 	if value.Scope == memory.ScopeMerchantCapability && value.MerchantDID == query.MerchantDID && value.CapabilityID == strings.ToLower(query.CapabilityID) {
-		score = "1"
+		return 1
 	} else if value.Scope == memory.ScopeMerchant && value.MerchantDID == query.MerchantDID {
-		score = "2"
+		return 2
 	} else if value.Scope == memory.ScopeParentSession && value.ParentSessionID == query.ParentSessionID {
-		score = "3"
+		return 3
 	} else if value.Scope == memory.ScopeRequester && value.RequesterDID == query.RequesterDID {
-		score = "4"
+		return 4
 	}
-	return score + "|" + value.LastObservedAt.UTC().Format(time.RFC3339Nano) + "|" + value.MemoryID
+	return 9
+}
+
+func memoryRankLess(left, right *memory.MemoryRecord, query memory.MemoryQuery) bool {
+	if leftTier, rightTier := memoryRankTier(left, query), memoryRankTier(right, query); leftTier != rightTier {
+		return leftTier < rightTier
+	}
+	if !left.LastObservedAt.Equal(right.LastObservedAt) {
+		return left.LastObservedAt.After(right.LastObservedAt)
+	}
+	if left.ObservationCount != right.ObservationCount {
+		return left.ObservationCount > right.ObservationCount
+	}
+	return left.MemoryID < right.MemoryID
+}
+
+func memoryApplicability(value *memory.MemoryRecord, query memory.MemoryQuery) memory.MemoryApplicability {
+	if query.CatalogVersion == "" || value.CatalogVersion == "" || value.CatalogVersion != query.CatalogVersion {
+		if query.CatalogVersion != "" && value.CatalogVersion != "" && value.CatalogVersion != query.CatalogVersion {
+			return memory.ApplicabilityHistoricalVersion
+		}
+		return memory.ApplicabilityCurrent
+	}
+	if query.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != query.CatalogSnapshotHash {
+		return memory.ApplicabilityHistoricalSnapshot
+	}
+	return memory.ApplicabilityCurrent
 }
 
 func (s *Store) GetMemoryEpisode(ctx context.Context, id string) (memory.EpisodeView, error) {
@@ -429,10 +496,13 @@ func (s *Store) ListMemoryEpisodeEvents(ctx context.Context, id string) ([]memor
 	}
 	result := make([]memory.EventView, 0, len(values))
 	for _, value := range values {
-		view := memory.EventView{EventID: value.EventID, Sequence: value.Sequence, OccurredAt: value.OccurredAt, Action: string(value.Action.Type), Observation: string(value.Observation.Type), ObservationCode: value.Observation.Code, FactsRef: value.Observation.FactsRef, PayloadHash: value.Observation.PayloadHash}
+		view := memory.EventView{EventID: value.EventID, Sequence: value.Sequence, OccurredAt: value.OccurredAt, Action: string(value.Action.Type), Observation: string(value.Observation.Type), ObservationCode: value.Observation.Code, FactsRef: value.Observation.FactsRef, PayloadHash: value.Observation.PayloadHash, StateAfter: string(value.StateAfter)}
 		if value.Decision.Target != nil {
 			view.TargetMerchantDID = value.Decision.Target.MerchantDID
 			view.CapabilityID = value.Decision.Target.CapabilityID
+			view.TargetCatalogVersion = value.Decision.Target.CatalogVersion
+			view.TargetCatalogSnapshotHash = value.Decision.Target.CatalogSnapshotHash
+			view.TargetCatalogSnapshotRef = value.Decision.Target.CatalogSnapshotRef
 		}
 		result = append(result, view)
 	}
@@ -456,7 +526,11 @@ func (s *Store) GetMemoryDeliveryArtifact(ctx context.Context, id string) (memor
 	if err != nil {
 		return memory.DeliveryView{}, err
 	}
-	return memory.DeliveryView{DeliveryID: value.DeliveryID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, Attempt: value.Attempt, ReceivedAt: value.ReceivedAt}, nil
+	result := memory.DeliveryView{DeliveryID: value.DeliveryID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, Attempt: value.Attempt, ReceivedAt: value.ReceivedAt}
+	if invocationValue, invocationErr := s.GetMerchantInvocation(ctx, value.InvocationID); invocationErr == nil {
+		result.CatalogVersion, result.CatalogSnapshotHash = invocationValue.CatalogVersion, invocationValue.CatalogSnapshotHash
+	}
+	return result, nil
 }
 
 func (s *Store) GetMemoryValidationEvidence(ctx context.Context, id string) (memory.ValidationView, error) {
@@ -468,8 +542,9 @@ func (s *Store) GetMemoryValidationEvidence(ctx context.Context, id string) (mem
 }
 
 func mysqlEpisodeView(value *episode.CommerceEpisode) memory.EpisodeView {
-	return memory.EpisodeView{EpisodeID: value.EpisodeID, RequesterDID: value.RequesterDID, ParentSessionID: value.SessionID, State: string(value.State), TerminalReason: value.TerminalReason, SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogHash: value.SelectedCatalogSnapshotHash, DeliveryRefs: append([]string(nil), value.DeliveryRefs...), ValidationRefs: append([]string(nil), value.ValidationEvidenceRefs...), AttemptedMerchants: append([]string(nil), value.AttemptedMerchants...), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	return memory.EpisodeView{EpisodeID: value.EpisodeID, RequesterDID: value.RequesterDID, ParentSessionID: value.SessionID, State: string(value.State), TerminalReason: value.TerminalReason, SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogHash: value.SelectedCatalogSnapshotHash, SelectedCatalogRef: value.SelectedCatalogSnapshotRef, DeliveryRefs: append([]string(nil), value.DeliveryRefs...), ValidationRefs: append([]string(nil), value.ValidationEvidenceRefs...), AttemptedMerchants: append([]string(nil), value.AttemptedMerchants...), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }
 
 var _ memory.MemoryStore = (*Store)(nil)
 var _ memory.EpisodeSource = (*Store)(nil)
+var _ memory.MemoryDetailResolver = (*Store)(nil)

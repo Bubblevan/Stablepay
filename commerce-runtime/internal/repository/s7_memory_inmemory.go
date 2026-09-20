@@ -95,6 +95,30 @@ func (s *InMemoryStore) SearchMemories(ctx context.Context, query memory.MemoryQ
 	return s.searchMemories(ctx, query, true)
 }
 
+func (s *InMemoryStore) Resolve(ctx context.Context, memoryID string, limit int) ([]*memory.MemoryObservation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*memory.MemoryObservation, 0)
+	for _, value := range s.memoryObservations {
+		if value.MemoryID == strings.TrimSpace(memoryID) {
+			result = append(result, value.Clone())
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if !result[i].ObservedAt.Equal(result[j].ObservedAt) {
+			return result[i].ObservedAt.After(result[j].ObservedAt)
+		}
+		return result[i].ObservationID < result[j].ObservationID
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
 func (s *InMemoryStore) searchMemories(ctx context.Context, query memory.MemoryQuery, lexical bool) ([]*memory.MemoryRecord, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -118,13 +142,10 @@ func (s *InMemoryStore) searchMemories(ctx context.Context, query memory.MemoryQ
 		// ListMemories. A future lexical score must remain secondary to scope and
 		// merchant/capability filters.
 		_ = lexical
-		value.Applicability = memory.ApplicabilityCurrent
-		if query.CatalogVersion != "" && value.CatalogVersion != "" && value.CatalogVersion != query.CatalogVersion {
-			value.Applicability = memory.ApplicabilityHistoricalVersion
-		}
+		value.Applicability = memoryApplicability(value, query)
 		result = append(result, value)
 	}
-	sort.Slice(result, func(i, j int) bool { return memoryRank(result[i], query) < memoryRank(result[j], query) })
+	sort.SliceStable(result, func(i, j int) bool { return memoryRankLess(result[i], result[j], query) })
 	if query.Limit > 0 && len(result) > query.Limit {
 		result = result[:query.Limit]
 	}
@@ -146,22 +167,47 @@ func memoryQueryMatches(value *memory.MemoryRecord, query memory.MemoryQuery) bo
 	}
 }
 
-func memoryRank(value *memory.MemoryRecord, query memory.MemoryQuery) string {
-	score := "9"
+func memoryRankTier(value *memory.MemoryRecord, query memory.MemoryQuery) int {
 	if value.Scope == memory.ScopeMerchantCapability && value.MerchantDID == query.MerchantDID && value.CapabilityID == strings.ToLower(query.CapabilityID) {
-		score = "1"
+		return 1
 	} else if value.Scope == memory.ScopeMerchant && value.MerchantDID == query.MerchantDID {
-		score = "2"
+		return 2
 	} else if value.Scope == memory.ScopeParentSession && value.ParentSessionID == query.ParentSessionID {
-		score = "3"
+		return 3
 	} else if value.Scope == memory.ScopeRequester && value.RequesterDID == query.RequesterDID {
-		score = "4"
+		return 4
 	}
-	return score + "|" + value.LastObservedAt.UTC().Format(time.RFC3339Nano) + "|" + value.MemoryID
+	return 9
+}
+
+func memoryRankLess(left, right *memory.MemoryRecord, query memory.MemoryQuery) bool {
+	if leftTier, rightTier := memoryRankTier(left, query), memoryRankTier(right, query); leftTier != rightTier {
+		return leftTier < rightTier
+	}
+	if !left.LastObservedAt.Equal(right.LastObservedAt) {
+		return left.LastObservedAt.After(right.LastObservedAt)
+	}
+	if left.ObservationCount != right.ObservationCount {
+		return left.ObservationCount > right.ObservationCount
+	}
+	return left.MemoryID < right.MemoryID
+}
+
+func memoryApplicability(value *memory.MemoryRecord, query memory.MemoryQuery) memory.MemoryApplicability {
+	if query.CatalogVersion == "" || value.CatalogVersion == "" || value.CatalogVersion != query.CatalogVersion {
+		if query.CatalogVersion != "" && value.CatalogVersion != "" && value.CatalogVersion != query.CatalogVersion {
+			return memory.ApplicabilityHistoricalVersion
+		}
+		return memory.ApplicabilityCurrent
+	}
+	if query.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != query.CatalogSnapshotHash {
+		return memory.ApplicabilityHistoricalSnapshot
+	}
+	return memory.ApplicabilityCurrent
 }
 
 func sameMemoryIdentity(left, right *memory.MemoryRecord) bool {
-	return left.MemoryID == right.MemoryID && left.Type == right.Type && left.Scope == right.Scope && left.RequesterDID == right.RequesterDID && left.ParentSessionID == right.ParentSessionID && left.MerchantDID == right.MerchantDID && left.CapabilityID == right.CapabilityID && left.CatalogVersion == right.CatalogVersion
+	return left.MemoryID == right.MemoryID && left.Type == right.Type && left.Scope == right.Scope && left.RequesterDID == right.RequesterDID && left.ParentSessionID == right.ParentSessionID && left.MerchantDID == right.MerchantDID && left.CapabilityID == right.CapabilityID && left.CatalogVersion == right.CatalogVersion && left.CatalogSnapshotHash == right.CatalogSnapshotHash
 }
 
 func applyMemoryDelta(value, proposed *memory.MemoryRecord, observation *memory.MemoryObservation, delta memory.OutcomeFacts) {
@@ -174,6 +220,12 @@ func applyMemoryDelta(value, proposed *memory.MemoryRecord, observation *memory.
 	value.StructuredFacts.SwitchAwayCount += delta.SwitchAwayCount
 	value.StructuredFacts.RecoveryAttemptCount += delta.RecoveryAttemptCount
 	value.StructuredFacts.RecoverySuccessCount += delta.RecoverySuccessCount
+	value.StructuredFacts.RetryAfterDeliveryInvalidCount += delta.RetryAfterDeliveryInvalidCount
+	value.StructuredFacts.RetryAfterDeliveryInvalidSuccessCount += delta.RetryAfterDeliveryInvalidSuccessCount
+	value.StructuredFacts.SwitchAfterDeliveryInvalidCount += delta.SwitchAfterDeliveryInvalidCount
+	value.StructuredFacts.SwitchAfterDeliveryInvalidSuccessCount += delta.SwitchAfterDeliveryInvalidSuccessCount
+	value.StructuredFacts.RediscoverCount += delta.RediscoverCount
+	value.StructuredFacts.AskParentCount += delta.AskParentCount
 	value.StructuredFacts.ParentApprovalCount += delta.ParentApprovalCount
 	value.StructuredFacts.ParentDenialCount += delta.ParentDenialCount
 	if delta.LastOutcome != "" {
@@ -190,6 +242,12 @@ func applyMemoryDelta(value, proposed *memory.MemoryRecord, observation *memory.
 	if delta.RecoveryAction != "" {
 		value.StructuredFacts.RecoveryAction = delta.RecoveryAction
 	}
+	if delta.RecoveryTriggerReason != "" {
+		value.StructuredFacts.RecoveryTriggerReason = delta.RecoveryTriggerReason
+	}
+	if delta.RecoveryResult != "" {
+		value.StructuredFacts.RecoveryResult = delta.RecoveryResult
+	}
 	if delta.PreferenceKey != "" {
 		value.StructuredFacts.PreferenceKey = delta.PreferenceKey
 		value.StructuredFacts.PreferenceValue = delta.PreferenceValue
@@ -198,11 +256,9 @@ func applyMemoryDelta(value, proposed *memory.MemoryRecord, observation *memory.
 	value.Confidence = confidenceFor(value.ObservationCount)
 	value.LastObservedAt = maxTime(value.LastObservedAt, observation.ObservedAt)
 	value.UpdatedAt = maxTime(value.UpdatedAt, observation.ObservedAt)
-	if proposed != nil && proposed.ValidUntil != nil {
-		if value.ValidUntil == nil || proposed.ValidUntil.After(*value.ValidUntil) {
-			expires := proposed.ValidUntil.UTC()
-			value.ValidUntil = &expires
-		}
+	if proposed != nil && proposed.ValidUntil != nil && (value.ValidUntil == nil || observation.ObservedAt.After(value.LastObservedAt) || observation.ObservedAt.Equal(value.LastObservedAt)) {
+		expires := proposed.ValidUntil.UTC()
+		value.ValidUntil = &expires
 	}
 	value.SourceEpisodeIDs = appendUniqueString(value.SourceEpisodeIDs, observation.SourceEpisodeID)
 	value.SourceEventRefs = appendUniqueString(value.SourceEventRefs, observation.SourceEventRef)
@@ -279,7 +335,11 @@ func (s *InMemoryStore) GetMemoryDeliveryArtifact(ctx context.Context, id string
 	if err != nil {
 		return memory.DeliveryView{}, err
 	}
-	return memory.DeliveryView{DeliveryID: value.DeliveryID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, Attempt: value.Attempt, ReceivedAt: value.ReceivedAt}, nil
+	result := memory.DeliveryView{DeliveryID: value.DeliveryID, EpisodeID: value.EpisodeID, InvocationID: value.InvocationID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, Attempt: value.Attempt, ReceivedAt: value.ReceivedAt}
+	if invocationValue, invocationErr := s.GetMerchantInvocation(ctx, value.InvocationID); invocationErr == nil {
+		result.CatalogVersion, result.CatalogSnapshotHash = invocationValue.CatalogVersion, invocationValue.CatalogSnapshotHash
+	}
+	return result, nil
 }
 
 func (s *InMemoryStore) GetMemoryValidationEvidence(ctx context.Context, id string) (memory.ValidationView, error) {
@@ -291,17 +351,21 @@ func (s *InMemoryStore) GetMemoryValidationEvidence(ctx context.Context, id stri
 }
 
 func episodeView(value *episode.CommerceEpisode) memory.EpisodeView {
-	return memory.EpisodeView{EpisodeID: value.EpisodeID, RequesterDID: value.RequesterDID, ParentSessionID: value.SessionID, State: string(value.State), TerminalReason: value.TerminalReason, SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogHash: value.SelectedCatalogSnapshotHash, DeliveryRefs: append([]string(nil), value.DeliveryRefs...), ValidationRefs: append([]string(nil), value.ValidationEvidenceRefs...), AttemptedMerchants: append([]string(nil), value.AttemptedMerchants...), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	return memory.EpisodeView{EpisodeID: value.EpisodeID, RequesterDID: value.RequesterDID, ParentSessionID: value.SessionID, State: string(value.State), TerminalReason: value.TerminalReason, SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogHash: value.SelectedCatalogSnapshotHash, SelectedCatalogRef: value.SelectedCatalogSnapshotRef, DeliveryRefs: append([]string(nil), value.DeliveryRefs...), ValidationRefs: append([]string(nil), value.ValidationEvidenceRefs...), AttemptedMerchants: append([]string(nil), value.AttemptedMerchants...), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }
 
 func eventView(value *episode.EpisodeEvent) memory.EventView {
-	result := memory.EventView{EventID: value.EventID, Sequence: value.Sequence, OccurredAt: value.OccurredAt, Action: string(value.Action.Type), Observation: string(value.Observation.Type), ObservationCode: value.Observation.Code, FactsRef: value.Observation.FactsRef, PayloadHash: value.Observation.PayloadHash}
+	result := memory.EventView{EventID: value.EventID, Sequence: value.Sequence, OccurredAt: value.OccurredAt, Action: string(value.Action.Type), Observation: string(value.Observation.Type), ObservationCode: value.Observation.Code, FactsRef: value.Observation.FactsRef, PayloadHash: value.Observation.PayloadHash, StateAfter: string(value.StateAfter)}
 	if value.Decision.Target != nil {
 		result.TargetMerchantDID = value.Decision.Target.MerchantDID
 		result.CapabilityID = value.Decision.Target.CapabilityID
+		result.TargetCatalogVersion = value.Decision.Target.CatalogVersion
+		result.TargetCatalogSnapshotHash = value.Decision.Target.CatalogSnapshotHash
+		result.TargetCatalogSnapshotRef = value.Decision.Target.CatalogSnapshotRef
 	}
 	return result
 }
 
 var _ memory.MemoryStore = (*InMemoryStore)(nil)
 var _ memory.EpisodeSource = (*InMemoryStore)(nil)
+var _ memory.MemoryDetailResolver = (*InMemoryStore)(nil)

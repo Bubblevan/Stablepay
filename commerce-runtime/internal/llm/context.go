@@ -20,10 +20,12 @@ import (
 )
 
 const (
-	MaxContextCandidates = 32
-	MaxContextEvidence   = 16
-	MaxContextMemories   = 16
-	MaxContextActions    = 16
+	MaxContextCandidates    = 32
+	MaxContextEvidence      = 16
+	MaxContextMemories      = 16
+	MaxMemoryCandidates     = 8
+	MaxMemoriesPerCandidate = 2
+	MaxContextActions       = 16
 )
 
 var (
@@ -107,6 +109,14 @@ type ValidationSummary struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type CandidateMemorySummary struct {
+	MerchantDID         string                `json:"merchant_did"`
+	CapabilityID        string                `json:"capability_id"`
+	CatalogVersion      string                `json:"catalog_version"`
+	CatalogSnapshotHash string                `json:"catalog_snapshot_hash"`
+	Memories            []memory.MemoryRecord `json:"memories,omitempty"`
+}
+
 // DecisionContext is the bounded structured input sent to an LLM. It is
 // intentionally a projection, never a dump of the event log or database.
 type DecisionContext struct {
@@ -120,6 +130,7 @@ type DecisionContext struct {
 	LatestValidation     *ValidationSummary        `json:"latest_validation,omitempty"`
 	RetrievedEvidence    []evidence.EvidenceRecord `json:"retrieved_evidence,omitempty"`
 	RetrievedMemories    []memory.MemoryRecord     `json:"retrieved_memories,omitempty"`
+	CandidateMemories    []CandidateMemorySummary  `json:"candidate_memories,omitempty"`
 }
 
 type ContextInput struct {
@@ -130,6 +141,7 @@ type ContextInput struct {
 	LatestValidation  *invocation.ValidationEvidence
 	RetrievedEvidence []evidence.EvidenceRecord
 	RetrievedMemories []memory.MemoryRecord
+	CandidateMemories []CandidateMemorySummary
 }
 
 // ContextBuilder is deliberately pure: callers provide only the bounded
@@ -203,6 +215,33 @@ func buildDecisionContext(input ContextInput) (DecisionContext, error) {
 		}
 		ctx.RetrievedMemories = append(ctx.RetrievedMemories, *copy)
 	}
+	totalMemories := len(ctx.RetrievedMemories)
+	for candidateIndex, candidate := range input.CandidateMemories {
+		if candidateIndex >= MaxMemoryCandidates {
+			break
+		}
+		if strings.TrimSpace(candidate.MerchantDID) == "" || strings.TrimSpace(candidate.CapabilityID) == "" {
+			return DecisionContext{}, ErrInvalidDecisionContext
+		}
+		summary := CandidateMemorySummary{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash}
+		for memoryIndex, record := range candidate.Memories {
+			if memoryIndex >= MaxMemoriesPerCandidate || totalMemories >= MaxContextMemories {
+				break
+			}
+			if err := record.Validate(); err != nil {
+				return DecisionContext{}, err
+			}
+			copy := record.Clone()
+			if copy.Applicability == "" {
+				copy.Applicability = memory.ApplicabilityCurrent
+			}
+			summary.Memories = append(summary.Memories, *copy)
+			totalMemories++
+		}
+		if len(summary.Memories) > 0 {
+			ctx.CandidateMemories = append(ctx.CandidateMemories, summary)
+		}
+	}
 	if err := ctx.Validate(); err != nil {
 		return DecisionContext{}, err
 	}
@@ -231,7 +270,17 @@ func normalizeActions(actions []trace.ActionType) []trace.ActionType {
 }
 
 func (c DecisionContext) Validate() error {
-	if strings.TrimSpace(c.Episode.EpisodeID) == "" || c.Episode.DeadlineAt.IsZero() || c.Episode.Version == 0 || len(c.AllowedActions) == 0 || len(c.AllowedActions) > MaxContextActions || len(c.CandidateSet.Candidates) > MaxContextCandidates || len(c.RetrievedEvidence) > MaxContextEvidence || len(c.RetrievedMemories) > MaxContextMemories {
+	totalMemories := len(c.RetrievedMemories)
+	if len(c.CandidateMemories) > MaxMemoryCandidates {
+		return ErrContextTooLarge
+	}
+	for _, candidate := range c.CandidateMemories {
+		if strings.TrimSpace(candidate.MerchantDID) == "" || strings.TrimSpace(candidate.CapabilityID) == "" || len(candidate.Memories) > MaxMemoriesPerCandidate {
+			return ErrInvalidDecisionContext
+		}
+		totalMemories += len(candidate.Memories)
+	}
+	if strings.TrimSpace(c.Episode.EpisodeID) == "" || c.Episode.DeadlineAt.IsZero() || c.Episode.Version == 0 || len(c.AllowedActions) == 0 || len(c.AllowedActions) > MaxContextActions || len(c.CandidateSet.Candidates) > MaxContextCandidates || len(c.RetrievedEvidence) > MaxContextEvidence || totalMemories > MaxContextMemories {
 		return ErrInvalidDecisionContext
 	}
 	if c.CurrentEventSequence != eventSequence(c.Episode.Version) {
@@ -250,6 +299,13 @@ func (c DecisionContext) Validate() error {
 	for _, record := range c.RetrievedMemories {
 		if err := record.Validate(); err != nil {
 			return err
+		}
+	}
+	for _, candidate := range c.CandidateMemories {
+		for _, record := range candidate.Memories {
+			if err := record.Validate(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

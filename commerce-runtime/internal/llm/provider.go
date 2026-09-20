@@ -394,6 +394,13 @@ func contextMemoryRefs(input DecisionContext) []string {
 			refs = append(refs, record.FactsRef)
 		}
 	}
+	for _, candidate := range input.CandidateMemories {
+		for _, record := range candidate.Memories {
+			if strings.TrimSpace(record.FactsRef) != "" {
+				refs = append(refs, record.FactsRef)
+			}
+		}
+	}
 	return uniqueStrings(refs)
 }
 

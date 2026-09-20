@@ -104,6 +104,63 @@ func TestMemoryScopeIsolationTTLVersionAndRanking(t *testing.T) {
 	}
 }
 
+func TestMemoryRankingUsesNewestWithinTheSameSpecificityTier(t *testing.T) {
+	store := repository.NewInMemoryStore()
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	old := testRecord(now, memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "did:merchant:a", "", "", "transcription")
+	old.CatalogVersion = "v1"
+	old.MemoryID = memory.MemoryIDFor(old.Type, old.Scope, "", "", old.MerchantDID, old.CapabilityID, old.CatalogVersion)
+	old.FactsRef = "memory://" + old.MemoryID
+	_ = old.RefreshPayloadHash()
+	newer := testRecord(now.Add(time.Minute), memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "did:merchant:a", "", "", "transcription")
+	newer.CatalogVersion = "v2"
+	newer.MemoryID = memory.MemoryIDFor(newer.Type, newer.Scope, "", "", newer.MerchantDID, newer.CapabilityID, newer.CatalogVersion)
+	newer.FactsRef = "memory://" + newer.MemoryID
+	_ = newer.RefreshPayloadHash()
+	for _, value := range []*memory.MemoryRecord{old, newer} {
+		if err := store.SaveObservationAndUpdateAggregate(context.Background(), value, testObservation(value.MemoryID, value.CatalogVersion, value.LastObservedAt), value.StructuredFacts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	values, err := store.SearchMemories(context.Background(), memory.MemoryQuery{MerchantDID: "did:merchant:a", CapabilityID: "transcription", CatalogVersion: "v3", Now: now.Add(2 * time.Minute), Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0].CatalogVersion != "v2" || values[1].CatalogVersion != "v1" {
+		t.Fatalf("newest same-tier memory did not rank first: %#v", values)
+	}
+}
+
+func TestMemoryApplicabilityDistinguishesVersionAndSnapshot(t *testing.T) {
+	store := repository.NewInMemoryStore()
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	value := testRecord(now, memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "did:merchant:a", "", "", "transcription")
+	value.CatalogVersion = "v1"
+	value.CatalogSnapshotHash = "sha256:snapshot-a"
+	value.MemoryID = memory.MemoryIDForSnapshot(value.Type, value.Scope, "", "", value.MerchantDID, value.CapabilityID, value.CatalogVersion, value.CatalogSnapshotHash)
+	value.FactsRef = "memory://" + value.MemoryID
+	if err := value.RefreshPayloadHash(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveObservationAndUpdateAggregate(context.Background(), value, testObservation(value.MemoryID, "applicability", now), value.StructuredFacts); err != nil {
+		t.Fatal(err)
+	}
+	checks := []struct {
+		query memory.MemoryQuery
+		want  memory.MemoryApplicability
+	}{
+		{memory.MemoryQuery{MerchantDID: "did:merchant:a", CapabilityID: "transcription", CatalogVersion: "v1", CatalogSnapshotHash: "sha256:snapshot-a", Now: now}, memory.ApplicabilityCurrent},
+		{memory.MemoryQuery{MerchantDID: "did:merchant:a", CapabilityID: "transcription", CatalogVersion: "v1", CatalogSnapshotHash: "sha256:snapshot-b", Now: now}, memory.ApplicabilityHistoricalSnapshot},
+		{memory.MemoryQuery{MerchantDID: "did:merchant:a", CapabilityID: "transcription", CatalogVersion: "v2", CatalogSnapshotHash: "sha256:snapshot-b", Now: now}, memory.ApplicabilityHistoricalVersion},
+	}
+	for _, check := range checks {
+		values, err := store.SearchMemories(context.Background(), check.query)
+		if err != nil || len(values) != 1 || values[0].Applicability != check.want {
+			t.Fatalf("applicability=%#v err=%v want=%s", values, err, check.want)
+		}
+	}
+}
+
 func testRecord(now time.Time, typ memory.MemoryType, scope memory.MemoryScope, merchant, requester, parent, capability string) *memory.MemoryRecord {
 	id := memory.MemoryIDFor(typ, scope, requester, parent, merchant, capability, "")
 	expires := now.Add(24 * time.Hour)

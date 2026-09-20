@@ -38,9 +38,9 @@ func TestProjectEpisodeDerivesU2HistoryAndReplayIsStable(t *testing.T) {
 	source := fixtureSource{
 		episode: memory.EpisodeView{EpisodeID: "episode-u2", RequesterDID: "did:requester:test", State: "FULFILLED", SelectedCatalogVersion: "v1", SelectedCatalogHash: "sha256:catalog", DeliveryRefs: []string{"delivery-a", "delivery-b"}, ValidationRefs: []string{"validation-a", "validation-b"}, UpdatedAt: now},
 		events: []memory.EventView{
-			{EventID: "event-select-a", Sequence: 1, Action: "SELECT_MERCHANT", TargetMerchantDID: "did:merchant:a", CapabilityID: "transcription"},
+			{EventID: "event-select-a", Sequence: 1, Action: "SELECT_MERCHANT", TargetMerchantDID: "did:merchant:a", CapabilityID: "transcription", TargetCatalogVersion: "v1", TargetCatalogSnapshotHash: "sha256:hash-a", TargetCatalogSnapshotRef: "catalog://a/v1"},
 			{EventID: "event-invalid-a", Sequence: 2, Action: "VALIDATE_DELIVERY", Observation: "DELIVERY_INVALID", TargetMerchantDID: "did:merchant:a", CapabilityID: "transcription"},
-			{EventID: "event-switch-b", Sequence: 3, Action: "SWITCH_MERCHANT", Observation: "CANDIDATES_FOUND", TargetMerchantDID: "did:merchant:b", CapabilityID: "transcription"},
+			{EventID: "event-switch-b", Sequence: 3, Action: "SWITCH_MERCHANT", Observation: "CANDIDATES_FOUND", TargetMerchantDID: "did:merchant:b", CapabilityID: "transcription", TargetCatalogVersion: "v4", TargetCatalogSnapshotHash: "sha256:hash-b", TargetCatalogSnapshotRef: "catalog://b/v4"},
 			{EventID: "event-valid-b", Sequence: 4, Action: "VALIDATE_DELIVERY", Observation: "DELIVERY_VALID", TargetMerchantDID: "did:merchant:b", CapabilityID: "transcription"},
 		},
 		payments:    []memory.PaymentView{{IntentID: "intent-a", MerchantDID: "did:merchant:a", CapabilityID: "transcription", Status: "CONFIRMED", UpdatedAt: now}, {IntentID: "intent-b", MerchantDID: "did:merchant:b", CapabilityID: "transcription", Status: "CONFIRMED", UpdatedAt: now}},
@@ -65,7 +65,7 @@ func TestProjectEpisodeDerivesU2HistoryAndReplayIsStable(t *testing.T) {
 			t.Fatalf("no memory for query %#v", query)
 		}
 	}
-	aID := memory.MemoryIDFor(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", "did:merchant:a", "transcription", "v1")
+	aID := memory.MemoryIDForSnapshot(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", "did:merchant:a", "transcription", "v1", "sha256:hash-a")
 	a, err := store.GetMemory(context.Background(), aID)
 	if err != nil {
 		t.Fatal(err)
@@ -73,13 +73,19 @@ func TestProjectEpisodeDerivesU2HistoryAndReplayIsStable(t *testing.T) {
 	if a.StructuredFacts.DeliveryInvalidCount != 1 || a.StructuredFacts.SwitchAwayCount != 1 || a.StructuredFacts.DeliveryValidCount != 0 {
 		t.Fatalf("merchant A facts=%#v", a.StructuredFacts)
 	}
-	bID := memory.MemoryIDFor(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", "did:merchant:b", "transcription", "v1")
+	if a.CatalogVersion != "v1" || a.CatalogSnapshotHash != "sha256:hash-a" || a.CatalogSnapshotRef != "catalog://a/v1" {
+		t.Fatalf("merchant A provenance=%#v", a)
+	}
+	bID := memory.MemoryIDForSnapshot(memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "", "", "did:merchant:b", "transcription", "v4", "sha256:hash-b")
 	b, err := store.GetMemory(context.Background(), bID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if b.StructuredFacts.DeliveryValidCount != 1 || b.StructuredFacts.FulfilledCount != 1 {
 		t.Fatalf("merchant B facts=%#v", b.StructuredFacts)
+	}
+	if b.CatalogVersion != "v4" || b.CatalogSnapshotHash != "sha256:hash-b" || b.CatalogSnapshotRef != "catalog://b/v4" {
+		t.Fatalf("merchant B provenance=%#v", b)
 	}
 	if _, err := projector.ProjectEpisode(context.Background(), source.episode.EpisodeID); err != nil {
 		t.Fatal(err)

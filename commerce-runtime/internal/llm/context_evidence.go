@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/stablepay/commerce-runtime/internal/decision"
+	"github.com/stablepay/commerce-runtime/internal/memory"
 )
 
 // ErrEvidenceOutsideContext means that a proposal cites a persisted record
@@ -87,12 +88,20 @@ func ContextEvidenceRefs(ctx DecisionContext) map[string]struct{} {
 
 func ContextMemoryRefs(ctx DecisionContext) map[string]struct{} {
 	known := make(map[string]struct{}, len(ctx.RetrievedMemories)*2)
-	for _, record := range ctx.RetrievedMemories {
+	add := func(record memory.MemoryRecord) {
 		if strings.TrimSpace(record.FactsRef) != "" {
 			known[record.FactsRef] = struct{}{}
 		}
 		if strings.TrimSpace(record.MemoryID) != "" {
 			known["memory://"+record.MemoryID] = struct{}{}
+		}
+	}
+	for _, record := range ctx.RetrievedMemories {
+		add(record)
+	}
+	for _, candidate := range ctx.CandidateMemories {
+		for _, record := range candidate.Memories {
+			add(record)
 		}
 	}
 	return known

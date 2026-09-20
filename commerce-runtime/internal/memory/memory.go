@@ -35,8 +35,9 @@ const (
 type MemoryApplicability string
 
 const (
-	ApplicabilityCurrent           MemoryApplicability = "CURRENT"
-	ApplicabilityHistoricalVersion MemoryApplicability = "HISTORICAL_VERSION"
+	ApplicabilityCurrent            MemoryApplicability = "CURRENT"
+	ApplicabilityHistoricalVersion  MemoryApplicability = "HISTORICAL_VERSION"
+	ApplicabilityHistoricalSnapshot MemoryApplicability = "HISTORICAL_SNAPSHOT"
 )
 
 var (
@@ -51,29 +52,37 @@ var (
 // no response body, credential, private key, signed transaction, or model
 // opinion. Fields are counters or values derived from persisted runtime facts.
 type OutcomeFacts struct {
-	AttemptCount         int       `json:"attempt_count,omitempty"`
-	FulfilledCount       int       `json:"fulfilled_count,omitempty"`
-	DeliveryValidCount   int       `json:"delivery_valid_count,omitempty"`
-	DeliveryInvalidCount int       `json:"delivery_invalid_count,omitempty"`
-	PaymentFailedCount   int       `json:"payment_failed_count,omitempty"`
-	MerchantErrorCount   int       `json:"merchant_error_count,omitempty"`
-	SwitchAwayCount      int       `json:"switch_away_count,omitempty"`
-	RecentFailureStreak  int       `json:"recent_failure_streak,omitempty"`
-	RecoveryAttemptCount int       `json:"recovery_attempt_count,omitempty"`
-	RecoverySuccessCount int       `json:"recovery_success_count,omitempty"`
-	ParentApprovalCount  int       `json:"parent_approval_count,omitempty"`
-	ParentDenialCount    int       `json:"parent_denial_count,omitempty"`
-	LastOutcome          string    `json:"last_outcome,omitempty"`
-	LastOutcomeAt        time.Time `json:"last_outcome_at,omitempty"`
-	RecoveryAction       string    `json:"recovery_action,omitempty"`
-	PreferenceKey        string    `json:"preference_key,omitempty"`
-	PreferenceValue      string    `json:"preference_value,omitempty"`
+	AttemptCount                           int       `json:"attempt_count,omitempty"`
+	FulfilledCount                         int       `json:"fulfilled_count,omitempty"`
+	DeliveryValidCount                     int       `json:"delivery_valid_count,omitempty"`
+	DeliveryInvalidCount                   int       `json:"delivery_invalid_count,omitempty"`
+	PaymentFailedCount                     int       `json:"payment_failed_count,omitempty"`
+	MerchantErrorCount                     int       `json:"merchant_error_count,omitempty"`
+	SwitchAwayCount                        int       `json:"switch_away_count,omitempty"`
+	RecentFailureStreak                    int       `json:"recent_failure_streak,omitempty"`
+	RecoveryAttemptCount                   int       `json:"recovery_attempt_count,omitempty"`
+	RecoverySuccessCount                   int       `json:"recovery_success_count,omitempty"`
+	RetryAfterDeliveryInvalidCount         int       `json:"retry_after_delivery_invalid_count,omitempty"`
+	RetryAfterDeliveryInvalidSuccessCount  int       `json:"retry_after_delivery_invalid_success_count,omitempty"`
+	SwitchAfterDeliveryInvalidCount        int       `json:"switch_after_delivery_invalid_count,omitempty"`
+	SwitchAfterDeliveryInvalidSuccessCount int       `json:"switch_after_delivery_invalid_success_count,omitempty"`
+	RediscoverCount                        int       `json:"rediscover_count,omitempty"`
+	AskParentCount                         int       `json:"ask_parent_count,omitempty"`
+	ParentApprovalCount                    int       `json:"parent_approval_count,omitempty"`
+	ParentDenialCount                      int       `json:"parent_denial_count,omitempty"`
+	LastOutcome                            string    `json:"last_outcome,omitempty"`
+	LastOutcomeAt                          time.Time `json:"last_outcome_at,omitempty"`
+	RecoveryAction                         string    `json:"recovery_action,omitempty"`
+	RecoveryTriggerReason                  string    `json:"recovery_trigger_reason,omitempty"`
+	RecoveryResult                         string    `json:"recovery_result,omitempty"`
+	PreferenceKey                          string    `json:"preference_key,omitempty"`
+	PreferenceValue                        string    `json:"preference_value,omitempty"`
 }
 
 func (f OutcomeFacts) Validate() error {
 	if f.AttemptCount < 0 || f.FulfilledCount < 0 || f.DeliveryValidCount < 0 || f.DeliveryInvalidCount < 0 ||
 		f.PaymentFailedCount < 0 || f.MerchantErrorCount < 0 || f.SwitchAwayCount < 0 || f.RecentFailureStreak < 0 ||
-		f.RecoveryAttemptCount < 0 || f.RecoverySuccessCount < 0 || f.ParentApprovalCount < 0 || f.ParentDenialCount < 0 {
+		f.RecoveryAttemptCount < 0 || f.RecoverySuccessCount < 0 || f.RetryAfterDeliveryInvalidCount < 0 || f.RetryAfterDeliveryInvalidSuccessCount < 0 || f.SwitchAfterDeliveryInvalidCount < 0 || f.SwitchAfterDeliveryInvalidSuccessCount < 0 || f.RediscoverCount < 0 || f.AskParentCount < 0 || f.ParentApprovalCount < 0 || f.ParentDenialCount < 0 {
 		return ErrInvalidMemory
 	}
 	return nil
@@ -89,38 +98,46 @@ type MemoryRecord struct {
 	CapabilityID        string       `json:"capability_id,omitempty"`
 	CatalogVersion      string       `json:"catalog_version,omitempty"`
 	CatalogSnapshotHash string       `json:"catalog_snapshot_hash,omitempty"`
+	CatalogSnapshotRef  string       `json:"catalog_snapshot_ref,omitempty"`
 	Summary             string       `json:"summary"`
 	StructuredFacts     OutcomeFacts `json:"structured_facts"`
 	SourceEpisodeIDs    []string     `json:"source_episode_ids"`
 	SourceEventRefs     []string     `json:"source_event_refs"`
 	SourceEvidenceRefs  []string     `json:"source_evidence_refs,omitempty"`
 	ObservationCount    int          `json:"observation_count"`
-	Confidence          float64      `json:"confidence"`
-	FirstObservedAt     time.Time    `json:"first_observed_at"`
-	LastObservedAt      time.Time    `json:"last_observed_at"`
-	ValidFrom           time.Time    `json:"valid_from"`
-	ValidUntil          *time.Time   `json:"valid_until,omitempty"`
-	CreatedAt           time.Time    `json:"created_at"`
-	UpdatedAt           time.Time    `json:"updated_at"`
-	FactsRef            string       `json:"facts_ref"`
-	PayloadHash         string       `json:"payload_hash"`
+	// Confidence is a deterministic observation-support score, not a calibrated
+	// probability and never a model confidence or authority signal.
+	Confidence      float64    `json:"confidence"`
+	FirstObservedAt time.Time  `json:"first_observed_at"`
+	LastObservedAt  time.Time  `json:"last_observed_at"`
+	ValidFrom       time.Time  `json:"valid_from"`
+	ValidUntil      *time.Time `json:"valid_until,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	FactsRef        string     `json:"facts_ref"`
+	PayloadHash     string     `json:"payload_hash"`
 	// Applicability is query-time metadata and is not part of the persisted
 	// canonical payload hash. It marks a catalog-version mismatch as historical.
 	Applicability MemoryApplicability `json:"applicability,omitempty"`
 }
 
 type MemoryObservation struct {
-	ObservationID       string    `json:"observation_id"`
-	MemoryID            string    `json:"memory_id"`
-	SourceEpisodeID     string    `json:"source_episode_id"`
-	SourceEventRef      string    `json:"source_event_ref"`
-	SourceEvidenceRefs  []string  `json:"source_evidence_refs,omitempty"`
-	ObservationKind     string    `json:"observation_kind"`
-	Outcome             string    `json:"outcome,omitempty"`
-	ObservedAt          time.Time `json:"observed_at"`
-	CatalogVersion      string    `json:"catalog_version,omitempty"`
-	CatalogSnapshotHash string    `json:"catalog_snapshot_hash,omitempty"`
-	PayloadHash         string    `json:"payload_hash"`
+	ObservationID          string    `json:"observation_id"`
+	MemoryID               string    `json:"memory_id"`
+	SourceEpisodeID        string    `json:"source_episode_id"`
+	SourceEventRef         string    `json:"source_event_ref"`
+	SourceEvidenceRefs     []string  `json:"source_evidence_refs,omitempty"`
+	ObservationKind        string    `json:"observation_kind"`
+	Outcome                string    `json:"outcome,omitempty"`
+	ObservedAt             time.Time `json:"observed_at"`
+	CatalogVersion         string    `json:"catalog_version,omitempty"`
+	CatalogSnapshotHash    string    `json:"catalog_snapshot_hash,omitempty"`
+	CatalogSnapshotRef     string    `json:"catalog_snapshot_ref,omitempty"`
+	TriggerEventRef        string    `json:"trigger_event_ref,omitempty"`
+	RecoveryActionEventRef string    `json:"recovery_action_event_ref,omitempty"`
+	TerminalEventRef       string    `json:"terminal_event_ref,omitempty"`
+	RelatedEventRefs       []string  `json:"related_event_refs,omitempty"`
+	PayloadHash            string    `json:"payload_hash"`
 }
 
 type MemoryQuery struct {
@@ -141,12 +158,17 @@ type MemoryRetriever interface {
 	Retrieve(context.Context, MemoryQuery) ([]*MemoryRecord, error)
 }
 
+type MemoryDetailResolver interface {
+	Resolve(context.Context, string, int) ([]*MemoryObservation, error)
+}
+
 type MemoryStore interface {
 	MemoryRetriever
 	SaveObservationAndUpdateAggregate(context.Context, *MemoryRecord, *MemoryObservation, OutcomeFacts) error
 	GetMemory(context.Context, string) (*MemoryRecord, error)
 	ListMemories(context.Context, MemoryQuery) ([]*MemoryRecord, error)
 	SearchMemories(context.Context, MemoryQuery) ([]*MemoryRecord, error)
+	Resolve(context.Context, string, int) ([]*MemoryObservation, error)
 }
 
 // EpisodeSource is the authoritative read surface used by the deterministic
@@ -172,6 +194,7 @@ type EpisodeView struct {
 	SelectedCapabilityID   string
 	SelectedCatalogVersion string
 	SelectedCatalogHash    string
+	SelectedCatalogRef     string
 	DeliveryRefs           []string
 	ValidationRefs         []string
 	AttemptedMerchants     []string
@@ -180,35 +203,45 @@ type EpisodeView struct {
 }
 
 type EventView struct {
-	EventID           string
-	Sequence          uint64
-	OccurredAt        time.Time
-	Action            string
-	Observation       string
-	ObservationCode   string
-	FactsRef          string
-	PayloadHash       string
-	MerchantDID       string
-	CapabilityID      string
-	TargetMerchantDID string
+	EventID                   string
+	Sequence                  uint64
+	OccurredAt                time.Time
+	Action                    string
+	Observation               string
+	ObservationCode           string
+	FactsRef                  string
+	PayloadHash               string
+	MerchantDID               string
+	CapabilityID              string
+	TargetMerchantDID         string
+	TargetCatalogVersion      string
+	TargetCatalogSnapshotHash string
+	TargetCatalogSnapshotRef  string
+	StateAfter                string
 }
 
 type PaymentView struct {
-	IntentID     string
-	MerchantDID  string
-	CapabilityID string
-	Status       string
-	UpdatedAt    time.Time
+	IntentID            string
+	MerchantDID         string
+	CapabilityID        string
+	CatalogVersion      string
+	CatalogSnapshotHash string
+	CatalogSnapshotRef  string
+	Status              string
+	UpdatedAt           time.Time
 }
 
 type DeliveryView struct {
-	DeliveryID   string
-	EpisodeID    string
-	InvocationID string
-	MerchantDID  string
-	CapabilityID string
-	Attempt      int
-	ReceivedAt   time.Time
+	DeliveryID          string
+	EpisodeID           string
+	InvocationID        string
+	MerchantDID         string
+	CapabilityID        string
+	CatalogVersion      string
+	CatalogSnapshotHash string
+	CatalogSnapshotRef  string
+	Attempt             int
+	ReceivedAt          time.Time
 }
 
 type ValidationView struct {
@@ -233,6 +266,7 @@ func (r MemoryRecord) Clone() *MemoryRecord {
 
 func (o MemoryObservation) Clone() *MemoryObservation {
 	o.SourceEvidenceRefs = append([]string(nil), o.SourceEvidenceRefs...)
+	o.RelatedEventRefs = append([]string(nil), o.RelatedEventRefs...)
 	return &o
 }
 
@@ -355,6 +389,7 @@ func (o MemoryObservation) CanonicalSnapshot() ([]byte, error) {
 	copy := o
 	copy.PayloadHash = ""
 	copy.SourceEvidenceRefs = sortedUnique(copy.SourceEvidenceRefs)
+	copy.RelatedEventRefs = sortedUnique(copy.RelatedEventRefs)
 	return json.Marshal(copy)
 }
 
@@ -383,8 +418,19 @@ func IdentityKey(typ MemoryType, scope MemoryScope, requester, parentSession, me
 	return strings.Join([]string{string(typ), string(scope), strings.TrimSpace(requester), strings.TrimSpace(parentSession), strings.TrimSpace(merchant), strings.ToLower(strings.TrimSpace(capability)), strings.TrimSpace(catalogVersion)}, "\x00")
 }
 
+func IdentityKeyForSnapshot(typ MemoryType, scope MemoryScope, requester, parentSession, merchant, capability, catalogVersion, catalogSnapshotHash string) string {
+	if strings.TrimSpace(catalogSnapshotHash) == "" {
+		return IdentityKey(typ, scope, requester, parentSession, merchant, capability, catalogVersion)
+	}
+	return strings.Join([]string{string(typ), string(scope), strings.TrimSpace(requester), strings.TrimSpace(parentSession), strings.TrimSpace(merchant), strings.ToLower(strings.TrimSpace(capability)), strings.TrimSpace(catalogVersion), strings.TrimSpace(catalogSnapshotHash)}, "\x00")
+}
+
 func MemoryIDFor(typ MemoryType, scope MemoryScope, requester, parentSession, merchant, capability, catalogVersion string) string {
-	digest := sha256.Sum256([]byte(IdentityKey(typ, scope, requester, parentSession, merchant, capability, catalogVersion)))
+	return MemoryIDForSnapshot(typ, scope, requester, parentSession, merchant, capability, catalogVersion, "")
+}
+
+func MemoryIDForSnapshot(typ MemoryType, scope MemoryScope, requester, parentSession, merchant, capability, catalogVersion, catalogSnapshotHash string) string {
+	digest := sha256.Sum256([]byte(IdentityKeyForSnapshot(typ, scope, requester, parentSession, merchant, capability, catalogVersion, catalogSnapshotHash)))
 	return "mem_" + hex.EncodeToString(digest[:])
 }
 

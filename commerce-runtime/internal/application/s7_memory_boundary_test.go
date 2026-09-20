@@ -38,8 +38,8 @@ func TestHistoricalMemoryCannotOverrideCurrentTrustedQuote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(decisionContext.RetrievedMemories) == 0 {
-		t.Fatal("historical memory was not available as advisory context")
+	if len(decisionContext.RetrievedMemories) != 0 || len(decisionContext.CandidateMemories) != 0 {
+		t.Fatal("memory context must be disabled during the payment path")
 	}
 }
 

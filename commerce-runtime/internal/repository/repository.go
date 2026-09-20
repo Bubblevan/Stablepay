@@ -36,6 +36,7 @@ var (
 	ErrParentDecisionConflict     = errors.New("parent decision conflicts with an existing approval")
 	ErrRecoveryConflict           = errors.New("recovery context conflicts with an existing identity")
 	ErrModelTraceConflict         = errors.New("model decision trace conflicts with an existing identity")
+	ErrMemoryUseTraceConflict     = errors.New("memory use trace conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {

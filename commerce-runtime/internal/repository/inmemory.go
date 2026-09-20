@@ -48,6 +48,7 @@ type InMemoryStore struct {
 	budgetAmendments         map[string]*recovery.BudgetAmendment
 	evidenceRecords          map[string]*evidence.EvidenceRecord
 	modelDecisionTraces      map[string]*llm.ModelDecisionTrace
+	memoryUseTraces          map[string]*memory.MemoryUseTrace
 	memoryRecords            map[string]*memory.MemoryRecord
 	memoryObservations       map[string]*memory.MemoryObservation
 }
@@ -78,6 +79,7 @@ func NewInMemoryStore() *InMemoryStore {
 		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
 		evidenceRecords:          make(map[string]*evidence.EvidenceRecord),
 		modelDecisionTraces:      make(map[string]*llm.ModelDecisionTrace),
+		memoryUseTraces:          make(map[string]*memory.MemoryUseTrace),
 		memoryRecords:            make(map[string]*memory.MemoryRecord),
 		memoryObservations:       make(map[string]*memory.MemoryObservation),
 	}
