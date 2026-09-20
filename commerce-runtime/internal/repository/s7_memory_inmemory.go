@@ -153,6 +153,18 @@ func (s *InMemoryStore) searchMemories(ctx context.Context, query memory.MemoryQ
 }
 
 func memoryQueryMatches(value *memory.MemoryRecord, query memory.MemoryQuery) bool {
+	if len(query.AllowedScopes) > 0 {
+		allowed := false
+		for _, scope := range query.AllowedScopes {
+			if value.Scope == scope {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
 	switch value.Scope {
 	case memory.ScopeRequester:
 		return query.RequesterDID != "" && value.RequesterDID == query.RequesterDID
@@ -184,6 +196,9 @@ func memoryRankLess(left, right *memory.MemoryRecord, query memory.MemoryQuery) 
 	if leftTier, rightTier := memoryRankTier(left, query), memoryRankTier(right, query); leftTier != rightTier {
 		return leftTier < rightTier
 	}
+	if leftApplicability, rightApplicability := memoryApplicabilityRank(left.Applicability), memoryApplicabilityRank(right.Applicability); leftApplicability != rightApplicability {
+		return leftApplicability < rightApplicability
+	}
 	if !left.LastObservedAt.Equal(right.LastObservedAt) {
 		return left.LastObservedAt.After(right.LastObservedAt)
 	}
@@ -194,16 +209,42 @@ func memoryRankLess(left, right *memory.MemoryRecord, query memory.MemoryQuery) 
 }
 
 func memoryApplicability(value *memory.MemoryRecord, query memory.MemoryQuery) memory.MemoryApplicability {
-	if query.CatalogVersion == "" || value.CatalogVersion == "" || value.CatalogVersion != query.CatalogVersion {
-		if query.CatalogVersion != "" && value.CatalogVersion != "" && value.CatalogVersion != query.CatalogVersion {
-			return memory.ApplicabilityHistoricalVersion
-		}
-		return memory.ApplicabilityCurrent
+	queryVersion := strings.TrimSpace(query.CatalogVersion)
+	valueVersion := strings.TrimSpace(value.CatalogVersion)
+	queryHash := strings.TrimSpace(query.CatalogSnapshotHash)
+	valueHash := strings.TrimSpace(value.CatalogSnapshotHash)
+	if queryVersion == "" {
+		return memory.ApplicabilityUnknown
 	}
-	if query.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != "" && value.CatalogSnapshotHash != query.CatalogSnapshotHash {
+	if valueVersion == "" {
+		return memory.ApplicabilityUnknown
+	}
+	if valueVersion != queryVersion {
+		return memory.ApplicabilityHistoricalVersion
+	}
+	if queryHash != "" && valueHash == "" {
+		return memory.ApplicabilityUnknown
+	}
+	if queryHash != "" && valueHash != queryHash {
 		return memory.ApplicabilityHistoricalSnapshot
 	}
+	if queryHash == "" && valueHash != "" {
+		return memory.ApplicabilityUnknown
+	}
 	return memory.ApplicabilityCurrent
+}
+
+func memoryApplicabilityRank(value memory.MemoryApplicability) int {
+	switch value {
+	case memory.ApplicabilityCurrent:
+		return 1
+	case memory.ApplicabilityHistoricalSnapshot:
+		return 2
+	case memory.ApplicabilityHistoricalVersion:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func sameMemoryIdentity(left, right *memory.MemoryRecord) bool {

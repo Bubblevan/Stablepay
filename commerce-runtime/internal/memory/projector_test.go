@@ -106,3 +106,33 @@ func TestProjectEpisodeRequiresTerminalState(t *testing.T) {
 		t.Fatal("non-terminal episode was projected")
 	}
 }
+
+func TestProjectEpisodeDoesNotBorrowTerminalMerchantProvenance(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	source := fixtureSource{
+		episode: memory.EpisodeView{
+			EpisodeID: "episode-provenance-fail-closed", State: "FULFILLED", SelectedMerchantDID: "did:merchant:b", SelectedCapabilityID: "transcription",
+			SelectedCatalogVersion: "v4", SelectedCatalogHash: "sha256:hash-b", SelectedCatalogRef: "catalog://b/v4", DeliveryRefs: []string{"delivery-a"}, ValidationRefs: []string{"validation-a"}, UpdatedAt: now,
+		},
+		events: []memory.EventView{
+			{EventID: "event-select-a-without-provenance", Sequence: 1, Action: "SELECT_MERCHANT", TargetMerchantDID: "did:merchant:a", CapabilityID: "transcription"},
+			{EventID: "event-valid-a-without-provenance", Sequence: 2, Action: "VALIDATE_DELIVERY", Observation: "DELIVERY_VALID", TargetMerchantDID: "did:merchant:a", CapabilityID: "transcription"},
+		},
+		deliveries:  map[string]memory.DeliveryView{"delivery-a": {DeliveryID: "delivery-a", EpisodeID: "episode-provenance-fail-closed", MerchantDID: "did:merchant:a", CapabilityID: "transcription", Attempt: 1, ReceivedAt: now}},
+		validations: map[string]memory.ValidationView{"validation-a": {ValidationID: "validation-a", DeliveryID: "delivery-a", Valid: true, ReasonCode: "VALID", CreatedAt: now}},
+	}
+	store := repository.NewInMemoryStore()
+	projector := memory.NewProjector(source, store, memory.WithProjectorClock(func() time.Time { return now }))
+	if _, err := projector.ProjectEpisode(context.Background(), source.episode.EpisodeID); err != nil {
+		t.Fatal(err)
+	}
+	values, err := store.SearchMemories(context.Background(), memory.MemoryQuery{
+		MerchantDID: "did:merchant:a", CapabilityID: "transcription", AllowedScopes: []memory.MemoryScope{memory.ScopeMerchantCapability}, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("historical merchant borrowed terminal provenance: %#v", values)
+	}
+}

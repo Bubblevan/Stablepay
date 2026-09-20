@@ -136,12 +136,15 @@ func (p *Projector) ProjectEpisode(ctx context.Context, episodeID string) ([]Mem
 		version, hash, ref := delivery.CatalogVersion, delivery.CatalogSnapshotHash, delivery.CatalogSnapshotRef
 		if version == "" && hash == "" {
 			version, hash, ref = catalogForAttempt(events, merchant, capability, delivery.ReceivedAt)
-			if version == "" && hash == "" {
-				version, ref = ep.SelectedCatalogVersion, ep.SelectedCatalogRef
+			if version == "" && hash == "" && terminalSelectedAttempt(ep, merchant, capability) {
+				version, hash, ref = ep.SelectedCatalogVersion, ep.SelectedCatalogHash, ep.SelectedCatalogRef
 			}
 		}
-		capabilityValue := ensureStats(capabilityStats, capabilityKey(merchant, capability, version, hash), merchant, capability)
-		setCatalog(capabilityValue, version, hash, ref)
+		var capabilityValue *projectionStats
+		if hasCatalogProvenance(version, hash) {
+			capabilityValue = ensureStats(capabilityStats, capabilityKey(merchant, capability, version, hash), merchant, capability)
+			setCatalog(capabilityValue, version, hash, ref)
+		}
 		validation, ok := validations[delivery.DeliveryID]
 		applyDeliveryOutcome(merchantValue, capabilityValue, validation, ok, observedAt)
 	}
@@ -155,20 +158,27 @@ func (p *Projector) ProjectEpisode(ctx context.Context, episodeID string) ([]Mem
 		version, hash, ref := payment.CatalogVersion, payment.CatalogSnapshotHash, payment.CatalogSnapshotRef
 		if version == "" && hash == "" {
 			version, hash, ref = catalogForAttempt(events, merchant, capability, payment.UpdatedAt)
-			if version == "" && hash == "" {
-				version, ref = ep.SelectedCatalogVersion, ep.SelectedCatalogRef
+			if version == "" && hash == "" && terminalSelectedAttempt(ep, merchant, capability) {
+				version, hash, ref = ep.SelectedCatalogVersion, ep.SelectedCatalogHash, ep.SelectedCatalogRef
 			}
 		}
-		capabilityValue := ensureStats(capabilityStats, capabilityKey(merchant, capability, version, hash), merchant, capability)
-		setCatalog(capabilityValue, version, hash, ref)
+		var capabilityValue *projectionStats
+		if hasCatalogProvenance(version, hash) {
+			capabilityValue = ensureStats(capabilityStats, capabilityKey(merchant, capability, version, hash), merchant, capability)
+			setCatalog(capabilityValue, version, hash, ref)
+		}
 		if payment.Status == "FAILED" || payment.Status == "EXPIRED" {
 			merchantValue.delta.PaymentFailedCount++
-			capabilityValue.delta.PaymentFailedCount++
+			if capabilityValue != nil {
+				capabilityValue.delta.PaymentFailedCount++
+			}
 		}
 		// A payment intent is one economic attempt. Delivery artifacts are
 		// preferred for attempt counting because a single intent can be replayed.
 		merchantValue.paymentAttempts++
-		capabilityValue.paymentAttempts++
+		if capabilityValue != nil {
+			capabilityValue.paymentAttempts++
+		}
 	}
 	for _, event := range events {
 		if event.Observation == "TOOL_ERROR" {
@@ -179,9 +189,18 @@ func (p *Projector) ProjectEpisode(ctx context.Context, episodeID string) ([]Mem
 			if merchant != "" {
 				ensureStats(merchantStats, merchant, merchant, "").delta.MerchantErrorCount++
 				capability := strings.ToLower(strings.TrimSpace(event.CapabilityID))
-				value := ensureStats(capabilityStats, capabilityKey(merchant, capability, event.TargetCatalogVersion, event.TargetCatalogSnapshotHash), merchant, capability)
-				setCatalog(value, event.TargetCatalogVersion, event.TargetCatalogSnapshotHash, event.TargetCatalogSnapshotRef)
-				value.delta.MerchantErrorCount++
+				version, hash, ref := event.TargetCatalogVersion, event.TargetCatalogSnapshotHash, event.TargetCatalogSnapshotRef
+				if version == "" && hash == "" {
+					version, hash, ref = catalogForAttempt(events, merchant, capability, event.OccurredAt)
+					if version == "" && hash == "" && terminalSelectedAttempt(ep, merchant, capability) {
+						version, hash, ref = ep.SelectedCatalogVersion, ep.SelectedCatalogHash, ep.SelectedCatalogRef
+					}
+				}
+				if hasCatalogProvenance(version, hash) {
+					value := ensureStats(capabilityStats, capabilityKey(merchant, capability, version, hash), merchant, capability)
+					setCatalog(value, version, hash, ref)
+					value.delta.MerchantErrorCount++
+				}
 			}
 		}
 	}
@@ -198,6 +217,9 @@ func (p *Projector) ProjectEpisode(ctx context.Context, episodeID string) ([]Mem
 		mutations = append(mutations, p.newMutation(ep, events, value, MemoryMerchantOutcome, ScopeMerchant, observedAt, now))
 	}
 	for _, value := range sortedStats(capabilityStats) {
+		if !hasCatalogProvenance(value.catalogVersion, value.catalogHash) {
+			continue
+		}
 		mutations = append(mutations, p.newMutation(ep, events, value, MemoryCapabilityOutcome, ScopeMerchantCapability, observedAt, now))
 	}
 	if recoveryMutation := p.recoveryMutation(ep, events, observedAt, now); recoveryMutation != nil {
@@ -268,6 +290,14 @@ func setCatalog(value *projectionStats, version, hash, ref string) {
 	value.catalogVersion, value.catalogHash, value.catalogRef = version, hash, ref
 }
 
+func hasCatalogProvenance(version, hash string) bool {
+	return strings.TrimSpace(version) != "" || strings.TrimSpace(hash) != ""
+}
+
+func terminalSelectedAttempt(ep EpisodeView, merchant, capability string) bool {
+	return strings.TrimSpace(ep.SelectedMerchantDID) == strings.TrimSpace(merchant) && strings.EqualFold(strings.TrimSpace(ep.SelectedCapabilityID), strings.TrimSpace(capability))
+}
+
 func catalogForAttempt(events []EventView, merchant, capability string, at time.Time) (string, string, string) {
 	version, hash, ref := "", "", ""
 	var selectedAt time.Time
@@ -294,27 +324,37 @@ func ensureStats(values map[string]*projectionStats, key, merchant, capability s
 
 func applyDeliveryOutcome(merchant, capability *projectionStats, validation ValidationView, ok bool, observedAt time.Time) {
 	merchant.deliveryCount++
-	capability.deliveryCount++
+	if capability != nil {
+		capability.deliveryCount++
+	}
 	if !ok {
 		merchant.delta.LastOutcome = "DELIVERY_RECEIVED"
-		capability.delta.LastOutcome = "DELIVERY_RECEIVED"
+		if capability != nil {
+			capability.delta.LastOutcome = "DELIVERY_RECEIVED"
+		}
 	} else if validation.Valid {
 		merchant.delta.DeliveryValidCount++
 		merchant.delta.FulfilledCount++
 		merchant.delta.LastOutcome = "DELIVERY_VALID"
-		capability.delta.DeliveryValidCount++
-		capability.delta.FulfilledCount++
-		capability.delta.LastOutcome = "DELIVERY_VALID"
+		if capability != nil {
+			capability.delta.DeliveryValidCount++
+			capability.delta.FulfilledCount++
+			capability.delta.LastOutcome = "DELIVERY_VALID"
+		}
 	} else {
 		merchant.delta.DeliveryInvalidCount++
 		merchant.delta.RecentFailureStreak++
 		merchant.delta.LastOutcome = "DELIVERY_INVALID"
-		capability.delta.DeliveryInvalidCount++
-		capability.delta.RecentFailureStreak++
-		capability.delta.LastOutcome = "DELIVERY_INVALID"
+		if capability != nil {
+			capability.delta.DeliveryInvalidCount++
+			capability.delta.RecentFailureStreak++
+			capability.delta.LastOutcome = "DELIVERY_INVALID"
+		}
 	}
 	merchant.delta.LastOutcomeAt = observedAt
-	capability.delta.LastOutcomeAt = observedAt
+	if capability != nil {
+		capability.delta.LastOutcomeAt = observedAt
+	}
 }
 
 func (s *projectionStats) finalizeAttempts() {
@@ -332,6 +372,7 @@ func applySwitchAway(events []EventView, merchants map[string]*projectionStats, 
 		if event.TargetMerchantDID != "" && event.Action != "SWITCH_MERCHANT" {
 			currentMerchant = event.TargetMerchantDID
 			currentCapability = strings.ToLower(strings.TrimSpace(event.CapabilityID))
+			currentVersion, currentHash, currentRef = "", "", ""
 			if event.TargetCatalogVersion != "" || event.TargetCatalogSnapshotHash != "" || event.TargetCatalogSnapshotRef != "" {
 				currentVersion, currentHash, currentRef = event.TargetCatalogVersion, event.TargetCatalogSnapshotHash, event.TargetCatalogSnapshotRef
 			}
@@ -352,15 +393,18 @@ func applySwitchAway(events []EventView, merchants map[string]*projectionStats, 
 					}
 				}
 			}
-			if !ok {
+			if !ok && hasCatalogProvenance(currentVersion, currentHash) {
 				value = ensureStats(capabilities, key, currentMerchant, currentCapability)
 			}
-			setCatalog(value, currentVersion, currentHash, currentRef)
-			value.delta.SwitchAwayCount++
+			if value != nil {
+				setCatalog(value, currentVersion, currentHash, currentRef)
+				value.delta.SwitchAwayCount++
+			}
 		}
 		if event.TargetMerchantDID != "" {
 			currentMerchant = event.TargetMerchantDID
 			currentCapability = strings.ToLower(strings.TrimSpace(event.CapabilityID))
+			currentVersion, currentHash, currentRef = "", "", ""
 			if event.TargetCatalogVersion != "" || event.TargetCatalogSnapshotHash != "" || event.TargetCatalogSnapshotRef != "" {
 				currentVersion, currentHash, currentRef = event.TargetCatalogVersion, event.TargetCatalogSnapshotHash, event.TargetCatalogSnapshotRef
 			}

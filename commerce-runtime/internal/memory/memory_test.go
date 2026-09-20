@@ -161,6 +161,62 @@ func TestMemoryApplicabilityDistinguishesVersionAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestMemoryAllowedScopesPreventCandidateCrossScopePollution(t *testing.T) {
+	store := repository.NewInMemoryStore()
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	candidate := testRecord(now, memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "did:merchant:b", "", "", "transcription")
+	requester := testRecord(now.Add(time.Second), memory.MemoryRequesterPreference, memory.ScopeRequester, "", "did:requester:a", "", "")
+	parent := testRecord(now.Add(2*time.Second), memory.MemoryRecoveryOutcome, memory.ScopeParentSession, "", "did:requester:a", "session-a", "")
+	for _, value := range []*memory.MemoryRecord{candidate, requester, parent} {
+		if err := store.SaveObservationAndUpdateAggregate(context.Background(), value, testObservation(value.MemoryID, value.MemoryID, value.LastObservedAt), value.StructuredFacts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	values, err := store.SearchMemories(context.Background(), memory.MemoryQuery{
+		RequesterDID: "did:requester:a", ParentSessionID: "session-a", MerchantDID: "did:merchant:b", CapabilityID: "transcription",
+		AllowedScopes: []memory.MemoryScope{memory.ScopeMerchant, memory.ScopeMerchantCapability}, Now: now, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0].MemoryID != candidate.MemoryID || values[0].Scope != memory.ScopeMerchantCapability {
+		t.Fatalf("candidate query crossed scope boundary: %#v", values)
+	}
+}
+
+func TestMemoryApplicabilityRanksCurrentBeforeNewerHistoricalVersions(t *testing.T) {
+	store := repository.NewInMemoryStore()
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	values := make([]*memory.MemoryRecord, 0, 3)
+	for index, version := range []string{"v5", "v4", "v3"} {
+		observedAt := now.Add(time.Duration(index) * time.Minute)
+		value := testRecord(observedAt, memory.MemoryCapabilityOutcome, memory.ScopeMerchantCapability, "did:merchant:a", "", "", "transcription")
+		value.CatalogVersion = version
+		value.CatalogSnapshotHash = "sha256:" + version
+		value.MemoryID = memory.MemoryIDForSnapshot(value.Type, value.Scope, "", "", value.MerchantDID, value.CapabilityID, value.CatalogVersion, value.CatalogSnapshotHash)
+		value.FactsRef = "memory://" + value.MemoryID
+		if err := value.RefreshPayloadHash(); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, value)
+	}
+	for _, value := range values {
+		if err := store.SaveObservationAndUpdateAggregate(context.Background(), value, testObservation(value.MemoryID, value.CatalogVersion, value.LastObservedAt), value.StructuredFacts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := store.SearchMemories(context.Background(), memory.MemoryQuery{
+		MerchantDID: "did:merchant:a", CapabilityID: "transcription", CatalogVersion: "v5", CatalogSnapshotHash: "sha256:v5",
+		AllowedScopes: []memory.MemoryScope{memory.ScopeMerchantCapability}, Now: now.Add(5 * time.Minute), Limit: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[0].CatalogVersion != "v5" || result[0].Applicability != memory.ApplicabilityCurrent {
+		t.Fatalf("current applicability did not outrank newer historical versions: %#v", result)
+	}
+}
+
 func testRecord(now time.Time, typ memory.MemoryType, scope memory.MemoryScope, merchant, requester, parent, capability string) *memory.MemoryRecord {
 	id := memory.MemoryIDFor(typ, scope, requester, parent, merchant, capability, "")
 	expires := now.Add(24 * time.Hour)

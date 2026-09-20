@@ -117,7 +117,7 @@ func (s *Service) BuildDecisionContext(ctx context.Context, request S6DecisionRe
 				}
 			}
 			for _, candidate := range candidateValues {
-				values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, Now: s.clock().UTC(), Limit: policyPlan.PerCandidateLimit})
+				values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, AllowedScopes: []memory.MemoryScope{memory.ScopeMerchant, memory.ScopeMerchantCapability}, Now: s.clock().UTC(), Limit: policyPlan.PerCandidateLimit})
 				if memoryErr != nil {
 					return llm.DecisionContext{}, memoryErr
 				}
@@ -145,7 +145,7 @@ func (s *Service) BuildDecisionContext(ctx context.Context, request S6DecisionRe
 				}
 				remaining := policyPlan.TotalLimit - len(seen)
 				if remaining > 0 {
-					values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: merchantDID, CapabilityID: capabilityID, CatalogVersion: catalogVersion, CatalogSnapshotHash: catalogHash, Now: s.clock().UTC(), Limit: remaining})
+					values, memoryErr := s.memoryStore.Retrieve(ctx, memory.MemoryQuery{RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID, MerchantDID: merchantDID, CapabilityID: capabilityID, CatalogVersion: catalogVersion, CatalogSnapshotHash: catalogHash, AllowedScopes: []memory.MemoryScope{memory.ScopeRequester, memory.ScopeParentSession}, Now: s.clock().UTC(), Limit: remaining})
 					if memoryErr != nil {
 						return llm.DecisionContext{}, memoryErr
 					}

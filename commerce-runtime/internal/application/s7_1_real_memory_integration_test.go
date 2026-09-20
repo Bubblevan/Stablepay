@@ -3,12 +3,27 @@ package application
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
+
+type countingLLMClient struct {
+	inner llm.LLMClient
+	calls atomic.Int64
+}
+
+func (c *countingLLMClient) GenerateDecision(ctx context.Context, request llm.LLMDecisionRequest) (llm.LLMDecisionResponse, error) {
+	c.calls.Add(1)
+	return c.inner.GenerateDecision(ctx, request)
+}
+
+func (c *countingLLMClient) callCount() int {
+	return int(c.calls.Load())
+}
 
 // This is deliberately opt-in: it sends one real neutral recovery prompt to
 // the configured provider and records action/memory-ref/guard outcomes. It is
@@ -22,9 +37,10 @@ func TestS71RealDeepSeekCandidateMemoryActionIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	countingClient := &countingLLMClient{inner: client}
 	fixture := makeS6SwitchFixture(t, switchBResponse)
 	seedCandidateOutcomeMemories(t, fixture)
-	fixture.service.llmProvider = llm.NewLLMDecisionProvider(client, llm.WithProviderName(providerName), llm.WithModelRef(model), llm.WithProviderTTL(2*time.Minute), llm.WithProviderClock(func() time.Time { return fixture.now }))
+	fixture.service.llmProvider = llm.NewLLMDecisionProvider(countingClient, llm.WithProviderName(providerName), llm.WithModelRef(model), llm.WithProviderTTL(2*time.Minute), llm.WithProviderClock(func() time.Time { return fixture.now }))
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	commit, result, err := fixture.service.ExecuteRecoveryDecision(ctx, S6DecisionRequest{EpisodeID: fixture.current, Query: "which eligible recovery option has the strongest persisted outcome history?"})
@@ -38,7 +54,10 @@ func TestS71RealDeepSeekCandidateMemoryActionIntegration(t *testing.T) {
 	if err != nil || len(traces) != 1 || !traces[0].GuardAccepted {
 		t.Fatalf("memory use trace=%#v err=%v", traces, err)
 	}
-	t.Logf("real S7.1 provider=%s model=%s calls=1 action=%s target=%s cited_memory_refs=%d guard_accepted=%t", providerName, model, result.Proposal.ProposedAction, result.Proposal.Target.MerchantDID, len(result.Proposal.MemoryRefs), traces[0].GuardAccepted)
+	if countingClient.callCount() < 1 {
+		t.Fatal("real provider completed without a GenerateDecision call")
+	}
+	t.Logf("real S7.1 provider=%s model=%s calls=%d action=%s target=%s cited_memory_refs=%d guard_accepted=%t", providerName, model, countingClient.callCount(), result.Proposal.ProposedAction, result.Proposal.Target.MerchantDID, len(result.Proposal.MemoryRefs), traces[0].GuardAccepted)
 }
 
 func TestS71DeterministicMemoryCounterfactualRecordsActionAndGuard(t *testing.T) {

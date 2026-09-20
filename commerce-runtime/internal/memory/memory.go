@@ -36,8 +36,9 @@ type MemoryApplicability string
 
 const (
 	ApplicabilityCurrent            MemoryApplicability = "CURRENT"
-	ApplicabilityHistoricalVersion  MemoryApplicability = "HISTORICAL_VERSION"
 	ApplicabilityHistoricalSnapshot MemoryApplicability = "HISTORICAL_SNAPSHOT"
+	ApplicabilityHistoricalVersion  MemoryApplicability = "HISTORICAL_VERSION"
+	ApplicabilityUnknown            MemoryApplicability = "UNKNOWN"
 )
 
 var (
@@ -147,8 +148,12 @@ type MemoryQuery struct {
 	CapabilityID        string
 	CatalogVersion      string
 	CatalogSnapshotHash string
-	Now                 time.Time
-	Limit               int
+	// AllowedScopes is applied by the store before ranking or limiting. An
+	// empty list preserves the legacy all-scope query surface for callers that
+	// deliberately need it; runtime retrieval supplies an explicit allowlist.
+	AllowedScopes []MemoryScope
+	Now           time.Time
+	Limit         int
 }
 
 // MemoryRetriever exposes deterministic, scope-filtered retrieval of derived

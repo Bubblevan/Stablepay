@@ -179,6 +179,9 @@ func TestS71CandidateMemoryGuidesNeutralActionAndPersistsUseTrace(t *testing.T) 
 		if len(candidate.Memories) != 1 {
 			t.Fatalf("candidate memories=%#v", contextValue.CandidateMemories)
 		}
+		if candidate.Memories[0].Scope != memory.ScopeMerchant && candidate.Memories[0].Scope != memory.ScopeMerchantCapability {
+			t.Fatalf("candidate prompt included non-candidate scope: %#v", candidate.Memories[0])
+		}
 	}
 	prompt, err := llm.BuildPrompt(contextValue)
 	if err != nil || !strings.Contains(prompt.User, "CANDIDATE_MEMORY") || !strings.Contains(prompt.User, "did:merchant:b") {
