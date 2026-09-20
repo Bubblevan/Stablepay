@@ -85,7 +85,7 @@ func (s *Service) BuildDecisionContext(ctx context.Context, request S6DecisionRe
 			}
 		}
 	}
-	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved})
+	return llm.BuildDecisionContext(llm.ContextInput{Episode: current, AllowedActions: s6AllowedActions(current.State), CandidateSet: candidateSet, Recovery: recoveryContext, LatestValidation: latestValidation, RetrievedEvidence: retrieved})
 }
 
 // ProposeRecoveryDecision invokes the configured LLM provider. It returns a
@@ -140,6 +140,15 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 	result, err := s.ProposeRecoveryDecision(ctx, request)
 	if err != nil {
 		return CommitResult{}, result, err
+	}
+	if evidenceErr := llm.ValidateProposalEvidenceAgainstContext(result.Context, result.Proposal); evidenceErr != nil {
+		rejected := result.Trace
+		rejected.TraceID = result.Trace.TraceID + ":context"
+		rejected.Status = llm.TraceGuardRejected
+		rejected.ErrorCode = "CONTEXT_EVIDENCE_MISMATCH"
+		rejected.ResponseReceivedAt = s.clock().UTC()
+		_ = s.persistModelTrace(ctx, &rejected)
+		return CommitResult{}, result, evidenceErr
 	}
 	key := "s6:" + result.Proposal.ProposalID
 	commit, commitErr := s.CommitProposal(ctx, CommitRequest{Proposal: result.Proposal, Action: trace.Action{Type: result.Proposal.ProposedAction, IdempotencyKey: key}, Actor: func() string {
@@ -207,8 +216,15 @@ func (s *Service) persistModelTrace(ctx context.Context, value *llm.ModelDecisio
 	return store.SaveModelDecisionTrace(ctx, value)
 }
 
-func s6AllowedActions() []trace.ActionType {
-	return []trace.ActionType{trace.ActionSelectMerchant, trace.ActionRetrySameMerchant, trace.ActionSwitchMerchant, trace.ActionRediscover, trace.ActionAskParent, trace.ActionStop}
+func s6AllowedActions(state episode.State) []trace.ActionType {
+	switch state {
+	case episode.StateRecovering:
+		return []trace.ActionType{trace.ActionRetrySameMerchant, trace.ActionSwitchMerchant, trace.ActionRediscover, trace.ActionAskParent, trace.ActionStop}
+	case episode.StateDiscovering:
+		return []trace.ActionType{trace.ActionSelectMerchant, trace.ActionStop}
+	default:
+		return []trace.ActionType{trace.ActionStop}
+	}
 }
 
 func fallbackEvidenceRefs(value llm.DecisionContext) []string {

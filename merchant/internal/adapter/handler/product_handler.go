@@ -96,9 +96,13 @@ func (h *ProductHandler) GetProduct(ctx context.Context, c *app.RequestContext) 
 
 // ExecutePurchase handles GET /api/v1/products/:id/execute.
 //
-// x402 v2/v1 dual-header strategy:
-//   - v2 header  "PAYMENT-REQUIRED" — canonical x402 v2 (base64 JSON)
-//   - v1 header  "Payment-Required" — backward compat (base64 JSON)
+// x402 v2 header strategy:
+//   - "PAYMENT-REQUIRED" — canonical x402 v2 (base64 JSON)
+//
+// HTTP header names are case-insensitive, so emitting the legacy "Payment-Required"
+// spelling alongside the canonical header overwrites or ambiguates the v2 value
+// in real clients. The v2 JSON body remains available for clients that do not
+// consume the header.
 //   - JSON body  v2 format
 func (h *ProductHandler) ExecutePurchase(ctx context.Context, c *app.RequestContext) {
 	if h.productAppService == nil {
@@ -164,30 +168,6 @@ func writePaymentRequired(c *app.RequestContext, result *appSvc.ExecutePurchaseR
 		return
 	}
 	c.Header(domainSvc.X402PaymentRequiredHeader, v2HeaderValue)
-
-	// === x402 v1 header (backward compat) ===
-	if len(result.PaymentRequired.Accepts) > 0 {
-		a := result.PaymentRequired.Accepts[0]
-		v1Accept := dto.X402AcceptV1{
-			Scheme:            a.Scheme,
-			Network:           a.Network,
-			MaxAmountRequired: a.Amount,
-			PayTo:             a.PayTo,
-			Asset:             a.Asset,
-			Description:       result.PaymentRequired.Resource.Description,
-			Resource:          result.PaymentRequired.Resource.URL,
-			MaxTimeoutSeconds: a.MaxTimeoutSeconds,
-			Extra:             a.Extra,
-		}
-		v1Resp := dto.PaymentRequiredRespV1{
-			X402Version: 1,
-			Error:       "Payment Required",
-			Accepts:     []dto.X402AcceptV1{v1Accept},
-		}
-		if v1JSON, err := json.Marshal(v1Resp); err == nil {
-			c.Header(domainSvc.X402PaymentRequiredHeaderV1, string(v1JSON))
-		}
-	}
 
 	c.Header("Accept-Payment", "x402, stablepay-v1")
 	c.JSON(consts.StatusPaymentRequired, mapPaymentRequired(result.PaymentRequired))

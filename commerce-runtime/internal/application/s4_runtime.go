@@ -280,16 +280,16 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
-	intent, err := intentStore.FindPaymentIntentByQuoteHash(ctx, current.EpisodeID, current.CurrentQuoteHash)
+	capability, _, err := s.selectedCapabilityAndInput(ctx, current)
+	if err != nil {
+		return DeliveryInvocationResult{}, err
+	}
+	intent, err := findPaymentIntentForSelection(ctx, intentStore, current, capability.PayeeDID)
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
 	if intent.Status != payment.IntentConfirmed {
 		return DeliveryInvocationResult{}, payment.ErrIntentStateConflict
-	}
-	capability, _, err := s.selectedCapabilityAndInput(ctx, current)
-	if err != nil {
-		return DeliveryInvocationResult{}, err
 	}
 	attempt := request.Attempt
 	if attempt <= 0 {
@@ -323,7 +323,7 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 			return DeliveryInvocationResult{}, decision.ErrPaymentBindingMismatch
 		}
 		if intent.MerchantDID != current.SelectedMerchantDID || intent.CapabilityID != current.SelectedCapabilityID || intent.PayeeDID != capability.PayeeDID {
-			return DeliveryInvocationResult{}, decision.ErrPaymentBindingMismatch
+			return DeliveryInvocationResult{}, fmt.Errorf("%w: intent merchant=%s capability=%s payee=%s; selected merchant=%s capability=%s payee=%s", decision.ErrPaymentBindingMismatch, intent.MerchantDID, intent.CapabilityID, intent.PayeeDID, current.SelectedMerchantDID, current.SelectedCapabilityID, capability.PayeeDID)
 		}
 	}
 	fact, response, adapterErr, replayed, err := s.executeMerchantInvocation(ctx, store, operation)
@@ -501,7 +501,11 @@ func (s *Service) RetrySameMerchant(ctx context.Context, request RetrySameMercha
 	if current.RetryCount >= 1 {
 		return CommitResult{}, decision.ErrAttemptLimit
 	}
-	intent, err := store.FindPaymentIntentByQuoteHash(ctx, current.EpisodeID, current.CurrentQuoteHash)
+	capability, _, err := s.selectedCapabilityAndInput(ctx, current)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	intent, err := findPaymentIntentForSelection(ctx, store, current, capability.PayeeDID)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -545,6 +549,26 @@ func (s *Service) RetrySameMerchant(ctx context.Context, request RetrySameMercha
 		return CommitResult{}, decision.ErrPaymentBindingMismatch
 	}
 	return s.CommitProposal(ctx, CommitRequest{Proposal: request.Proposal, Action: request.Action, Observation: request.Observation, Actor: request.Actor, TraceID: request.TraceID, runtimeRecoveryValidated: true})
+}
+
+// findPaymentIntentForSelection disambiguates repeated quote hashes across
+// merchants. An x402 quote can be byte-identical for two merchants while the
+// payment intents remain merchant-bound economic facts.
+func findPaymentIntentForSelection(ctx context.Context, store repository.S2Store, current *episode.CommerceEpisode, payeeDID string) (*payment.PaymentIntent, error) {
+	intents, err := store.ListPaymentIntents(ctx, current.EpisodeID)
+	if err != nil {
+		return nil, err
+	}
+	for index := len(intents) - 1; index >= 0; index-- {
+		intent := intents[index]
+		if intent == nil || intent.QuoteHash != current.CurrentQuoteHash {
+			continue
+		}
+		if intent.MerchantDID == current.SelectedMerchantDID && intent.CapabilityID == current.SelectedCapabilityID && intent.PayeeDID == payeeDID {
+			return intent, nil
+		}
+	}
+	return nil, repository.ErrNotFound
 }
 
 func (s *Service) executeMerchantInvocation(ctx context.Context, store repository.S4Store, request adapters.MerchantInvokeRequest) (*invocation.MerchantInvocation, adapters.MerchantInvokeResult, error, bool, error) {

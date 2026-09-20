@@ -248,6 +248,10 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	}
 	if rc, rcErr := store.GetRecoveryContextByEpisode(ctx, current.EpisodeID); rcErr == nil {
 		known := map[string]struct{}{set.FactsRef: {}, set.PayloadHash: {}, rc.FactsRef: {}, rc.PayloadHash: {}}
+		for _, candidate := range set.Candidates {
+			known[candidate.CatalogSnapshotRef] = struct{}{}
+			known[candidate.CatalogSnapshotHash] = struct{}{}
+		}
 		if evidenceStore, ok := s.store.(repository.EvidenceRepository); ok {
 			if records, listErr := evidenceStore.ListEvidenceRecords(ctx); listErr == nil {
 				for _, record := range records {
@@ -260,6 +264,18 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 					known[record.EvidenceRef] = struct{}{}
 					known[record.PayloadHash] = struct{}{}
 					known[record.ChunkHash] = struct{}{}
+				}
+			}
+		}
+		if validationStore, validationErr := s.s4Store(); validationErr == nil {
+			for _, validationID := range current.ValidationEvidenceRefs {
+				validation, getErr := validationStore.GetValidationEvidence(ctx, validationID)
+				if getErr != nil {
+					continue
+				}
+				known[validation.PayloadHash] = struct{}{}
+				for _, ref := range validation.EvidenceRefs {
+					known[ref] = struct{}{}
 				}
 			}
 		}

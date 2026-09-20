@@ -200,7 +200,7 @@ func TestS6HallucinatedTargetAndFakeEvidenceAreGuardRejected(t *testing.T) {
 		return []byte(fmt.Sprintf(`{"proposed_action":"SWITCH_MERCHANT","candidate_set_id":%q,"target":{"merchant_did":"did:merchant:hallucinated","capability_id":"transcription"},"evidence_refs":[%q,%q,"evidence://not-persisted"],"rationale":"hallucinated","confidence":0.8}`, set.CandidateSetID, rc.FactsRef, set.FactsRef))
 	})
 	before, _ := fixture.service.GetEpisode(context.Background(), fixture.current)
-	if _, _, err := fixture.service.ExecuteRecoveryDecision(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "merchant constraints"}); !errors.Is(err, decision.ErrUnknownEvidenceReference) {
+	if _, _, err := fixture.service.ExecuteRecoveryDecision(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "merchant constraints"}); !errors.Is(err, llm.ErrEvidenceOutsideContext) {
 		t.Fatalf("expected fake evidence rejection, got %v", err)
 	}
 	after, _ := fixture.service.GetEpisode(context.Background(), fixture.current)
@@ -237,5 +237,61 @@ func TestS6RuleFallbackIsExplicitAndTraced(t *testing.T) {
 	}
 	if _, err := store.GetModelDecisionTrace(context.Background(), result.Trace.TraceID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestS6ProposalEvidenceIsScopedToExactDecisionContext(t *testing.T) {
+	fixture := makeS6SwitchFixture(t, func(set *catalog.CandidateSet, rc *recovery.RecoveryContext, evidenceRef string) []byte {
+		value := switchBResponse(set, rc, evidenceRef)
+		var wire map[string]any
+		if err := json.Unmarshal(value, &wire); err != nil {
+			t.Fatal(err)
+		}
+		wire["evidence_refs"] = []string{"evidence://globally-persisted-a", rc.FactsRef, set.FactsRef}
+		value, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	})
+	globalOnly := evidence.NewRecord("globally-persisted-a", string(evidence.SourceMerchantConstraint), "merchant://a/constraints", "v1", evidence.HashString("merchant-a-v1"), "text/plain", "Persisted globally but not retrieved into this model context.", evidence.TrustMerchantDoc, fixture.now)
+	if err := fixture.store.SaveEvidenceRecord(context.Background(), globalOnly); err != nil {
+		t.Fatal(err)
+	}
+	before, err := fixture.service.GetEpisode(context.Background(), fixture.current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fixture.service.ExecuteRecoveryDecision(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "merchant B constraints"}); !errors.Is(err, llm.ErrEvidenceOutsideContext) {
+		t.Fatalf("expected context-scoped evidence rejection, got %v", err)
+	}
+	after, err := fixture.service.GetEpisode(context.Background(), fixture.current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != before.Version || after.State != before.State {
+		t.Fatalf("context evidence rejection changed episode: before=%#v after=%#v", before, after)
+	}
+}
+
+func TestS6RecoveryContextDoesNotExposeMerchantSelectionAction(t *testing.T) {
+	fixture := makeS6SwitchFixture(t, switchBResponse)
+	value, err := fixture.service.BuildDecisionContext(context.Background(), S6DecisionRequest{EpisodeID: fixture.current, Query: "merchant B constraints"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range value.AllowedActions {
+		if action == trace.ActionSelectMerchant {
+			t.Fatal("RECOVERING decision context exposed SELECT_MERCHANT")
+		}
+	}
+	expected := []trace.ActionType{trace.ActionAskParent, trace.ActionRediscover, trace.ActionRetrySameMerchant, trace.ActionStop, trace.ActionSwitchMerchant}
+	if len(value.AllowedActions) != len(expected) {
+		t.Fatalf("allowed actions=%v expected=%v", value.AllowedActions, expected)
+	}
+	for index, action := range expected {
+		if value.AllowedActions[index] != action {
+			t.Fatalf("allowed actions=%v expected=%v", value.AllowedActions, expected)
+		}
 	}
 }

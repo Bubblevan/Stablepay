@@ -206,6 +206,12 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 		} else {
 			traceValue.ResponseReceivedAt = p.clock().UTC()
 		}
+		if traceValue.ResponseReceivedAt.Before(started) {
+			// Keep persisted traces valid when an external provider or test
+			// fixture uses a clock behind the runtime clock. Proposal TTL still
+			// starts at started; this only normalizes trace metadata.
+			traceValue.ResponseReceivedAt = started
+		}
 		traceValue.InputTokens = response.Usage.InputTokens
 		traceValue.OutputTokens = response.Usage.OutputTokens
 		if response.Provider != "" {
@@ -227,6 +233,12 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 			traceValue.ErrorCode = errorCode(parseErr)
 			continue
 		}
+		if !actionAllowedByContext(input.AllowedActions, wire.ProposedAction) {
+			lastErr = fmt.Errorf("%w: action %s is not allowed by the decision context", ErrInvalidModelOutput, wire.ProposedAction)
+			traceValue.Status = TraceParseError
+			traceValue.ErrorCode = errorCode(lastErr)
+			continue
+		}
 		proposal, buildErr := p.authoritativeProposal(input, wire, started)
 		if buildErr != nil {
 			lastErr = buildErr
@@ -246,6 +258,15 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 		lastErr = ErrLLMUnavailable
 	}
 	return DecisionResult{Trace: traceValue}, lastErr
+}
+
+func actionAllowedByContext(allowed []trace.ActionType, action trace.ActionType) bool {
+	for _, candidate := range allowed {
+		if candidate == action {
+			return true
+		}
+	}
+	return false
 }
 
 type wireProposal struct {
@@ -282,7 +303,7 @@ func validateWireProposal(w wireProposal) error {
 		return fmt.Errorf("%w: action %s", ErrInvalidModelOutput, w.ProposedAction)
 	}
 	if len(w.EvidenceRefs) == 0 || len(w.EvidenceRefs) > 16 {
-		return fmt.Errorf("%w: evidence_refs", ErrInvalidModelOutput)
+		return fmt.Errorf("%w: evidence_refs count", ErrInvalidModelOutput)
 	}
 	seen := make(map[string]struct{}, len(w.EvidenceRefs))
 	for _, ref := range w.EvidenceRefs {
@@ -295,15 +316,15 @@ func validateWireProposal(w wireProposal) error {
 		seen[ref] = struct{}{}
 	}
 	if len(w.CandidateSetID) > 256 || len(w.Rationale) > 4096 || math.IsNaN(w.Confidence) || math.IsInf(w.Confidence, 0) || w.Confidence < 0 || w.Confidence > 1 {
-		return ErrInvalidModelOutput
+		return fmt.Errorf("%w: proposal bounds", ErrInvalidModelOutput)
 	}
 	requiresTarget := w.ProposedAction == trace.ActionSelectMerchant || w.ProposedAction == trace.ActionSwitchMerchant
 	if requiresTarget {
 		if strings.TrimSpace(w.CandidateSetID) == "" || w.Target == nil || strings.TrimSpace(w.Target.MerchantDID) == "" || strings.TrimSpace(w.Target.CapabilityID) == "" {
-			return ErrInvalidModelOutput
+			return fmt.Errorf("%w: selection target", ErrInvalidModelOutput)
 		}
 	} else if w.Target != nil {
-		return ErrInvalidModelOutput
+		return fmt.Errorf("%w: target must be null for %s", ErrInvalidModelOutput, w.ProposedAction)
 	}
 	if w.Target != nil {
 		for _, value := range []string{w.Target.MerchantDID, w.Target.CapabilityID, w.Target.CatalogVersion, w.Target.CatalogSnapshotHash, w.Target.CatalogSnapshotRef} {
@@ -363,7 +384,7 @@ func evidenceRefSyntax(ref string) bool {
 		}
 		return true
 	}
-	for _, prefix := range []string{"evidence://", "recovery://", "candidate-set://", "invocation://", "validation://", "parent-approval://", "parent-decision://", "budget-amendment://"} {
+	for _, prefix := range []string{"evidence://", "recovery://", "candidate-set://", "catalog://", "invocation://", "merchant-response://", "validation://", "parent-approval://", "parent-decision://", "budget-amendment://"} {
 		if strings.HasPrefix(ref, prefix) && len(ref) > len(prefix) {
 			return true
 		}

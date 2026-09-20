@@ -83,6 +83,8 @@ func (c RecoveryContext) Normalize() RecoveryContext {
 	c.CandidateSetID = strings.TrimSpace(c.CandidateSetID)
 	c.FactsRef = strings.TrimSpace(c.FactsRef)
 	c.PayloadHash = strings.ToLower(strings.TrimSpace(c.PayloadHash))
+	c.DeadlineAt = c.DeadlineAt.UTC().Round(time.Millisecond)
+	c.CreatedAt = c.CreatedAt.UTC().Round(time.Millisecond)
 	c.AttemptedMerchants = append([]string(nil), c.AttemptedMerchants...)
 	c.PaymentIntentIDs = append([]string(nil), c.PaymentIntentIDs...)
 	return c
@@ -208,6 +210,8 @@ func (r ParentApprovalRequest) Normalize() ParentApprovalRequest {
 	r.CandidateCapabilityID = strings.ToLower(strings.TrimSpace(r.CandidateCapabilityID))
 	r.FactsRef = strings.TrimSpace(r.FactsRef)
 	r.PayloadHash = strings.ToLower(strings.TrimSpace(r.PayloadHash))
+	r.ExpiresAt = r.ExpiresAt.UTC().Round(time.Millisecond)
+	r.CreatedAt = r.CreatedAt.UTC().Round(time.Millisecond)
 	return r
 }
 
@@ -292,6 +296,7 @@ func (d ParentDecisionFact) Normalize() ParentDecisionFact {
 	d.ActorRef = strings.TrimSpace(d.ActorRef)
 	d.FactsRef = strings.TrimSpace(d.FactsRef)
 	d.PayloadHash = strings.ToLower(strings.TrimSpace(d.PayloadHash))
+	d.OccurredAt = d.OccurredAt.UTC().Round(time.Millisecond)
 	return d
 }
 
@@ -361,6 +366,7 @@ func (b BudgetAmendment) Normalize() BudgetAmendment {
 	b.ApprovalRef = strings.TrimSpace(b.ApprovalRef)
 	b.FactsRef = strings.TrimSpace(b.FactsRef)
 	b.PayloadHash = strings.ToLower(strings.TrimSpace(b.PayloadHash))
+	b.OccurredAt = b.OccurredAt.UTC().Round(time.Millisecond)
 	return b
 }
 

@@ -156,10 +156,13 @@ func (c MerchantCapability) Normalize() MerchantCapability {
 	c.Source = strings.TrimSpace(c.Source)
 	c.SourceRef = strings.TrimSpace(c.SourceRef)
 	c.SourceHash = strings.ToLower(strings.TrimSpace(c.SourceHash))
-	c.ValidFrom = c.ValidFrom.UTC().Truncate(time.Nanosecond)
-	c.ValidUntil = c.ValidUntil.UTC().Truncate(time.Nanosecond)
-	c.CreatedAt = c.CreatedAt.UTC().Truncate(time.Nanosecond)
-	c.UpdatedAt = c.UpdatedAt.UTC().Truncate(time.Nanosecond)
+	// The durable MySQL schema stores catalog timestamps at millisecond
+	// precision and rounds values on write. Canonical snapshots must use the
+	// same rounding to remain stable after persistence and reload.
+	c.ValidFrom = c.ValidFrom.UTC().Round(time.Millisecond)
+	c.ValidUntil = c.ValidUntil.UTC().Round(time.Millisecond)
+	c.CreatedAt = c.CreatedAt.UTC().Round(time.Millisecond)
+	c.UpdatedAt = c.UpdatedAt.UTC().Round(time.Millisecond)
 	if c.PriceHintMinor != nil {
 		value := *c.PriceHintMinor
 		c.PriceHintMinor = &value
@@ -423,8 +426,11 @@ func (s CandidateSet) Normalize() CandidateSet {
 		s.Generation = 0
 	}
 	s.QueryHash = strings.ToLower(strings.TrimSpace(s.QueryHash))
-	s.GeneratedAt = s.GeneratedAt.UTC().Truncate(time.Nanosecond)
-	s.ExpiresAt = s.ExpiresAt.UTC().Truncate(time.Nanosecond)
+	// MySQL persists these facts at millisecond precision and rounds values on
+	// write. Canonical catalog facts use that durable rounding so payload hashes
+	// survive a DB roundtrip.
+	s.GeneratedAt = s.GeneratedAt.UTC().Round(time.Millisecond)
+	s.ExpiresAt = s.ExpiresAt.UTC().Round(time.Millisecond)
 	s.FactsRef = strings.TrimSpace(s.FactsRef)
 	s.PayloadHash = strings.ToLower(strings.TrimSpace(s.PayloadHash))
 	s.Candidates = append([]Candidate(nil), s.Candidates...)
@@ -435,8 +441,8 @@ func (s CandidateSet) Normalize() CandidateSet {
 		s.Candidates[i].CatalogVersion = strings.TrimSpace(s.Candidates[i].CatalogVersion)
 		s.Candidates[i].CatalogSnapshotHash = strings.ToLower(strings.TrimSpace(s.Candidates[i].CatalogSnapshotHash))
 		s.Candidates[i].CatalogSnapshotRef = strings.TrimSpace(s.Candidates[i].CatalogSnapshotRef)
-		s.Candidates[i].CatalogValidFrom = s.Candidates[i].CatalogValidFrom.UTC().Truncate(time.Nanosecond)
-		s.Candidates[i].CatalogValidUntil = s.Candidates[i].CatalogValidUntil.UTC().Truncate(time.Nanosecond)
+		s.Candidates[i].CatalogValidFrom = s.Candidates[i].CatalogValidFrom.UTC().Round(time.Millisecond)
+		s.Candidates[i].CatalogValidUntil = s.Candidates[i].CatalogValidUntil.UTC().Round(time.Millisecond)
 		s.Candidates[i].Eligibility.Reasons = append([]string(nil), s.Candidates[i].Eligibility.Reasons...)
 		if s.Candidates[i].RankFeatures.PriceHintMinor != nil {
 			value := *s.Candidates[i].RankFeatures.PriceHintMinor

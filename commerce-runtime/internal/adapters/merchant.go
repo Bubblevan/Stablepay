@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -196,12 +197,56 @@ func (a *HTTPMerchantAdapter) Invoke(ctx context.Context, request MerchantInvoke
 
 func selectedProtocolHeaders(headers http.Header) map[string]string {
 	result := make(map[string]string)
-	for _, name := range []string{"PAYMENT-REQUIRED", "Payment-Required", "PAYMENT-RESPONSE", "Content-Type", "Accept-Payment"} {
+	// HTTP header names are case-insensitive. The deployed Merchant currently
+	// emits both v2 PAYMENT-REQUIRED and legacy Payment-Required spellings, so
+	// Header.Get cannot safely select the v2 value. Prefer the value whose
+	// decoded payload explicitly declares x402Version=2.
+	if value := preferredPaymentRequired(headers); value != "" {
+		result["PAYMENT-REQUIRED"] = value
+	}
+	for _, name := range []string{"PAYMENT-RESPONSE", "Content-Type", "Accept-Payment"} {
 		if value := strings.TrimSpace(headers.Get(name)); value != "" {
 			result[name] = value
 		}
 	}
 	return result
+}
+
+func preferredPaymentRequired(headers http.Header) string {
+	values := headers.Values("PAYMENT-REQUIRED")
+	fallback := ""
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = value
+		}
+		decoded, ok := decodePaymentRequiredHeader(value)
+		if !ok {
+			continue
+		}
+		var top struct {
+			X402Version int `json:"x402Version"`
+		}
+		if json.Unmarshal(decoded, &top) == nil && top.X402Version == 2 {
+			return value
+		}
+	}
+	return fallback
+}
+
+func decodePaymentRequiredHeader(value string) ([]byte, bool) {
+	for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		if decoded, err := encoding.DecodeString(value); err == nil {
+			return decoded, true
+		}
+	}
+	if json.Valid([]byte(value)) {
+		return []byte(value), true
+	}
+	return nil, false
 }
 
 func (r MerchantInvokeResult) Validate() error {

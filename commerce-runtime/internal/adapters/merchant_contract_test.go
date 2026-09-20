@@ -62,6 +62,30 @@ func TestHTTPMerchantAdapterUsesExisting402AndPaidContract(t *testing.T) {
 	}
 }
 
+func TestHTTPMerchantAdapterPrefersV2WhenLegacyHeaderSharesCaseInsensitiveName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		resourceURL := "http://merchant.example/execute"
+		v2 := map[string]any{"x402Version": 2, "resource": map[string]any{"url": resourceURL}, "accepts": []any{map[string]any{"scheme": "exact", "network": "devnet", "amount": "3000000", "asset": "USDC", "payTo": "payee-1", "maxTimeoutSeconds": 300, "extra": map[string]any{"currency": "USDC"}}}}
+		v2Body, _ := json.Marshal(v2)
+		legacy := map[string]any{"x402Version": 1, "accepts": []any{map[string]any{"scheme": "exact", "network": "devnet", "maxAmountRequired": "3000000", "asset": "USDC", "payTo": "payee-1", "resource": resourceURL, "maxTimeoutSeconds": 300, "extra": map[string]any{"currency": "USDC"}}}}
+		legacyBody, _ := json.Marshal(legacy)
+		writer.Header().Add("PAYMENT-REQUIRED", base64.StdEncoding.EncodeToString(v2Body))
+		writer.Header().Add("Payment-Required", string(legacyBody))
+		writer.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer server.Close()
+
+	adapter := NewHTTPMerchantAdapter(server.Client())
+	result, err := adapter.Invoke(context.Background(), MerchantInvokeRequest{EpisodeID: "episode-v2-header", RequesterDID: "did:stablepay:agent", MerchantDID: "did:merchant:1", CapabilityID: "transcription", CatalogVersion: "v1", CatalogSnapshotHash: "sha256:catalog", CatalogSnapshotRef: "catalog://did:merchant:1/transcription/v1", Attempt: 1, Phase: invocation.PhaseInitial, TraceID: "trace-v2-header", IdempotencyKey: "invoke-v2-header", Endpoint: structEndpoint(server.URL)})
+	if err != nil {
+		t.Fatalf("invoke duplicate protocol headers: %v", err)
+	}
+	parsed, err := x402.ParseRequired(result.Headers, result.Body)
+	if err != nil || parsed.ProtocolVersion != "x402-v2" {
+		t.Fatalf("adapter did not retain v2 challenge: headers=%#v parsed=%#v err=%v", result.Headers, parsed, err)
+	}
+}
+
 func structEndpoint(value string) catalog.EndpointRef {
 	return catalog.EndpointRef{Endpoint: value, Method: http.MethodGet}
 }

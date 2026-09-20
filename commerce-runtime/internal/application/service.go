@@ -771,11 +771,27 @@ func (s *Service) knownProposalEvidence(ctx context.Context, current *episode.Co
 			refs[recoveryContext.PayloadHash] = struct{}{}
 		}
 	}
+	if store, err := s.s4Store(); err == nil {
+		for _, validationID := range current.ValidationEvidenceRefs {
+			validation, validationErr := store.GetValidationEvidence(ctx, validationID)
+			if validationErr != nil {
+				continue
+			}
+			refs[validation.PayloadHash] = struct{}{}
+			for _, ref := range validation.EvidenceRefs {
+				refs[ref] = struct{}{}
+			}
+		}
+	}
 	if strings.TrimSpace(proposal.CandidateSetID) != "" {
 		if store, err := s.discoveryStore(); err == nil {
 			if candidateSet, err := store.GetCandidateSet(ctx, proposal.CandidateSetID); err == nil && candidateSet.EpisodeID == current.EpisodeID && candidateSet.RequestID == current.RequestID {
 				refs[candidateSet.FactsRef] = struct{}{}
 				refs[candidateSet.PayloadHash] = struct{}{}
+				for _, candidate := range candidateSet.Candidates {
+					refs[candidate.CatalogSnapshotRef] = struct{}{}
+					refs[candidate.CatalogSnapshotHash] = struct{}{}
+				}
 			}
 		}
 	}
