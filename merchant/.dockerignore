@@ -1,0 +1,11 @@
+.git
+.local-run
+.gocache
+tmp
+*.log
+*.out
+*.test
+.env
+.env.*
+merchant-server
+merchant-server.exe
