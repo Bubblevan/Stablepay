@@ -16,6 +16,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/observability"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
+	"github.com/stablepay/commerce-runtime/internal/repository"
 )
 
 type Client struct {
@@ -187,6 +188,8 @@ type FaultInjectionStatus struct {
 	CaseID         string    `json:"case_id"`
 	Seed           int64     `json:"seed"`
 	Kind           string    `json:"kind"`
+	Trigger        string    `json:"trigger,omitempty"`
+	RatePercent    int       `json:"rate_percent"`
 	Configured     bool      `json:"configured"`
 	RequestCount   int       `json:"request_count"`
 	EligibleCount  int       `json:"eligible_count"`
@@ -329,9 +332,10 @@ func (c Client) poll(ctx context.Context, episodeID string, autoApprove bool, in
 			status = http.StatusOK
 			if err == nil {
 				var statusValue struct {
-					Episode        *episode.CommerceEpisode        `json:"episode"`
-					ParentApproval *recovery.ParentApprovalRequest `json:"parent_approval,omitempty"`
-					ParentDecision *recovery.ParentDecisionFact    `json:"parent_decision,omitempty"`
+					Episode        *episode.CommerceEpisode           `json:"episode"`
+					ParentApproval *recovery.ParentApprovalRequest    `json:"parent_approval,omitempty"`
+					ParentDecision *recovery.ParentDecisionFact       `json:"parent_decision,omitempty"`
+					Execution      *repository.EpisodeExecutionStatus `json:"execution,omitempty"`
 				}
 				if decodeErr := json.Unmarshal(body, &statusValue); decodeErr != nil {
 					err = decodeErr
@@ -339,6 +343,7 @@ func (c Client) poll(ctx context.Context, episodeID string, autoApprove bool, in
 					traceValue.Episode = statusValue.Episode
 					traceValue.ParentApproval = statusValue.ParentApproval
 					traceValue.ParentDecision = statusValue.ParentDecision
+					traceValue.Execution = statusValue.Execution
 				}
 			}
 		} else {
@@ -385,6 +390,18 @@ func (c Client) poll(ctx context.Context, episodeID string, autoApprove bool, in
 		// outcome even when the episode is non-terminal. Preserve its trace for
 		// grading instead of turning a guard rejection into a collection error.
 		if traceValue.Execution != nil && strings.EqualFold(string(traceValue.Execution.Status), "ERROR") {
+			if ingress == IngressCLI {
+				observabilityStatus, observabilityBody, observabilityErr := c.do(ctx, http.MethodGet, c.BaseURL+"/v1/episodes/"+episodeID+"/observability", "", nil)
+				if observabilityErr != nil {
+					return traceValue, polls, observabilityErr
+				}
+				if observabilityStatus < 200 || observabilityStatus >= 300 {
+					return traceValue, polls, fmt.Errorf("runtime observability returned HTTP %d: %s", observabilityStatus, safeBody(observabilityBody))
+				}
+				if decodeErr := json.Unmarshal(observabilityBody, &traceValue); decodeErr != nil {
+					return traceValue, polls, decodeErr
+				}
+			}
 			return traceValue, polls, nil
 		}
 		select {
@@ -494,11 +511,13 @@ func enrichResult(result *observability.EpisodeResult, scenario Scenario) {
 		result.TaskID = scenario.CaseID
 	}
 	result.TrialIndex = scenario.TrialIndex
+	result.TrialIsolationID = scenario.TrialIsolationID
 	result.ExpectedTerminal = scenario.ExpectedTerminal
 	result.ExpectedVariant = scenario.ExpectedVariant
 	result.ExpectedPaymentIntents = scenario.ExpectedPaymentIntents
 	result.ExpectedSettlementCount = scenario.ExpectedSettlementCount
 	result.ExpectedEntitlementTxID = scenario.ExpectedEntitlementTxID
+	result.ExpectedMemoryRetrieval = scenario.ExpectedMemoryRetrieval
 	result.RequirePayment = scenario.RequirePayment
 	result.RequireRecovery = scenario.RequireRecovery
 	result.MustNotCreateSecondPayment = scenario.MustNotCreateSecondPayment

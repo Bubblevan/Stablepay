@@ -28,7 +28,7 @@ type canonicalDecisionAttempt struct {
 }
 
 func Compute(results []EpisodeResult, now time.Time) Metrics {
-	metrics := Metrics{SchemaVersion: SchemaVersion, GeneratedAt: now.UTC(), FailureInjectionRecoverySteps: map[string]StepSummary{}, Evidence: EvidenceSummary{Modes: map[string]int{}, Environments: map[string]int{}, SensitiveFieldsOmitted: true}, ExperimentMatrix: ExperimentMatrix{MemoryMode: map[string]Cell{}, RecoveryProvider: map[string]Cell{}, FailureRate: map[string]Cell{}, Path: map[string]Cell{}}}
+	metrics := Metrics{SchemaVersion: SchemaVersion, GeneratedAt: now.UTC(), FailureInjectionRecoverySteps: map[string]StepSummary{}, Evidence: EvidenceSummary{Modes: map[string]int{}, Environments: map[string]int{}, SensitiveFieldsOmitted: true}, ExperimentMatrix: ExperimentMatrix{MemoryMode: map[string]Cell{}, RecoveryProvider: map[string]Cell{}, FailureRate: map[string]Cell{}, Path: map[string]Cell{}, RuntimeVariant: map[string]Cell{}}}
 	metrics.Evidence.SubmittedTrials = len(results)
 	for _, result := range results {
 		metrics.Evidence.Modes[result.Mode]++
@@ -65,7 +65,7 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 	metrics.BusinessPaymentResubmissionCount, metrics.PaymentExactRedeliveryCount = 0, 0
 	metrics.GuardStages = GuardStageMetrics{}
 	var llmLatencies, paymentLatencies, recoveryLatencies []float64
-	cellLatencies := map[string]map[string][]float64{"memory": {}, "provider": {}, "failure": {}, "path": {}}
+	cellLatencies := map[string]map[string][]float64{"memory": {}, "provider": {}, "failure": {}, "path": {}, "variant": {}}
 	validResults := make([]EpisodeResult, 0, len(results))
 	for _, result := range results {
 		if !ValidBenchmarkTrial(result) {
@@ -190,10 +190,17 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 				continue
 			}
 			metrics.LLMDecisionAttempts++
+			metrics.GuardStages.TransportFailureDenominator++
+			if attempt.outcome.Stage != trace.DecisionStageTransport {
+				metrics.GuardStages.ParseFailureDenominator++
+			}
+			if attempt.outcome.Stage == trace.DecisionStageContextEvidence || attempt.outcome.Stage == trace.DecisionStageContextMemory || attempt.outcome.Stage == trace.DecisionStageRuntimeGuard || attempt.outcome.Stage == trace.DecisionStageAccepted {
+				metrics.GuardStages.ContextValidationDenominator++
+			}
 			for _, key := range accumulatorKeys(result) {
 				if acc := accumulators[key]; acc != nil {
 					acc.llmAttempts++
-					if attempt.outcome.Stage != trace.DecisionStageTransport {
+					if attempt.outcome.Stage == trace.DecisionStageContextEvidence || attempt.outcome.Stage == trace.DecisionStageContextMemory || attempt.outcome.Stage == trace.DecisionStageRuntimeGuard || attempt.outcome.Stage == trace.DecisionStageAccepted {
 						acc.llmParsed++
 					}
 				}
@@ -201,11 +208,9 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 			switch attempt.outcome.Stage {
 			case trace.DecisionStageTransport:
 				metrics.LLMTransportFailures++
-				metrics.GuardStages.TransportFailureDenominator++
 			case trace.DecisionStageParseSchema:
 				metrics.LLMParseFailures++
 				metrics.GuardStages.ParseFailureNumerator++
-				metrics.GuardStages.ParseFailureDenominator++
 			case trace.DecisionStageContextEvidence:
 				metrics.ContextEvidenceRejections++
 			case trace.DecisionStageContextMemory:
@@ -223,7 +228,6 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 				}
 			}
 			if attempt.outcome.Stage == trace.DecisionStageContextEvidence || attempt.outcome.Stage == trace.DecisionStageContextMemory {
-				metrics.GuardStages.ContextValidationDenominator++
 				metrics.GuardStages.ContextValidationNumerator++
 			}
 			if attempt.outcome.ReachedRuntimeGuard {
@@ -311,22 +315,26 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 		updateCell(metrics.ExperimentMatrix.RecoveryProvider, cellLatencies["provider"], normalizedKey(result.Trace.RuntimeVariant.RecoveryProvider, normalizedKey(result.RecoveryProvider, "unknown")), result, success, businessRecovery)
 		updateCell(metrics.ExperimentMatrix.FailureRate, cellLatencies["failure"], failureRateKey(result.Failure.RatePercent), result, success, businessRecovery)
 		updateCell(metrics.ExperimentMatrix.Path, cellLatencies["path"], normalizedKey(result.Path, "unknown"), result, success, businessRecovery)
+		updateCell(metrics.ExperimentMatrix.RuntimeVariant, cellLatencies["variant"], runtimeVariantKey(result.Trace.RuntimeVariant), result, success, businessRecovery)
 	}
 	metrics.TaskSuccessRate = rateOrZero(metrics.SuccessfulEpisodes, len(validResults))
 	metrics.RecoverySuccessRate = rateOrZero(metrics.RecoverySuccesses, metrics.RecoveryEpisodes)
 	metrics.BusinessRecoverySuccessRate = metrics.RecoverySuccessRate
 	metrics.FaultRecoverySuccessRate = rateOrZero(metrics.FaultTaskRecovered, metrics.FaultTriggered)
 	metrics.PaymentRetryCount = metrics.BusinessPaymentResubmissionCount
-	metrics.LLMProposals = metrics.ContextEvidenceRejections + metrics.ContextMemoryRejections + metrics.RuntimeGuardRejections + metrics.AcceptedDecisions
+	metrics.GuardDecisions = metrics.GuardStages.RuntimeGuardRejectionDenominator
+	metrics.GuardRejections = metrics.GuardStages.RuntimeGuardRejectionNumerator
+	metrics.LLMParsedProposalAttempts = metrics.ContextEvidenceRejections + metrics.ContextMemoryRejections + metrics.RuntimeGuardRejections + metrics.AcceptedDecisions
+	metrics.LLMParsedProposalAccepted = metrics.AcceptedDecisions
+	metrics.LLMProposals = metrics.LLMParsedProposalAttempts
 	metrics.LLMAccepted = metrics.AcceptedDecisions
 	metrics.LLMProposalAcceptanceRate = rateOrZero(metrics.LLMAccepted, metrics.LLMProposals)
 	metrics.LLMParsedProposalAcceptanceRate = metrics.LLMProposalAcceptanceRate
 	metrics.LLMEndToEndDecisionSuccessRate = rateOrZero(metrics.AcceptedDecisions, metrics.LLMDecisionAttempts)
-	metrics.GuardDecisions = metrics.GuardStages.RuntimeGuardRejectionDenominator
-	metrics.GuardRejections = metrics.GuardStages.RuntimeGuardRejectionNumerator
 	metrics.GuardRejectionRate = rateOrZero(metrics.GuardRejections, metrics.GuardDecisions)
 	metrics.MemoryRetrievalHitRate = rateOrZero(metrics.MemoryRetrievalHits, metrics.MemoryRetrievalAttempts)
-	metrics.MemoryCitationRate = rateOrZero(metrics.MemoryCitationCount, metrics.MemoryRetrievalAttempts)
+	metrics.MemoryCitationRate = rateOrZero(metrics.MemoryCitationCount, metrics.MemoryRetrievalHits)
+	metrics.MemoryCitationDenominator = metrics.MemoryRetrievalHits
 	metrics.MemoryGuidedActions = metrics.MemoryCitedActions
 	metrics.MemoryGuidedActionSuccess = metrics.MemoryCitedActionsInSuccessfulEpisodes
 	metrics.EpisodeLatencyP50MS, metrics.EpisodeLatencyP95MS = percentilePair(extractAllLatencies(validResults))
@@ -497,20 +505,26 @@ func reliabilityMetrics(results []EpisodeResult) ReliabilityMetrics {
 		passed    bool
 	}
 	groups := map[string][]sample{}
-	seen := map[string]map[string]struct{}{}
+	seenIsolation := map[string]map[string]struct{}{}
+	seenRequest := map[string]map[string]struct{}{}
 	for _, result := range results {
-		if result.Mode != ModeLive || result.TrialIndex <= 0 || strings.TrimSpace(result.RequestID) == "" {
+		if result.Mode != ModeLive || result.TrialIndex <= 0 || strings.TrimSpace(result.RequestID) == "" || strings.TrimSpace(result.TrialIsolationID) == "" || strings.TrimSpace(result.CollectionError) != "" {
 			continue
 		}
 		variant := result.Trace.RuntimeVariant.WithHash()
 		key := strings.Join([]string{result.TaskID, result.Suite, result.Environment, variant.ConfigHash}, "\x00")
-		if seen[key] == nil {
-			seen[key] = map[string]struct{}{}
+		if seenIsolation[key] == nil {
+			seenIsolation[key] = map[string]struct{}{}
+			seenRequest[key] = map[string]struct{}{}
 		}
-		if _, exists := seen[key][result.RequestID]; exists {
+		if _, exists := seenIsolation[key][result.TrialIsolationID]; exists {
 			continue
 		}
-		seen[key][result.RequestID] = struct{}{}
+		if _, exists := seenRequest[key][result.RequestID]; exists {
+			continue
+		}
+		seenIsolation[key][result.TrialIsolationID] = struct{}{}
+		seenRequest[key][result.RequestID] = struct{}{}
 		grade := result.Grade
 		if len(grade.Assertions) == 0 {
 			grade = GradeEpisode(result)
@@ -612,6 +626,22 @@ func failureRateKey(value int) string {
 		value = 0
 	}
 	return fmt.Sprintf("%d%%", value)
+}
+
+func runtimeVariantKey(value RuntimeVariant) string {
+	value = value.WithHash().Normalize()
+	if value.RuntimeVersion == "" {
+		return "unknown"
+	}
+	prefix := strings.TrimPrefix(value.ConfigHash, "sha256:")
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	provider := value.RecoveryProvider
+	if provider == "llm" {
+		provider += "@" + value.ModelRef
+	}
+	return strings.Join([]string{provider, value.MemoryMode, prefix}, "@")
 }
 
 func nullableRate(numerator, denominator int) *float64 {

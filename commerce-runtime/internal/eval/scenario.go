@@ -35,10 +35,12 @@ type Scenario struct {
 	Environment                string                         `json:"environment,omitempty"`
 	TaskID                     string                         `json:"task_id,omitempty"`
 	TrialIndex                 int                            `json:"trial_index,omitempty"`
+	TrialIsolationID           string                         `json:"trial_isolation_id,omitempty"`
 	ExpectedTerminal           string                         `json:"expected_terminal,omitempty"`
 	ExpectedPaymentIntents     *int                           `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int                           `json:"expected_settlement_count,omitempty"`
 	ExpectedEntitlementTxID    string                         `json:"expected_entitlement_tx_id,omitempty"`
+	ExpectedMemoryRetrieval    string                         `json:"expected_memory_retrieval,omitempty"`
 	RequirePayment             bool                           `json:"require_payment,omitempty"`
 	RequireRecovery            bool                           `json:"require_recovery,omitempty"`
 	MustNotCreateSecondPayment bool                           `json:"must_not_create_second_payment,omitempty"`

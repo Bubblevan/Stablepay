@@ -21,6 +21,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/api"
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/eval"
 	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/observability"
@@ -116,20 +117,32 @@ func localIDGenerator() func(string) string {
 
 func seedCatalog(ctx context.Context, store *repository.InMemoryStore) error {
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	price := int64(1000000)
-	value := catalog.MerchantCapability{MerchantDID: "did:merchant:local", CapabilityID: "local-capability", PayeeDID: "did:payee:local", Name: "StablePay local capability", Description: "Deterministic live-local capability", TaskTypes: []string{"local-eval"}, SemanticTags: []string{"local", "eval"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: "http://local.invalid/commerce", Method: "GET"}, InputSchemaRef: "schema://local/input", OutputSchemaRef: "schema://local/output", InputContentTypes: []string{"text/plain"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v1"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1", Source: "s11-live-local", SourceRef: "s11-live-local:catalog", ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
-	hash, err := value.SnapshotHash()
-	if err != nil {
-		return err
+	fixtures := []struct {
+		merchant, capability, taskType, name string
+	}{
+		{"did:merchant:local", "local-capability", "local-eval", "StablePay local capability"},
+		{"did:merchant:local-hit", "local-capability-hit", "local-eval-memory-hit", "StablePay memory-hit capability"},
+		{"did:merchant:local-miss", "local-capability-miss", "local-eval-memory-miss", "StablePay memory-miss capability"},
 	}
-	value.SourceHash = hash
-	return store.SaveCapabilityVersion(ctx, &value)
+	for _, fixture := range fixtures {
+		price := int64(1000000)
+		value := catalog.MerchantCapability{MerchantDID: fixture.merchant, CapabilityID: fixture.capability, PayeeDID: "did:payee:local", Name: fixture.name, Description: "Deterministic live-local capability", TaskTypes: []string{fixture.taskType}, SemanticTags: []string{"local", "eval"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: "http://local.invalid/commerce/" + fixture.capability, Method: "GET"}, InputSchemaRef: "schema://local/input", OutputSchemaRef: "schema://local/output", InputContentTypes: []string{"text/plain"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v1"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1", Source: "s11-live-local", SourceRef: "s11-live-local:" + fixture.capability, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
+		hash, err := value.SnapshotHash()
+		if err != nil {
+			return err
+		}
+		value.SourceHash = hash
+		if err := store.SaveCapabilityVersion(ctx, &value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func seedMemory(ctx context.Context, store *repository.InMemoryStore) error {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	expires := now.Add(24 * time.Hour)
-	value, err := store.GetCurrentActiveCapability(ctx, "did:merchant:local", "local-capability")
+	value, err := store.GetCurrentActiveCapability(ctx, "did:merchant:local-hit", "local-capability-hit")
 	if err != nil {
 		return err
 	}
@@ -137,7 +150,7 @@ func seedMemory(ctx context.Context, store *repository.InMemoryStore) error {
 	if err != nil {
 		return err
 	}
-	record := &memory.MemoryRecord{MemoryID: "s11-live-local-memory", Type: memory.MemoryCapabilityOutcome, Scope: memory.ScopeMerchantCapability, MerchantDID: "did:merchant:local", CapabilityID: "local-capability", CatalogVersion: "v1", CatalogSnapshotHash: snapshotHash, CatalogSnapshotRef: value.SnapshotRef(), Summary: "local seeded recovery history", StructuredFacts: memory.OutcomeFacts{AttemptCount: 2, FulfilledCount: 2, DeliveryValidCount: 2, RecoverySuccessCount: 2, LastOutcome: "DELIVERY_VALID", LastOutcomeAt: now}, SourceEpisodeIDs: []string{"seeded-history"}, SourceEventRefs: []string{"seeded-history:event"}, ObservationCount: 1, Confidence: 0.8, FirstObservedAt: now, LastObservedAt: now, ValidFrom: now, ValidUntil: &expires, CreatedAt: now, UpdatedAt: now, FactsRef: "memory://s11-live-local-memory"}
+	record := &memory.MemoryRecord{MemoryID: "s11-live-local-memory-hit", Type: memory.MemoryCapabilityOutcome, Scope: memory.ScopeMerchantCapability, MerchantDID: "did:merchant:local-hit", CapabilityID: "local-capability-hit", CatalogVersion: "v1", CatalogSnapshotHash: snapshotHash, CatalogSnapshotRef: value.SnapshotRef(), Summary: "local seeded recovery history", StructuredFacts: memory.OutcomeFacts{AttemptCount: 2, FulfilledCount: 2, DeliveryValidCount: 2, RecoverySuccessCount: 2, LastOutcome: "DELIVERY_VALID", LastOutcomeAt: now}, SourceEpisodeIDs: []string{"seeded-history"}, SourceEventRefs: []string{"seeded-history:event"}, ObservationCount: 1, Confidence: 0.8, FirstObservedAt: now, LastObservedAt: now, ValidFrom: now, ValidUntil: &expires, CreatedAt: now, UpdatedAt: now, FactsRef: "memory://s11-live-local-memory-hit"}
 	if err := record.RefreshPayloadHash(); err != nil {
 		return err
 	}
@@ -160,6 +173,7 @@ type faultController struct {
 	Seed           int64     `json:"seed"`
 	Kind           string    `json:"kind"`
 	Trigger        string    `json:"trigger,omitempty"`
+	RatePercent    int       `json:"rate_percent"`
 	Configured     bool      `json:"configured"`
 	RequestCount   int       `json:"request_count"`
 	EligibleCount  int       `json:"eligible_count"`
@@ -174,6 +188,7 @@ type faultStatus struct {
 	Seed           int64     `json:"seed"`
 	Kind           string    `json:"kind"`
 	Trigger        string    `json:"trigger,omitempty"`
+	RatePercent    int       `json:"rate_percent"`
 	Configured     bool      `json:"configured"`
 	RequestCount   int       `json:"request_count"`
 	EligibleCount  int       `json:"eligible_count"`
@@ -185,16 +200,7 @@ type faultStatus struct {
 func (f *faultController) status() faultStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return faultStatus{CaseID: f.CaseID, Seed: f.Seed, Kind: f.Kind, Trigger: f.Trigger, Configured: f.Configured, RequestCount: f.RequestCount, EligibleCount: f.EligibleCount, InjectionCount: f.InjectionCount, LastInjectedAt: f.LastInjectedAt, Evidence: f.Evidence}
-}
-
-func (f *faultController) hasTrigger(trigger string) bool {
-	if f == nil {
-		return false
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.Configured && f.Trigger == trigger
+	return faultStatus{CaseID: f.CaseID, Seed: f.Seed, Kind: f.Kind, Trigger: f.Trigger, RatePercent: f.RatePercent, Configured: f.Configured, RequestCount: f.RequestCount, EligibleCount: f.EligibleCount, InjectionCount: f.InjectionCount, LastInjectedAt: f.LastInjectedAt, Evidence: f.Evidence}
 }
 
 func (f *faultController) Wrap(next http.Handler) http.Handler {
@@ -204,9 +210,10 @@ func (f *faultController) Wrap(next http.Handler) http.Handler {
 				CaseID  string `json:"case_id"`
 				Seed    int64  `json:"seed"`
 				Failure struct {
-					Kind    string `json:"kind"`
-					Repeat  int    `json:"repeat"`
-					Trigger string `json:"trigger"`
+					Kind        string `json:"kind"`
+					RatePercent int    `json:"rate_percent"`
+					Repeat      int    `json:"repeat"`
+					Trigger     string `json:"trigger"`
 				} `json:"failure"`
 			}
 			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
@@ -214,7 +221,7 @@ func (f *faultController) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			f.mu.Lock()
-			f.CaseID, f.Seed, f.Kind, f.Trigger, f.Repeat = payload.CaseID, payload.Seed, payload.Failure.Kind, payload.Failure.Trigger, payload.Failure.Repeat
+			f.CaseID, f.Seed, f.Kind, f.Trigger, f.RatePercent, f.Repeat = payload.CaseID, payload.Seed, payload.Failure.Kind, payload.Failure.Trigger, payload.Failure.RatePercent, payload.Failure.Repeat
 			f.Configured, f.RequestCount, f.EligibleCount, f.InjectionCount = true, 0, 0, 0
 			f.LastInjectedAt = time.Time{}
 			f.Evidence = "live-local deterministic fault controller"
@@ -236,7 +243,7 @@ func (f *faultController) Observe(kind string, eligible bool) bool {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.Kind != kind || !f.Configured {
+	if !f.Configured || (f.Kind != kind && f.Trigger != kind) {
 		return false
 	}
 	f.RequestCount++
@@ -247,6 +254,9 @@ func (f *faultController) Observe(kind string, eligible bool) bool {
 			limit = 1
 		}
 		if f.InjectionCount < limit {
+			if f.RatePercent <= 0 || !eval.InjectAt(f.Seed, f.CaseID, kind, f.EligibleCount, f.RatePercent) {
+				return false
+			}
 			f.InjectionCount++
 			f.LastInjectedAt = time.Now().UTC()
 			return true
@@ -267,8 +277,7 @@ func (m *localMerchant) Invoke(_ context.Context, request adapters.MerchantInvok
 	call := m.calls[request.EpisodeID]
 	m.mu.Unlock()
 	now := time.Now().UTC()
-	if request.Phase == "INITIAL" && strings.Contains(request.InputRef, "merchant-transient") && call <= 2 {
-		m.fault.Observe("merchant_transient", true)
+	if request.Phase == "INITIAL" && strings.Contains(request.InputRef, "merchant-transient") && call <= 2 && m.fault.Observe("merchant_transient", true) {
 		return adapters.MerchantInvokeResult{HTTPStatus: 599, ContentType: "application/problem+json", Body: []byte(`{"error":"transient local merchant"}`), OccurredAt: now, PayloadHash: "sha256:" + hashHex([]byte("transient")), PayloadRef: "merchant-response://transient"}, errors.New("local merchant temporarily unavailable")
 	}
 	if request.Phase == "INITIAL" {
@@ -330,8 +339,9 @@ func (c *localDecisionClient) GenerateDecision(_ context.Context, request llm.LL
 	c.calls[episodeID]++
 	count := c.calls[episodeID]
 	c.mu.Unlock()
-	injectedGuardCase := c.fault != nil && (c.fault.hasTrigger("adversarial_guard") || c.fault.Observe("llm_malformed", true))
-	if (injectedGuardCase || strings.Contains(request.Prompt.User, "guard-rejected")) && count == 1 {
+	injectedGuardCase := c.fault != nil && c.fault.Observe("adversarial_guard", true)
+	injectedMalformed := c.fault != nil && c.fault.Observe("llm_malformed", true)
+	if injectedGuardCase && count == 1 {
 		candidateSet := firstCapture(request.Prompt.User, `"candidate_set_id":"([^"]+)"`)
 		version := firstCapture(request.Prompt.User, `"catalog_version":"([^"]+)"`)
 		hash := firstCapture(request.Prompt.User, `"catalog_snapshot_hash":"(sha256:[a-fA-F0-9]+)"`)
@@ -341,7 +351,12 @@ func (c *localDecisionClient) GenerateDecision(_ context.Context, request llm.LL
 		body := fmt.Sprintf(`{"proposed_action":"SWITCH_MERCHANT","candidate_set_id":%q,"target":{"merchant_did":"did:merchant:evil","capability_id":%q,"catalog_version":%q,"catalog_snapshot_hash":%q,"catalog_snapshot_ref":%q},"evidence_refs":[%q],"rationale":"adversarial local proposal","confidence":0.9}`, candidateSet, capability, version, hash, ref, evidence)
 		return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(body), ResponseReceivedAt: time.Now().UTC()}, nil
 	}
-	return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(`{"malformed":true}`), ResponseReceivedAt: time.Now().UTC()}, nil
+	if injectedMalformed && count == 1 {
+		return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(`{"malformed":true}`), ResponseReceivedAt: time.Now().UTC()}, nil
+	}
+	evidence := firstCapture(request.Prompt.User, `(recovery://[^"[:space:]]+)`)
+	body := fmt.Sprintf(`{"proposed_action":"RETRY_SAME_MERCHANT","evidence_refs":[%q],"rationale":"deterministic local retry","confidence":0.8}`, evidence)
+	return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(body), ResponseReceivedAt: time.Now().UTC()}, nil
 }
 
 var capturePatternCache sync.Map

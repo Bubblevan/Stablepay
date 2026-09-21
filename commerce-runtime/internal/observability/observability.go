@@ -103,11 +103,13 @@ type EpisodeResult struct {
 	Environment                string           `json:"environment,omitempty"`
 	TaskID                     string           `json:"task_id,omitempty"`
 	TrialIndex                 int              `json:"trial_index,omitempty"`
+	TrialIsolationID           string           `json:"trial_isolation_id,omitempty"`
 	ExpectedTerminal           string           `json:"expected_terminal,omitempty"`
 	ExpectedVariant            RuntimeVariant   `json:"expected_variant,omitempty"`
 	ExpectedPaymentIntents     *int             `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int             `json:"expected_settlement_count,omitempty"`
 	ExpectedEntitlementTxID    string           `json:"expected_entitlement_tx_id,omitempty"`
+	ExpectedMemoryRetrieval    string           `json:"expected_memory_retrieval,omitempty"`
 	RequirePayment             bool             `json:"require_payment,omitempty"`
 	RequireRecovery            bool             `json:"require_recovery,omitempty"`
 	MustNotCreateSecondPayment bool             `json:"must_not_create_second_payment,omitempty"`
@@ -258,6 +260,8 @@ type Metrics struct {
 	LLMDecisionAttempts                    int                      `json:"llm_decision_attempts"`
 	LLMTransportFailures                   int                      `json:"llm_transport_failures"`
 	LLMParseFailures                       int                      `json:"llm_parse_failures"`
+	LLMParsedProposalAttempts              int                      `json:"llm_parsed_proposal_attempts"`
+	LLMParsedProposalAccepted              int                      `json:"llm_parsed_proposal_accepted"`
 	ContextEvidenceRejections              int                      `json:"context_evidence_rejections"`
 	ContextMemoryRejections                int                      `json:"context_memory_rejections"`
 	RuntimeGuardRejections                 int                      `json:"runtime_guard_rejections"`
@@ -273,6 +277,7 @@ type Metrics struct {
 	MemoryRetrievalHits                    int                      `json:"memory_retrieval_hits"`
 	MemoryRetrievalHitRate                 float64                  `json:"memory_retrieval_hit_rate"`
 	MemoryCitationCount                    int                      `json:"memory_citation_count"`
+	MemoryCitationDenominator              int                      `json:"memory_citation_denominator"`
 	MemoryCitationRate                     float64                  `json:"memory_citation_rate"`
 	MemoryGuidedActions                    int                      `json:"-"` // deprecated; use MemoryCitedActions.
 	MemoryGuidedActionSuccess              int                      `json:"-"` // deprecated descriptive alias.
@@ -331,6 +336,7 @@ type ExperimentMatrix struct {
 	RecoveryProvider map[string]Cell `json:"recovery_provider"`
 	FailureRate      map[string]Cell `json:"failure_rate"`
 	Path             map[string]Cell `json:"path"`
+	RuntimeVariant   map[string]Cell `json:"runtime_variant"`
 }
 
 type Cell struct {
@@ -345,7 +351,7 @@ type Cell struct {
 }
 
 func computeLegacy(results []EpisodeResult, now time.Time) Metrics {
-	metrics := Metrics{SchemaVersion: SchemaVersion, GeneratedAt: now.UTC(), FailureInjectionRecoverySteps: map[string]StepSummary{}, Evidence: EvidenceSummary{Modes: map[string]int{}, SensitiveFieldsOmitted: true}, ExperimentMatrix: ExperimentMatrix{MemoryMode: map[string]Cell{}, RecoveryProvider: map[string]Cell{}, FailureRate: map[string]Cell{}, Path: map[string]Cell{}}}
+	metrics := Metrics{SchemaVersion: SchemaVersion, GeneratedAt: now.UTC(), FailureInjectionRecoverySteps: map[string]StepSummary{}, Evidence: EvidenceSummary{Modes: map[string]int{}, SensitiveFieldsOmitted: true}, ExperimentMatrix: ExperimentMatrix{MemoryMode: map[string]Cell{}, RecoveryProvider: map[string]Cell{}, FailureRate: map[string]Cell{}, Path: map[string]Cell{}, RuntimeVariant: map[string]Cell{}}}
 	var episodeLatencies, llmLatencies, paymentLatencies, recoveryLatencies []float64
 	stepValues := map[string][]float64{}
 	stepRecovered := map[string]int{}
@@ -492,6 +498,7 @@ func computeLegacy(results []EpisodeResult, now time.Time) Metrics {
 	metrics.LLMProposalAcceptanceRate = ratio(metrics.LLMAccepted, metrics.LLMProposals)
 	metrics.GuardRejectionRate = ratio(metrics.GuardRejections, metrics.GuardDecisions)
 	metrics.MemoryRetrievalHitRate = ratio(metrics.MemoryRetrievalHits, metrics.MemoryRetrievalAttempts)
+	metrics.MemoryCitationDenominator = metrics.MemoryRetrievalHits
 	metrics.MemoryCitationRate = ratio(metrics.MemoryCitationCount, metrics.MemoryRetrievalHits)
 	metrics.EpisodeLatencyP50MS, metrics.EpisodeLatencyP95MS = percentilePair(episodeLatencies)
 	metrics.LLMLatencyP50MS, metrics.LLMLatencyP95MS = percentilePair(llmLatencies)

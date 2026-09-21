@@ -86,10 +86,10 @@ func TestIntegritySeparatesParserContextAndRuntimeGuard(t *testing.T) {
 	unsafe.Trace.DecisionOutcomeTraces = []*trace.DecisionOutcomeTrace{outcome("unsafe", trace.DecisionStageRuntimeGuard, true, false, zero, unsafeAfter)}
 
 	metrics := Compute([]EpisodeResult{parse, context, guard, unsafe}, now)
-	if metrics.GuardStages.ParseFailureNumerator != 1 || metrics.GuardStages.ParseFailureDenominator != 1 {
+	if metrics.GuardStages.ParseFailureNumerator != 1 || metrics.GuardStages.ParseFailureDenominator != 4 {
 		t.Fatalf("parse stage was not isolated: %#v", metrics.GuardStages)
 	}
-	if metrics.GuardStages.ContextValidationNumerator != 1 || metrics.GuardStages.ContextValidationDenominator != 1 {
+	if metrics.GuardStages.ContextValidationNumerator != 1 || metrics.GuardStages.ContextValidationDenominator != 3 {
 		t.Fatalf("context stage was not isolated: %#v", metrics.GuardStages)
 	}
 	if metrics.GuardStages.RuntimeGuardRejectionNumerator != 2 || metrics.GuardStages.RuntimeGuardRejectionDenominator != 2 {
@@ -111,6 +111,50 @@ func TestIntegrityUsesRetrievalAttemptForMemoryDenominator(t *testing.T) {
 	}
 	if metrics.Headline[ModeReplay].MemoryRetrievalHitDenominator != 1 || metrics.Headline[ModeReplay].MemoryRetrievalHitNumerator != 0 {
 		t.Fatalf("mode-scoped memory metrics were not counted: %#v", metrics.Headline[ModeReplay])
+	}
+}
+
+func TestStageDenominatorsUseCanonicalAttemptUniverse(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	result := benchmarkResult("stage-denominators", ModeReplay)
+	stages := []trace.DecisionStage{
+		trace.DecisionStageTransport,
+		trace.DecisionStageParseSchema,
+		trace.DecisionStageContextEvidence,
+		trace.DecisionStageContextMemory,
+		trace.DecisionStageRuntimeGuard,
+		trace.DecisionStageAccepted,
+		trace.DecisionStageAccepted,
+		trace.DecisionStageAccepted,
+		trace.DecisionStageAccepted,
+		trace.DecisionStageAccepted,
+	}
+	for index, stage := range stages {
+		modelID := fmt.Sprintf("stage-model-%d", index)
+		proposalID := fmt.Sprintf("stage-proposal-%d", index)
+		attemptID := trace.DecisionAttemptIDFor(result.Trace.Episode.EpisodeID, modelID, proposalID)
+		status := llm.TraceSuccess
+		if stage == trace.DecisionStageTransport {
+			status = llm.TraceTransportError
+		}
+		result.Trace.ModelDecisionTraces = append(result.Trace.ModelDecisionTraces, &llm.ModelDecisionTrace{TraceID: modelID, DecisionAttemptID: attemptID, EpisodeID: result.Trace.Episode.EpisodeID, Provider: "deepseek", ModelRef: "deepseek-chat", ContextHash: "sha256:context", RequestStartedAt: now, ResponseReceivedAt: now.Add(time.Millisecond), Status: status})
+		result.Trace.DecisionOutcomeTraces = append(result.Trace.DecisionOutcomeTraces, &trace.DecisionOutcomeTrace{DecisionOutcomeTraceID: fmt.Sprintf("stage-outcome-%d", index), DecisionAttemptID: attemptID, EpisodeID: result.Trace.Episode.EpisodeID, ModelDecisionTraceID: modelID, ProposalID: proposalID, ProposedAction: "RETRY_SAME_MERCHANT", Stage: stage, ReachedRuntimeGuard: stage == trace.DecisionStageRuntimeGuard || stage == trace.DecisionStageAccepted, GuardAccepted: stage == trace.DecisionStageAccepted, CreatedAt: now.Add(time.Duration(index) * time.Millisecond), FactsRef: fmt.Sprintf("decision-outcome-trace://stage-outcome-%d", index)})
+	}
+	metrics := Compute([]EpisodeResult{result}, now)
+	if metrics.GuardStages.TransportFailureNumerator != 1 || metrics.GuardStages.TransportFailureDenominator != 10 || metrics.GuardStages.TransportFailureRate == nil || *metrics.GuardStages.TransportFailureRate != 0.1 {
+		t.Fatalf("transport denominator is not canonical attempts: %#v", metrics.GuardStages)
+	}
+	if metrics.GuardStages.ParseFailureNumerator != 1 || metrics.GuardStages.ParseFailureDenominator != 9 || metrics.GuardStages.ParseFailureRate == nil || *metrics.GuardStages.ParseFailureRate != 1.0/9.0 {
+		t.Fatalf("parse denominator is not non-transport attempts: %#v", metrics.GuardStages)
+	}
+	if metrics.GuardStages.ContextValidationNumerator != 2 || metrics.GuardStages.ContextValidationDenominator != 8 || metrics.GuardStages.ContextValidationRejectionRate == nil || *metrics.GuardStages.ContextValidationRejectionRate != 0.25 {
+		t.Fatalf("context denominator is not post-parse stages: %#v", metrics.GuardStages)
+	}
+	if metrics.GuardStages.RuntimeGuardRejectionNumerator != 1 || metrics.GuardStages.RuntimeGuardRejectionDenominator != 6 || metrics.GuardStages.RuntimeGuardRejectionRate == nil || *metrics.GuardStages.RuntimeGuardRejectionRate != 1.0/6.0 {
+		t.Fatalf("guard denominator is not reached-guard proposals: %#v", metrics.GuardStages)
+	}
+	if metrics.LLMParsedProposalAttempts != 8 || metrics.LLMParsedProposalAccepted != 5 || metrics.LLMParsedProposalAcceptanceRate != 5.0/8.0 {
+		t.Fatalf("parsed proposal metrics are wrong: %#v", metrics)
 	}
 }
 
@@ -166,6 +210,20 @@ func TestRequiredEconomicGradersAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestExactRedeliveryMustMatchInitialIdentity(t *testing.T) {
+	result := benchmarkResult("redelivery", ModeReplay)
+	result.Trace.PaymentTransportTraces = []*payment.PaymentTransportTrace{
+		{PaymentIntentID: "pi-1", Kind: "INITIAL_SUBMIT", IdempotencyKey: "idem-1", RequestFingerprint: "fp-1"},
+		{PaymentIntentID: "pi-2", Kind: "EXACT_REDELIVERY", IdempotencyKey: "idem-1", RequestFingerprint: "fp-1"},
+	}
+	grade := GradeEpisode(result)
+	for _, assertion := range grade.Assertions {
+		if assertion.Name == "exact_redelivery_identity" && assertion.Passed {
+			t.Fatalf("redelivery with a different intent passed: %#v", assertion)
+		}
+	}
+}
+
 func TestArtifactBodyIsOptInForExternalTrace(t *testing.T) {
 	artifact := &invocation.DeliveryArtifact{Body: []byte("private artifact body")}
 	redacted := newArtifactSnapshot(artifact, false)
@@ -217,6 +275,7 @@ func TestReliabilityPassKIsLiveOnlyAndAggregated(t *testing.T) {
 		result.Environment = "local"
 		result.TaskID = "happy"
 		result.TrialIndex = index
+		result.TrialIsolationID = fmt.Sprintf("runtime-%d", index)
 		result.RequestID = fmt.Sprintf("request-%d", index)
 		results = append(results, result)
 	}

@@ -73,6 +73,12 @@ func GradeEpisode(result EpisodeResult) GradeResult {
 		recovered := isRecovery(result.Trace)
 		assertions = append(assertions, GradeAssertion{Name: "must_enter_recovery", Required: true, Passed: recovered, Expected: "true", Observed: fmt.Sprint(recovered)})
 	}
+	if expectedMemory := strings.ToLower(strings.TrimSpace(result.ExpectedMemoryRetrieval)); expectedMemory == "hit" || expectedMemory == "miss" {
+		attempted, retrieved := memoryRetrievalEvidence(result.Trace)
+		passed := attempted && ((expectedMemory == "hit" && retrieved > 0) || (expectedMemory == "miss" && retrieved == 0))
+		observed := fmt.Sprintf("attempted=%t retrieved_refs=%d", attempted, retrieved)
+		assertions = append(assertions, GradeAssertion{Name: "expected_memory_retrieval", Required: true, Passed: passed, Expected: expectedMemory, Observed: observed})
+	}
 	if result.MustNotCreateSecondPayment {
 		observed := len(result.Trace.PaymentIntents)
 		assertions = append(assertions, GradeAssertion{Name: "must_not_create_second_payment", Required: true, Passed: observed <= 1, Expected: "<=1", Observed: fmt.Sprint(observed)})
@@ -85,6 +91,19 @@ func GradeEpisode(result EpisodeResult) GradeResult {
 		}
 	}
 	return GradeResult{Passed: passed, Assertions: assertions}
+}
+
+func memoryRetrievalEvidence(value EpisodeTrace) (bool, int) {
+	attempted := false
+	retrieved := 0
+	for _, traceValue := range value.MemoryUseTraces {
+		if traceValue == nil || !traceValue.RetrievalAttempted {
+			continue
+		}
+		attempted = true
+		retrieved += len(traceValue.RetrievedMemoryRefs)
+	}
+	return attempted, retrieved
 }
 
 func ValidBenchmarkTrial(result EpisodeResult) bool {
@@ -229,23 +248,37 @@ func entitlementTxID(ref string) (string, bool) {
 }
 
 func exactRedeliveryIdentity(traces []*payment.PaymentTransportTrace) (bool, string) {
-	var baseline *payment.PaymentTransportTrace
-	count := 0
+	initials := make([]*payment.PaymentTransportTrace, 0)
+	redeliveries := make([]*payment.PaymentTransportTrace, 0)
 	for _, value := range traces {
-		if value == nil || value.Kind != "EXACT_REDELIVERY" {
+		if value == nil {
 			continue
 		}
-		count++
-		if baseline == nil {
-			baseline = value
-			continue
+		if value.Kind == "INITIAL_SUBMIT" {
+			initials = append(initials, value)
 		}
-		if value.PaymentIntentID != baseline.PaymentIntentID || value.IdempotencyKey != baseline.IdempotencyKey || value.RequestFingerprint != baseline.RequestFingerprint {
-			return false, "identity_mismatch"
+		if value.Kind == "EXACT_REDELIVERY" {
+			redeliveries = append(redeliveries, value)
 		}
 	}
-	if count == 0 {
+	for _, value := range redeliveries {
+		matched := false
+		for _, initial := range initials {
+			if value.PaymentIntentID == initial.PaymentIntentID && value.IdempotencyKey == initial.IdempotencyKey && value.RequestFingerprint == initial.RequestFingerprint {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false, "redelivery_vs_initial_identity_mismatch"
+		}
+	}
+	if len(redeliveries) == 0 {
 		return true, "not_applicable"
 	}
-	return true, fmt.Sprintf("exact_redeliveries=%d identity=%s", count, baseline.PaymentIntentID)
+	identity := "unknown"
+	if len(initials) > 0 {
+		identity = initials[0].PaymentIntentID
+	}
+	return true, fmt.Sprintf("exact_redeliveries=%d identity=%s", len(redeliveries), identity)
 }

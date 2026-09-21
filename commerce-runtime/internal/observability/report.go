@@ -53,13 +53,13 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 
 	out.WriteString("\n## RuntimeGuard and parser/context stages\n\n")
 	out.WriteString(fmt.Sprintf("- `LLMTransportFailureRate`: %s\n- `LLMParseFailureRate`: %s\n- `ContextValidationRejectionRate`: %s\n- `RuntimeGuardRejectionRate`: %s\n\n", rateText(metrics.GuardStages.TransportFailureRate, metrics.GuardStages.TransportFailureNumerator, metrics.GuardStages.TransportFailureDenominator), rateText(metrics.GuardStages.ParseFailureRate, metrics.GuardStages.ParseFailureNumerator, metrics.GuardStages.ParseFailureDenominator), rateText(metrics.GuardStages.ContextValidationRejectionRate, metrics.GuardStages.ContextValidationNumerator, metrics.GuardStages.ContextValidationDenominator), rateText(metrics.GuardStages.RuntimeGuardRejectionRate, metrics.GuardStages.RuntimeGuardRejectionNumerator, metrics.GuardStages.RuntimeGuardRejectionDenominator)))
-	out.WriteString(fmt.Sprintf("- `llm_decision_attempts`: `%d`; transport failures: `%d`; parse failures: `%d`; context-evidence rejections: `%d`; context-memory rejections: `%d`; RuntimeGuard rejections: `%d`; accepted: `%d`; fallback: `%d`\n- `llm_parsed_proposal_acceptance_rate`: `%.2f%%` (%d/%d); `llm_end_to_end_decision_success_rate`: `%.2f%%` (%d/%d)\n\n", metrics.LLMDecisionAttempts, metrics.LLMTransportFailures, metrics.LLMParseFailures, metrics.ContextEvidenceRejections, metrics.ContextMemoryRejections, metrics.RuntimeGuardRejections, metrics.AcceptedDecisions, metrics.FallbackDecisions, metrics.LLMParsedProposalAcceptanceRate*100, metrics.AcceptedDecisions, metrics.LLMProposals, metrics.LLMEndToEndDecisionSuccessRate*100, metrics.AcceptedDecisions, metrics.LLMDecisionAttempts))
+	out.WriteString(fmt.Sprintf("- `llm_decision_attempts`: `%d`; transport failures: `%d`; parse failures: `%d`; context-evidence rejections: `%d`; context-memory rejections: `%d`; RuntimeGuard rejections: `%d`; accepted: `%d`; fallback: `%d`\n- `llm_parsed_proposal_acceptance_rate`: `%.2f%%` (%d/%d); parsed attempts: `%d`; parsed accepted: `%d`; `llm_end_to_end_decision_success_rate`: `%.2f%%` (%d/%d)\n\n", metrics.LLMDecisionAttempts, metrics.LLMTransportFailures, metrics.LLMParseFailures, metrics.ContextEvidenceRejections, metrics.ContextMemoryRejections, metrics.RuntimeGuardRejections, metrics.AcceptedDecisions, metrics.FallbackDecisions, metrics.LLMParsedProposalAcceptanceRate*100, metrics.LLMParsedProposalAccepted, metrics.LLMParsedProposalAttempts, metrics.LLMParsedProposalAttempts, metrics.LLMParsedProposalAccepted, metrics.LLMEndToEndDecisionSuccessRate*100, metrics.AcceptedDecisions, metrics.LLMDecisionAttempts))
 	out.WriteString("Parse/schema and context failures are not counted as RuntimeGuard rejections. A rejected audit record is not itself a side effect.\n\n")
 
 	out.WriteString("## Reliability and side effects\n\n")
-	out.WriteString(fmt.Sprintf("- `unsafe_side_effect_count`: `%d` (only rejected decisions with a protected side-effect counter increase)\n- `duplicate_settlement_count`: `%d`\n- `business_payment_resubmission_count`: `%d`\n- `payment_exact_redelivery_count`: `%d`\n- `MemoryCitedActions`: `%d`; `MemoryCitedActionsInSuccessfulEpisodes`: `%d` - descriptive correlation, not causal credit assignment\n\n", metrics.UnsafeSideEffectCount, metrics.DuplicateSettlementCount, metrics.BusinessPaymentResubmissionCount, metrics.PaymentExactRedeliveryCount, metrics.MemoryCitedActions, metrics.MemoryCitedActionsInSuccessfulEpisodes))
+	out.WriteString(fmt.Sprintf("- `unsafe_side_effect_count`: `%d` (only rejected decisions with a protected side-effect counter increase)\n- `duplicate_settlement_count`: `%d`\n- `business_payment_resubmission_count`: `%d`\n- `payment_exact_redelivery_count`: `%d`\n- memory retrieval hit rate: `%.2f%%` (%d/%d); memory citation rate: `%.2f%%` (%d/%d)\n- `MemoryCitedActions`: `%d`; `MemoryCitedActionsInSuccessfulEpisodes`: `%d` - descriptive correlation, not causal credit assignment\n\n", metrics.UnsafeSideEffectCount, metrics.DuplicateSettlementCount, metrics.BusinessPaymentResubmissionCount, metrics.PaymentExactRedeliveryCount, metrics.MemoryRetrievalHitRate*100, metrics.MemoryRetrievalHits, metrics.MemoryRetrievalAttempts, metrics.MemoryCitationRate*100, metrics.MemoryCitationCount, metrics.MemoryCitationDenominator, metrics.MemoryCitedActions, metrics.MemoryCitedActionsInSuccessfulEpisodes))
 	out.WriteString("### pass^k\n\n")
-	out.WriteString("`pass^k` means the first k independent **live** trials for a task all passed the required deterministic graders; replay/offline rows never enter this denominator. It is not `pass@k`.\n\n")
+	out.WriteString("`pass^k` means the first k independent **live** trials for a task all passed the required deterministic graders. Eligibility requires no collection error, a positive trial index, unique RequestID and unique TrialIsolationID, plus the same task/suite/environment/config hash. Replay/offline rows never enter this denominator. It is not `pass@k`.\n\n")
 	renderPassK(&out, metrics.Reliability)
 
 	out.WriteString("## Fault coverage\n\n")
@@ -80,9 +80,10 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 	renderCells(&out, "LLM vs RuleRecoveryProvider", metrics.ExperimentMatrix.RecoveryProvider)
 	renderCells(&out, "Failure injection rate", metrics.ExperimentMatrix.FailureRate)
 	renderCells(&out, "Happy vs recovery path", metrics.ExperimentMatrix.Path)
+	renderCells(&out, "Runtime variant (config hash qualified)", metrics.ExperimentMatrix.RuntimeVariant)
 
 	out.WriteString("## Episode evidence\n\n")
-	out.WriteString("| case | suite | environment | mode | ingress | task/trial | variant | fault | triggered | state | execution_status | episode_id | payment_tx | artifact | validation | duration ms |\n|---|---|---|---|---|---|---|---|---:|---|---|---|---|---|---|---:|\n")
+	out.WriteString("| case | suite | environment | mode | ingress | task/trial | trial_isolation_id | variant | fault | triggered | state | execution_status | episode_id | payment_tx | artifact | validation | duration ms |\n|---|---|---|---|---|---|---|---|---|---:|---|---|---|---|---|---|---:|\n")
 	for _, result := range results {
 		state, executionStatus, episodeID, tx, artifact, validation := "", "", result.EpisodeID, "", "", ""
 		if result.Trace.Episode != nil {
@@ -108,7 +109,7 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 		if result.TrialIndex > 0 {
 			taskTrial = fmt.Sprintf("%s#%d", taskTrial, result.TrialIndex)
 		}
-		out.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %t | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %.2f |\n", result.CaseID, firstNonEmpty(result.Suite, "unknown"), firstNonEmpty(result.Environment, "unknown"), result.Mode, result.Ingress, taskTrial, variant, result.Failure.Kind, result.Failure.EffectiveApplied(), state, executionStatus, episodeID, tx, artifact, validation, result.DurationMS))
+		out.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %t | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %.2f |\n", result.CaseID, firstNonEmpty(result.Suite, "unknown"), firstNonEmpty(result.Environment, "unknown"), result.Mode, result.Ingress, taskTrial, result.TrialIsolationID, variant, result.Failure.Kind, result.Failure.EffectiveApplied(), state, executionStatus, episodeID, tx, artifact, validation, result.DurationMS))
 	}
 
 	out.WriteString("\n## Latency semantics\n\n")
@@ -145,7 +146,7 @@ func renderPassK(out *strings.Builder, reliability ReliabilityMetrics) {
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
 		for _, key := range keys {
-			parts = append(parts, fmt.Sprintf("%s=%d", key, item.values[key]))
+			parts = append(parts, fmt.Sprintf("%s=%d", strings.ReplaceAll(key, "\x00", "/"), item.values[key]))
 		}
 		out.WriteString(strings.Join(parts, ", ") + "\n")
 	}
