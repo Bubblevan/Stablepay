@@ -1,9 +1,12 @@
-# StablePay Commerce Runtime — S10
+# StablePay Commerce Runtime - S10.1
 
 `cmd/server` is the production composition root. It loads the durable MySQL
 store, catalog/evidence/memory projections, DeepSeek-compatible decision
 provider, HTTP Merchant adapter, DID policy, Kitex Payment adapter, entitlement
 verification, validator registry and the persisted-state episode runner.
+The runner also starts a persisted runnable sweep (default every 2 seconds),
+with bounded exponential retry scheduling and an operations-only
+`episode_execution_status` projection.
 
 External agents use only the Runtime surface:
 
@@ -16,6 +19,10 @@ POST /mcp                 # initialize, tools/list, tools/call
 GET  /healthz
 GET  /readyz
 ```
+
+Episode status includes an `execution` object with `status`, `attempt_count`,
+last start/finish times, sanitized error code/message, and `next_retry_at`.
+This projection never changes the authoritative Episode state or payment facts.
 
 HTTP/MCP requests require `Authorization: Bearer $COMMERCE_RUNTIME_API_TOKEN`
 or `X-API-Key`, except health and readiness probes. `POST /v1/episodes` takes
@@ -33,6 +40,8 @@ LLM_MODEL
 COMMERCE_RUNTIME_SETTLEMENT_NETWORK
 COMMERCE_RUNTIME_USDC_MINT or COMMERCE_RUNTIME_USDT_MINT
 STABLEPAY_E2E_AGENT_KEYPAIR_PATH
+COMMERCE_RUNTIME_SUPERVISOR_INTERVAL # default 2s
+COMMERCE_RUNTIME_RUNNER_RETRY_MAX    # default 30s
 ```
 
 The public CLI is an HTTP client and does not import Runtime internals:

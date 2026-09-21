@@ -139,6 +139,12 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 	if err != nil {
 		return MerchantInvocationResult{}, err
 	}
+	if transientMerchantResponse(response) {
+		if adapterErr == nil {
+			adapterErr = fmt.Errorf("merchant returned transient HTTP %d", response.HTTPStatus)
+		}
+		return MerchantInvocationResult{Episode: current, Invocation: fact, Response: response, Replayed: replayed}, adapterErr
+	}
 	key := operation.IdempotencyKey
 	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, key); findErr == nil {
 		latest, getErr := s.store.Get(ctx, current.EpisodeID)
@@ -329,6 +335,12 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 	fact, response, adapterErr, replayed, err := s.executeMerchantInvocation(ctx, store, operation)
 	if err != nil {
 		return DeliveryInvocationResult{}, err
+	}
+	if transientMerchantResponse(response) {
+		if adapterErr == nil {
+			adapterErr = fmt.Errorf("merchant returned transient HTTP %d", response.HTTPStatus)
+		}
+		return DeliveryInvocationResult{Episode: current, Invocation: fact, Response: response, Replayed: replayed}, adapterErr
 	}
 	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); findErr == nil {
 		latest, getErr := s.store.Get(ctx, current.EpisodeID)
@@ -594,6 +606,14 @@ func (s *Service) executeMerchantInvocation(ctx context.Context, store repositor
 			}
 			return existing, response, callErr, false, nil
 		}
+		if transientMerchantResponse(merchantResponseFromFact(*existing)) {
+			response, callErr := s.merchantAdapter.Invoke(ctx, request)
+			response, completeErr := s.completeMerchantInvocation(ctx, store, existing, response, callErr)
+			if completeErr != nil {
+				return nil, adapters.MerchantInvokeResult{}, callErr, false, completeErr
+			}
+			return existing, response, callErr, false, nil
+		}
 		return existing, merchantResponseFromFact(*existing), nil, true, nil
 	} else if !errors.Is(findErr, repository.ErrFactNotFound) {
 		return nil, adapters.MerchantInvokeResult{}, nil, false, findErr
@@ -612,6 +632,10 @@ func (s *Service) executeMerchantInvocation(ctx context.Context, store repositor
 		return nil, adapters.MerchantInvokeResult{}, callErr, false, completeErr
 	}
 	return fact, response, callErr, false, nil
+}
+
+func transientMerchantResponse(response adapters.MerchantInvokeResult) bool {
+	return response.HTTPStatus >= 500 && response.HTTPStatus <= 599
 }
 
 func (s *Service) completeMerchantInvocation(ctx context.Context, store repository.S4Store, fact *invocation.MerchantInvocation, response adapters.MerchantInvokeResult, callErr error) (adapters.MerchantInvokeResult, error) {
@@ -697,7 +721,7 @@ func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capab
 	} else if capability.PayeeDID != parsed.PayTo {
 		return decision.ErrPaymentBindingMismatch
 	}
-	if parsed.SkillDID != "" && !strings.EqualFold(parsed.SkillDID, capability.PayeeDID) {
+	if parsed.SkillDID != "" && !payeeIdentityMatches(capability.PayeeDID, parsed.SkillDID) {
 		return decision.ErrPaymentBindingMismatch
 	}
 	return nil
@@ -741,6 +765,30 @@ func solanaPayeeMatches(did, payTo string) bool {
 		return false
 	}
 	return base58Equal(value, payTo, alphabet)
+}
+
+// payeeIdentityMatches accepts the two representations used by the existing
+// catalog and merchant contracts: a raw Solana wallet in catalog.payee_did
+// and a did:solana wallet in the x402 skillDid extension. When either side is
+// a Solana DID, both values must decode to the same 32-byte public key.
+func payeeIdentityMatches(left, right string) bool {
+	const prefix = "did:solana:"
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	leftDID := strings.HasPrefix(strings.ToLower(left), prefix)
+	rightDID := strings.HasPrefix(strings.ToLower(right), prefix)
+	if !leftDID && !rightDID {
+		return strings.EqualFold(left, right)
+	}
+	if leftDID && rightDID {
+		left = left[len(prefix):]
+		right = right[len(prefix):]
+	} else if leftDID {
+		left = left[len(prefix):]
+	} else {
+		right = right[len(prefix):]
+	}
+	return base58Equal(left, right, "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 }
 
 // base58Equal compares decoded Solana public keys without accepting a textual

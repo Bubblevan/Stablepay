@@ -51,6 +51,7 @@ type InMemoryStore struct {
 	memoryUseTraces          map[string]*memory.MemoryUseTrace
 	memoryRecords            map[string]*memory.MemoryRecord
 	memoryObservations       map[string]*memory.MemoryObservation
+	executionStatuses        map[string]*EpisodeExecutionStatus
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -82,7 +83,34 @@ func NewInMemoryStore() *InMemoryStore {
 		memoryUseTraces:          make(map[string]*memory.MemoryUseTrace),
 		memoryRecords:            make(map[string]*memory.MemoryRecord),
 		memoryObservations:       make(map[string]*memory.MemoryObservation),
+		executionStatuses:        make(map[string]*EpisodeExecutionStatus),
 	}
+}
+
+func (s *InMemoryStore) GetEpisodeExecutionStatus(ctx context.Context, episodeID string) (*EpisodeExecutionStatus, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.executionStatuses[strings.TrimSpace(episodeID)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value.Clone(), nil
+}
+
+func (s *InMemoryStore) UpsertEpisodeExecutionStatus(ctx context.Context, value *EpisodeExecutionStatus) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if value == nil || value.Validate() != nil {
+		return ErrInvalidExecutionStatus
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executionStatuses[value.EpisodeID] = value.Clone()
+	return nil
 }
 
 func (s *InMemoryStore) SaveEvidenceRecord(ctx context.Context, value *evidence.EvidenceRecord) error {

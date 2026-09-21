@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -760,9 +762,22 @@ func (s *Service) newPaymentEvent(current, next *episode.CommerceEpisode, now ti
 		actor = "runtime"
 	}
 	return episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State,
-		trace.Action{Type: action, IdempotencyKey: key}, observation,
+		trace.Action{Type: action, IdempotencyKey: boundedIdempotencyKey(key)}, observation,
 		trace.Decision{ProposedAction: action, ProposalID: proposalID, Reason: "deterministic payment runtime"},
 		trace.RuntimeVerdict{Allowed: true}, next.State, actor, traceID, s.runtimeVersion)
+}
+
+// boundedIdempotencyKey keeps derived payment event keys within the durable
+// MySQL varchar(128) boundary while retaining deterministic replay identity.
+// The full source key is hashed only when a suffix such as :outcome or
+// :authorization would exceed the storage limit.
+func boundedIdempotencyKey(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 128 {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	return "idempotency:sha256:" + hex.EncodeToString(digest[:])
 }
 
 func outcomeStatusForIntent(status payment.OutcomeStatus) payment.IntentStatus {

@@ -189,7 +189,7 @@ func (p *RealCredentialProvider) Credentials(ctx context.Context, intent payment
 	}
 	timestamp := time.Now().Unix()
 	nonce := "commerce-runtime-" + digestCredentialReference(ref)
-	payload := paymentBusinessSignPayload(intent.RequesterDID, intent.PayeeDID, intent.AmountMinor, currencyForSignature(intent.Currency), signedTx, timestamp, nonce)
+	payload := paymentBusinessSignPayload(intent.RequesterDID, canonicalPaymentSkillDID(intent.PayeeDID), intent.AmountMinor, currencyForSignature(intent.Currency), signedTx, timestamp, nonce)
 	signature, err := signCredentialMessage(p.agentKey, payload)
 	if err != nil {
 		return PaymentCredentials{}, fmt.Errorf("sign payment authorization: %w", err)
@@ -264,14 +264,15 @@ func registerCredentialDID(ctx context.Context, client didsvc.Client, publicKey 
 
 func walletFromDID(value string) (string, error) {
 	const prefix = "did:solana:"
-	if !strings.HasPrefix(value, prefix) {
-		return "", fmt.Errorf("payee DID %q is not a Solana DID", value)
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(value), prefix) {
+		value = strings.TrimSpace(value[len(prefix):])
 	}
-	wallet := strings.TrimSpace(strings.TrimPrefix(value, prefix))
-	if _, err := solana.PublicKeyFromBase58(wallet); err != nil {
-		return "", fmt.Errorf("invalid Solana payee DID: %w", err)
+	wallet, err := solana.PublicKeyFromBase58(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid Solana payee identity: %w", err)
 	}
-	return wallet, nil
+	return wallet.String(), nil
 }
 
 func credentialCurrency(value string) (bcommon.Currency, error) {

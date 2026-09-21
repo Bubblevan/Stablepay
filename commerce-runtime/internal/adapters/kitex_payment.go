@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	kitexcommon "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	kitexpayment "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
@@ -51,10 +52,11 @@ func (a *KitexPaymentAdapter) Submit(ctx context.Context, request PaymentSubmitR
 		return unknownOutcome(request.Intent, err), err
 	}
 	base := baseRequest(request.Intent, request.TraceID)
+	skillDID := canonicalPaymentSkillDID(request.Intent.PayeeDID)
 	requestPayload := &kitexpayment.InitiatePaymentRequest{
 		Base:        base,
 		AgentDid:    kitexcommon.DID(request.Intent.RequesterDID),
-		SkillDid:    kitexcommon.DID(request.Intent.PayeeDID),
+		SkillDid:    kitexcommon.DID(skillDID),
 		AmountMinor: request.Intent.AmountMinor,
 		Currency:    paymentCurrency(request.Intent.Currency),
 	}
@@ -155,4 +157,19 @@ func validatePaymentBinding(intent payment.PaymentIntent, authorization Authoriz
 		return errors.New("payment authorization does not match intent snapshot")
 	}
 	return nil
+}
+
+// canonicalPaymentSkillDID bridges the catalog's raw Solana payee wallet to
+// payment-service's skill_did contract. Non-Solana DID values are preserved so
+// the adapter remains transport-only for non-chain test contracts; real raw
+// Solana wallets are emitted in the canonical did:solana form.
+func canonicalPaymentSkillDID(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(value), "did:") {
+		return value
+	}
+	if wallet, err := solana.PublicKeyFromBase58(value); err == nil {
+		return "did:solana:" + wallet.String()
+	}
+	return value
 }

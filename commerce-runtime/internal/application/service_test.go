@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -450,6 +451,12 @@ func TestSettlementPolicyBindsExactProtocolNetworkAssetAndCurrency(t *testing.T)
 	if err := service.bindPaymentRequirement(current, capability, parsed); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
 		t.Fatalf("arbitrary network was not rejected: %v", err)
 	}
+
+	solanaCapability := &catalog.MerchantCapability{PayeeDID: "2kZGwkLnVdSxjjNueeUQmqBf3tRKMn7y1bbktRZKJWdR", InvokeEndpoint: catalog.EndpointRef{Endpoint: "https://merchant.example/execute"}, SupportedProtocolVersions: []string{"x402-v1"}}
+	solanaParsed := x402.ParsedRequirement{ProtocolVersion: "x402-v1", Scheme: "exact", Network: "solana:devnet", Asset: "mint-1", BusinessAmountMinor: 200, Currency: "USDC", PayTo: solanaCapability.PayeeDID, SkillDID: "did:solana:" + solanaCapability.PayeeDID, ResourceURL: "https://merchant.example/execute"}
+	if err := service.bindPaymentRequirement(current, solanaCapability, solanaParsed); err != nil {
+		t.Fatalf("raw Solana catalog payee and did:solana skill identity should bind: %v", err)
+	}
 }
 
 func TestSettlementPolicyFailsClosedWhenProductionBindingIsIncomplete(t *testing.T) {
@@ -472,5 +479,20 @@ func TestSettlementPolicyFailsClosedWhenProductionBindingIsIncomplete(t *testing
 	service := NewService(repository.NewInMemoryStore(), WithUnconstrainedSettlementPolicyForTests())
 	if err := service.bindPaymentRequirement(current, capability, parsed); err != nil {
 		t.Fatalf("explicit test fixture policy should allow unconstrained binding: %v", err)
+	}
+}
+
+func TestBoundedIdempotencyKeyIsDeterministicAndFitsMySQLBoundary(t *testing.T) {
+	longKey := strings.Repeat("payment:", 20)
+	first := boundedIdempotencyKey(longKey)
+	second := boundedIdempotencyKey(longKey)
+	if first != second {
+		t.Fatalf("bounded key is not deterministic: %q != %q", first, second)
+	}
+	if len(first) > 128 {
+		t.Fatalf("bounded key exceeds MySQL boundary: %d", len(first))
+	}
+	if boundedIdempotencyKey("short-key") != "short-key" {
+		t.Fatalf("short key was unexpectedly rewritten")
 	}
 }

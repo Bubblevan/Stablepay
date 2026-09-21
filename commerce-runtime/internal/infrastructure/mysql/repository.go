@@ -346,7 +346,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}); err != nil {
 		return err
 	}
 	// GORM's generic MySQL time mapping may retain an older DATETIME(3)
@@ -363,6 +363,15 @@ ALTER TABLE memory_records
 		return err
 	}
 	if err := db.WithContext(ctx).Exec(`ALTER TABLE memory_observations MODIFY COLUMN observed_at DATETIME(6) NOT NULL`).Error; err != nil {
+		return err
+	}
+	if err := db.WithContext(ctx).Exec(`
+ALTER TABLE episode_execution_status
+    MODIFY COLUMN last_started_at DATETIME(6) NOT NULL,
+    MODIFY COLUMN last_finished_at DATETIME(6) NULL,
+    MODIFY COLUMN last_error_at DATETIME(6) NULL,
+    MODIFY COLUMN next_retry_at DATETIME(6) NULL,
+    MODIFY COLUMN updated_at DATETIME(6) NOT NULL`).Error; err != nil {
 		return err
 	}
 	return db.WithContext(ctx).Exec(`ALTER TABLE memory_use_traces MODIFY COLUMN created_at DATETIME(6) NOT NULL`).Error

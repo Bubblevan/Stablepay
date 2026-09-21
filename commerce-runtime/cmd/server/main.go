@@ -28,6 +28,9 @@ func main() {
 	if err := root.Runner.ResumePersisted(ctx); err != nil {
 		log.Printf("commerce-runtime persisted episode resume scan unavailable: %v", err)
 	}
+	if err := root.Runner.StartSupervisor(ctx); err != nil {
+		log.Fatalf("commerce-runtime supervisor failed to start: %v", err)
+	}
 	handler := api.NewServer(root.Runtime, root.Store, root.Runner, api.AuthConfig{Token: cfg.APIToken, AllowInsecure: cfg.AllowInsecure}, root.Ready)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 120 * time.Second}
 	go func() {

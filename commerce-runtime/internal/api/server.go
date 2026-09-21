@@ -130,7 +130,7 @@ func (s *Server) createEpisode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.runner != nil {
-		s.runner.Enqueue(context.Background(), created.Episode.EpisodeID)
+		s.runner.Enqueue(r.Context(), created.Episode.EpisodeID)
 	}
 	status := http.StatusAccepted
 	if created.Replayed {
@@ -179,11 +179,12 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 type statusResponse struct {
-	Episode        *episode.CommerceEpisode        `json:"episode"`
-	Artifact       *invocation.DeliveryArtifact    `json:"artifact,omitempty"`
-	Validation     *invocation.ValidationEvidence  `json:"validation,omitempty"`
-	ParentApproval *recovery.ParentApprovalRequest `json:"parent_approval,omitempty"`
-	ParentDecision *recovery.ParentDecisionFact    `json:"parent_decision,omitempty"`
+	Episode        *episode.CommerceEpisode           `json:"episode"`
+	Artifact       *invocation.DeliveryArtifact       `json:"artifact,omitempty"`
+	Validation     *invocation.ValidationEvidence     `json:"validation,omitempty"`
+	ParentApproval *recovery.ParentApprovalRequest    `json:"parent_approval,omitempty"`
+	ParentDecision *recovery.ParentDecisionFact       `json:"parent_decision,omitempty"`
+	Execution      *repository.EpisodeExecutionStatus `json:"execution,omitempty"`
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request, episodeID string) {
@@ -192,22 +193,33 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, episodeID string
 		writeDomainError(w, err)
 		return
 	}
+	response := s.statusValueFromEpisode(r.Context(), value)
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) statusValueFromEpisode(ctx context.Context, value *episode.CommerceEpisode) statusResponse {
 	response := statusResponse{Episode: value}
+	if executionStore, ok := s.store.(repository.ExecutionStatusRepository); ok {
+		response.Execution, _ = executionStore.GetEpisodeExecutionStatus(ctx, value.EpisodeID)
+		if response.Execution == nil {
+			response.Execution = &repository.EpisodeExecutionStatus{EpisodeID: value.EpisodeID, Status: repository.ExecutionIdle, UpdatedAt: value.UpdatedAt}
+		}
+	}
 	if store, ok := s.store.(repository.S4Store); ok && len(value.DeliveryRefs) > 0 {
-		response.Artifact, _ = store.GetDeliveryArtifact(r.Context(), value.DeliveryRefs[len(value.DeliveryRefs)-1])
+		response.Artifact, _ = store.GetDeliveryArtifact(ctx, value.DeliveryRefs[len(value.DeliveryRefs)-1])
 	}
 	if store, ok := s.store.(repository.S4Store); ok && len(value.ValidationEvidenceRefs) > 0 {
-		response.Validation, _ = store.GetValidationEvidence(r.Context(), value.ValidationEvidenceRefs[len(value.ValidationEvidenceRefs)-1])
+		response.Validation, _ = store.GetValidationEvidence(ctx, value.ValidationEvidenceRefs[len(value.ValidationEvidenceRefs)-1])
 	}
 	if store, ok := s.store.(parentApprovalLister); ok {
-		if approvals, listErr := store.ListParentApprovalRequests(r.Context(), episodeID); listErr == nil && len(approvals) > 0 {
+		if approvals, listErr := store.ListParentApprovalRequests(ctx, value.EpisodeID); listErr == nil && len(approvals) > 0 {
 			response.ParentApproval = approvals[len(approvals)-1]
 			if response.ParentApproval != nil {
-				response.ParentDecision, _ = store.GetParentDecision(r.Context(), response.ParentApproval.ApprovalID)
+				response.ParentDecision, _ = store.GetParentDecision(ctx, response.ParentApproval.ApprovalID)
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, response)
+	return response
 }
 
 type parentApprovalLister interface {
@@ -216,13 +228,14 @@ type parentApprovalLister interface {
 }
 
 type parentDecisionPayload struct {
-	ApprovalID  string            `json:"approval_id"`
-	Decision    recovery.Decision `json:"decision"`
-	ActorRef    string            `json:"actor_ref"`
-	FactsRef    string            `json:"facts_ref,omitempty"`
-	PayloadHash string            `json:"payload_hash,omitempty"`
-	OccurredAt  time.Time         `json:"occurred_at,omitempty"`
-	TraceID     string            `json:"trace_id,omitempty"`
+	ApprovalID     string            `json:"approval_id"`
+	Decision       recovery.Decision `json:"decision"`
+	ActorRef       string            `json:"actor_ref"`
+	FactsRef       string            `json:"facts_ref,omitempty"`
+	PayloadHash    string            `json:"payload_hash,omitempty"`
+	OccurredAt     time.Time         `json:"occurred_at,omitempty"`
+	TraceID        string            `json:"trace_id,omitempty"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
 }
 
 func (s *Server) parentDecision(w http.ResponseWriter, r *http.Request, episodeID string) {
@@ -234,13 +247,17 @@ func (s *Server) parentDecision(w http.ResponseWriter, r *http.Request, episodeI
 		writeError(w, http.StatusBadRequest, "invalid_parent_decision", "approval_id is required")
 		return
 	}
+	if key := strings.TrimSpace(r.Header.Get("Idempotency-Key")); key != "" && key != payload.ApprovalID {
+		writeError(w, http.StatusConflict, "idempotency_mismatch", "Idempotency-Key must match approval_id")
+		return
+	}
 	approvalStore, ok := s.store.(repository.S5Store)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "repository_unavailable", "parent approval store is unavailable")
 		return
 	}
 	approval, err := approvalStore.GetParentApprovalRequest(r.Context(), payload.ApprovalID)
-	if err != nil || approval.EpisodeID != episodeID {
+	if err != nil || approval == nil || approval.EpisodeID != episodeID {
 		if err == nil {
 			err = repository.ErrNotFound
 		}
@@ -253,7 +270,7 @@ func (s *Server) parentDecision(w http.ResponseWriter, r *http.Request, episodeI
 		return
 	}
 	if s.runner != nil {
-		s.runner.Enqueue(context.Background(), episodeID)
+		s.runner.Enqueue(r.Context(), episodeID)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"episode": result.Episode, "approval_id": payload.ApprovalID, "replayed": result.Replayed})
 }
@@ -274,7 +291,7 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	result := mcpResult{JSONRPC: "2.0", ID: request.ID}
 	switch request.Method {
 	case "initialize":
-		result.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stablepay-commerce-runtime", "version": "s10"}}
+		result.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stablepay-commerce-runtime", "version": "s10.1"}}
 	case "notifications/initialized":
 		result.Result = map[string]any{}
 	case "tools/list":
@@ -317,9 +334,27 @@ type mcpCallParams struct {
 
 func mcpTools() []map[string]any {
 	return []map[string]any{
-		{"name": "stablepay.acquire", "description": "Submit an AcquireCapabilityRequest to StablePay Runtime", "inputSchema": map[string]any{"type": "object"}},
-		{"name": "stablepay.status", "description": "Read persisted episode progress and final artifact", "inputSchema": map[string]any{"type": "object", "required": []string{"episode_id"}, "properties": map[string]any{"episode_id": map[string]string{"type": "string"}}}},
-		{"name": "stablepay.approve", "description": "Record a parent approval or denial and resume the episode", "inputSchema": map[string]any{"type": "object", "required": []string{"approval_id", "decision", "actor_ref"}, "properties": map[string]any{"approval_id": map[string]string{"type": "string"}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]string{"type": "string"}}}},
+		{"name": "stablepay.acquire", "description": "Submit an AcquireCapabilityRequest. The same request_id and contract replay the same episode; a changed contract conflicts.", "inputSchema": acquireSchema()},
+		{"name": "stablepay.status", "description": "Read episode, artifact, validation, parent approval/decision, and operational execution status.", "inputSchema": map[string]any{"type": "object", "required": []string{"episode_id"}, "properties": map[string]any{"episode_id": map[string]any{"type": "string", "minLength": 1}}}},
+		{"name": "stablepay.approve", "description": "Record a persisted parent approval or denial and resume the episode. approval_id must already exist.", "inputSchema": map[string]any{"type": "object", "required": []string{"approval_id", "decision", "actor_ref"}, "properties": map[string]any{"approval_id": map[string]any{"type": "string", "minLength": 1}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]any{"type": "string", "minLength": 1}, "idempotency_key": map[string]any{"type": "string"}}}},
+	}
+}
+
+func acquireSchema() map[string]any {
+	keyValue := map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"key", "value"}, "properties": map[string]any{"key": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}}}}
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"request_id", "parent_session_id", "requester_did", "acquisition_goal", "input", "constraints", "expected_output", "validator"},
+		"properties": map[string]any{
+			"request_id":        map[string]any{"type": "string", "minLength": 1},
+			"parent_session_id": map[string]any{"type": "string", "minLength": 1},
+			"requester_did":     map[string]any{"type": "string", "minLength": 1},
+			"acquisition_goal":  map[string]any{"type": "object", "required": []string{"task_type", "description"}, "properties": map[string]any{"task_type": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "semantic_constraints": keyValue}},
+			"input":             map[string]any{"type": "object", "required": []string{"content_type"}, "properties": map[string]any{"uri": map[string]any{"type": "string"}, "ref": map[string]any{"type": "string"}, "content_type": map[string]any{"type": "string"}, "sha256": map[string]any{"type": "string"}, "access_token_ref": map[string]any{"type": "string"}}},
+			"constraints":       map[string]any{"type": "object", "required": []string{"budget_limit_minor", "currency", "deadline_at", "supported_protocol_versions", "max_total_attempts", "max_payment_attempts", "max_delivery_attempts"}, "properties": map[string]any{"budget_limit_minor": map[string]any{"type": "integer", "minimum": 0}, "currency": map[string]any{"type": "string"}, "deadline_at": map[string]any{"type": "string", "format": "date-time"}, "supported_protocol_versions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "max_total_attempts": map[string]any{"type": "integer", "minimum": 1}, "max_payment_attempts": map[string]any{"type": "integer", "minimum": 1}, "max_delivery_attempts": map[string]any{"type": "integer", "minimum": 1}, "allow_cross_merchant_switch": map[string]any{"type": "boolean"}, "require_parent_confirmation_above_minor": map[string]any{"type": "integer", "minimum": 0}}},
+			"expected_output":   map[string]any{"type": "object", "required": []string{"schema", "content_type"}, "properties": map[string]any{"schema": map[string]any{"type": "string"}, "content_type": map[string]any{"type": "string"}, "semantic_constraints": keyValue}},
+			"validator":         map[string]any{"type": "object", "required": []string{"kind", "name", "version"}, "properties": map[string]any{"kind": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"}, "version": map[string]any{"type": "string"}, "config": keyValue}},
+		},
 	}
 }
 
@@ -337,12 +372,12 @@ func (s *Server) mcpCall(ctx context.Context, call mcpCallParams) map[string]any
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
 			return callResult(nil, err)
 		}
-		if request.RequestID == "" {
-			return callResult(nil, errors.New("request_id is required"))
+		if err := validateMCPAcquire(request); err != nil {
+			return callResult(nil, err)
 		}
 		created, err := s.service.CreateEpisode(ctx, request)
 		if err == nil && s.runner != nil {
-			s.runner.Enqueue(context.Background(), created.Episode.EpisodeID)
+			s.runner.Enqueue(ctx, created.Episode.EpisodeID)
 		}
 		return callResult(map[string]any{"episode": created.Episode, "replayed": created.Replayed}, err)
 	case "stablepay.status":
@@ -364,12 +399,18 @@ func (s *Server) mcpCall(ctx context.Context, call mcpCallParams) map[string]any
 			return callResult(nil, repository.ErrRepositoryUnavailable)
 		}
 		approval, err := approvalStore.GetParentApprovalRequest(ctx, payload.ApprovalID)
-		if err != nil {
+		if err != nil || approval == nil {
+			if err == nil {
+				err = repository.ErrNotFound
+			}
 			return callResult(nil, err)
+		}
+		if payload.IdempotencyKey != "" && payload.IdempotencyKey != payload.ApprovalID {
+			return callResult(nil, errors.New("idempotency_key must match approval_id"))
 		}
 		result, err := s.service.RecordParentDecision(ctx, application.ParentDecisionRequest{ApprovalID: payload.ApprovalID, Decision: payload.Decision, ActorRef: payload.ActorRef, FactsRef: payload.FactsRef, PayloadHash: payload.PayloadHash, OccurredAt: payload.OccurredAt, TraceID: payload.TraceID})
 		if err == nil && s.runner != nil {
-			s.runner.Enqueue(context.Background(), approval.EpisodeID)
+			s.runner.Enqueue(ctx, approval.EpisodeID)
 		}
 		return callResult(map[string]any{"episode": result.Episode, "approval_id": payload.ApprovalID, "replayed": result.Replayed}, err)
 	default:
@@ -382,19 +423,26 @@ func (s *Server) statusValue(ctx context.Context, episodeID string) (statusRespo
 	if err != nil {
 		return statusResponse{}, err
 	}
-	response := statusResponse{Episode: value}
-	if store, ok := s.store.(repository.S4Store); ok && len(value.DeliveryRefs) > 0 {
-		response.Artifact, _ = store.GetDeliveryArtifact(ctx, value.DeliveryRefs[len(value.DeliveryRefs)-1])
+	return s.statusValueFromEpisode(ctx, value), nil
+}
+
+func validateMCPAcquire(request contract.AcquireCapabilityRequest) error {
+	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.ParentSessionID) == "" || strings.TrimSpace(request.RequesterDID) == "" {
+		return errors.New("request_id, parent_session_id, and requester_did are required")
 	}
-	if store, ok := s.store.(parentApprovalLister); ok {
-		if approvals, listErr := store.ListParentApprovalRequests(ctx, episodeID); listErr == nil && len(approvals) > 0 {
-			response.ParentApproval = approvals[len(approvals)-1]
-			if response.ParentApproval != nil {
-				response.ParentDecision, _ = store.GetParentDecision(ctx, response.ParentApproval.ApprovalID)
-			}
-		}
+	if strings.TrimSpace(request.AcquisitionGoal.TaskType) == "" || strings.TrimSpace(request.AcquisitionGoal.Description) == "" {
+		return errors.New("acquisition_goal.task_type and acquisition_goal.description are required")
 	}
-	return response, nil
+	if strings.TrimSpace(request.Input.URI) == "" && strings.TrimSpace(request.Input.Ref) == "" {
+		return errors.New("input.uri or input.ref is required")
+	}
+	if strings.TrimSpace(request.ExpectedOutput.Schema) == "" || strings.TrimSpace(request.ExpectedOutput.ContentType) == "" {
+		return errors.New("expected_output.schema and expected_output.content_type are required")
+	}
+	if strings.TrimSpace(request.Validator.Kind) == "" || strings.TrimSpace(request.Validator.Name) == "" || strings.TrimSpace(request.Validator.Version) == "" {
+		return errors.New("validator.kind, validator.name, and validator.version are required")
+	}
+	return nil
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, target any) error {
@@ -429,14 +477,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 }
 
 func safeError(err error) string {
-	if err == nil {
-		return ""
-	}
-	message := strings.TrimSpace(err.Error())
-	if len(message) > 512 {
-		return message[:512]
-	}
-	return message
+	return runtime.SanitizeError(err)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

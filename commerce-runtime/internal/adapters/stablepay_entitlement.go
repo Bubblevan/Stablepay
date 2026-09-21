@@ -38,7 +38,7 @@ func (a *StablePayVerificationEntitlement) Verify(ctx context.Context, request E
 	}
 	query := endpoint.Query()
 	query.Set("agent_did", request.RequesterDID)
-	query.Set("skill_did", request.PayeeDID)
+	query.Set("skill_did", canonicalPaymentSkillDID(request.PayeeDID))
 	endpoint.RawQuery = query.Encode()
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {

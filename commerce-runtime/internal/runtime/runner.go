@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
@@ -25,10 +27,11 @@ import (
 
 const (
 	defaultMaxSteps           = 64
+	defaultScanInterval       = 2 * time.Second
+	defaultRetryBase          = 250 * time.Millisecond
+	defaultRetryMax           = 30 * time.Second
 	initialCandidateSetPrefix = "cs:"
 )
-
-var ErrRunnerStepLimit = errors.New("episode runner step limit reached")
 
 type Runner struct {
 	service     *application.Service
@@ -36,6 +39,20 @@ type Runner struct {
 	credentials adapters.CredentialProvider
 	maxSteps    int
 	locks       sync.Map
+	jobs        sync.Map
+
+	rootCtx   context.Context
+	workerMu  sync.RWMutex
+	workerCtx context.Context
+	stopMu    sync.Mutex
+	stop      context.CancelFunc
+	started   atomic.Bool
+	wg        sync.WaitGroup
+
+	scanInterval time.Duration
+	retryBase    time.Duration
+	retryMax     time.Duration
+	clock        func() time.Time
 }
 
 type Option func(*Runner)
@@ -52,11 +69,54 @@ func WithCredentialProvider(value adapters.CredentialProvider) Option {
 	return func(r *Runner) { r.credentials = value }
 }
 
+// WithRootContext binds worker lifetime to the server/supervisor root context.
+// HTTP request cancellation is intentionally not used as the worker lifetime.
+func WithRootContext(value context.Context) Option {
+	return func(r *Runner) {
+		if value != nil {
+			r.rootCtx = value
+		}
+	}
+}
+
+func WithScanInterval(value time.Duration) Option {
+	return func(r *Runner) {
+		if value > 0 {
+			r.scanInterval = value
+		}
+	}
+}
+
+func WithRetryBackoff(base, maximum time.Duration) Option {
+	return func(r *Runner) {
+		if base > 0 {
+			r.retryBase = base
+		}
+		if maximum > 0 {
+			r.retryMax = maximum
+		}
+	}
+}
+
+func WithClock(clock func() time.Time) Option {
+	return func(r *Runner) {
+		if clock != nil {
+			r.clock = clock
+		}
+	}
+}
+
 func NewRunner(service *application.Service, store repository.TransitionStore, options ...Option) *Runner {
-	r := &Runner{service: service, store: store, maxSteps: defaultMaxSteps}
+	r := &Runner{
+		service: service, store: store, maxSteps: defaultMaxSteps,
+		rootCtx: context.Background(), scanInterval: defaultScanInterval,
+		retryBase: defaultRetryBase, retryMax: defaultRetryMax,
+		clock: func() time.Time { return time.Now().UTC() },
+	}
 	for _, option := range options {
 		option(r)
 	}
+	r.workerCtx = r.rootCtx
 	return r
 }
 
@@ -64,6 +124,105 @@ type Result struct {
 	Episode *episode.CommerceEpisode
 	Steps   int
 	Paused  bool
+}
+
+// StartSupervisor starts the persisted runnable sweep. It is safe to call
+// more than once; only one ticker is ever active for a Runner.
+func (r *Runner) StartSupervisor(ctx context.Context) error {
+	if r == nil || r.store == nil {
+		return repository.ErrRepositoryUnavailable
+	}
+	if _, ok := r.store.(repository.RunnableEpisodeLister); !ok {
+		return repository.ErrRepositoryUnavailable
+	}
+	if !r.started.CompareAndSwap(false, true) {
+		return nil
+	}
+	if ctx == nil {
+		ctx = r.rootCtx
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	r.stopMu.Lock()
+	r.stop = cancel
+	r.stopMu.Unlock()
+	r.workerMu.Lock()
+	r.workerCtx = workerCtx
+	r.workerMu.Unlock()
+	r.wg.Add(1)
+	go r.supervisorLoop(workerCtx)
+	return nil
+}
+
+func (r *Runner) supervisorLoop(ctx context.Context) {
+	defer r.wg.Done()
+	ticker := time.NewTicker(r.scanInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.sweep(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("commerce-runtime supervisor sweep failed: %v", err)
+			}
+		}
+	}
+}
+
+// StopSupervisor cancels the supervisor-owned worker context and waits for
+// the sweep loop to exit. Current adapter calls receive that same context.
+func (r *Runner) StopSupervisor() {
+	if r == nil {
+		return
+	}
+	r.stopMu.Lock()
+	stop := r.stop
+	r.stop = nil
+	r.stopMu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	r.wg.Wait()
+	r.started.Store(false)
+}
+
+func (r *Runner) Close() { r.StopSupervisor() }
+
+func (r *Runner) SupervisorStarted() bool { return r != nil && r.started.Load() }
+
+// ResumePersisted is the startup scan. The periodic supervisor repeats the
+// same persisted-state scan, so a transient outage after startup is recoverable.
+func (r *Runner) ResumePersisted(ctx context.Context) error { return r.sweep(ctx) }
+
+func (r *Runner) sweep(ctx context.Context) error {
+	lister, ok := r.store.(repository.RunnableEpisodeLister)
+	if !ok {
+		return repository.ErrRepositoryUnavailable
+	}
+	values, err := lister.ListRunnableEpisodes(ctx)
+	if err != nil {
+		return err
+	}
+	now := r.now()
+	for _, value := range values {
+		if value == nil || episode.IsTerminal(value.State) || value.State == episode.StateAwaitingParent {
+			continue
+		}
+		status, statusErr := r.getExecutionStatus(ctx, value.EpisodeID)
+		if statusErr != nil && !errors.Is(statusErr, repository.ErrNotFound) {
+			return statusErr
+		}
+		if status != nil {
+			if status.Status == repository.ExecutionError {
+				continue
+			}
+			if status.NextRetryAt != nil && status.NextRetryAt.After(now) {
+				continue
+			}
+		}
+		r.Enqueue(nil, value.EpisodeID)
+	}
+	return nil
 }
 
 // RunEpisode and ResumeEpisode intentionally share one implementation. A
@@ -77,90 +236,257 @@ func (r *Runner) ResumeEpisode(ctx context.Context, episodeID string) (Result, e
 	return r.run(ctx, episodeID)
 }
 
-// ResumePersisted is called during server startup. It is the crash/restart
-// bridge: every non-terminal projection is loaded from the repository and
-// handed back to the same state-driven loop.
-func (r *Runner) ResumePersisted(ctx context.Context) error {
-	lister, ok := r.store.(repository.RunnableEpisodeLister)
-	if !ok {
-		return repository.ErrRepositoryUnavailable
-	}
-	values, err := lister.ListRunnableEpisodes(ctx)
-	if err != nil {
-		return err
-	}
-	for _, value := range values {
-		if value != nil {
-			r.Enqueue(ctx, value.EpisodeID)
-		}
-	}
-	return nil
-}
-
 func (r *Runner) run(ctx context.Context, episodeID string) (Result, error) {
 	if r == nil || r.service == nil || r.store == nil {
 		return Result{}, repository.ErrRepositoryUnavailable
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	episodeID = strings.TrimSpace(episodeID)
 	if episodeID == "" {
 		return Result{}, repository.ErrNotFound
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
 	}
 	value, _ := r.locks.LoadOrStore(episodeID, &sync.Mutex{})
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	defer lock.Unlock()
 
-	for step := 0; step < r.maxSteps; step++ {
-		if err := ctx.Err(); err != nil {
-			return Result{}, err
-		}
-		current, err := r.service.GetEpisode(ctx, episodeID)
-		if err != nil {
-			return Result{}, err
-		}
-		if episode.IsTerminal(current.State) {
-			return Result{Episode: current, Steps: step}, nil
-		}
-		if current.State == episode.StateAwaitingParent {
-			return Result{Episode: current, Steps: step, Paused: true}, nil
-		}
-		if err := r.step(ctx, current); err != nil {
-			return Result{}, err
-		}
-	}
 	current, err := r.service.GetEpisode(ctx, episodeID)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Episode: current, Steps: r.maxSteps}, ErrRunnerStepLimit
+	if episode.IsTerminal(current.State) {
+		_ = r.markCompleted(ctx, episodeID)
+		return Result{Episode: current}, nil
+	}
+	if !r.now().Before(current.DeadlineAt) {
+		return r.expire(ctx, current)
+	}
+	status, err := r.beginExecution(ctx, episodeID)
+	if err != nil {
+		return Result{}, err
+	}
+
+	for step := 0; step < r.maxSteps; step++ {
+		if err := ctx.Err(); err != nil {
+			// Leave RUNNING as a durable indication that the operation was
+			// interrupted by shutdown; the next startup sweep resumes it.
+			return Result{}, err
+		}
+		current, err = r.service.GetEpisode(ctx, episodeID)
+		if err != nil {
+			return Result{}, r.recordExecutionError(ctx, episodeID, status, err)
+		}
+		if episode.IsTerminal(current.State) {
+			_ = r.markCompleted(ctx, episodeID)
+			return Result{Episode: current, Steps: step}, nil
+		}
+		if current.State == episode.StateAwaitingParent {
+			_ = r.markPaused(ctx, episodeID)
+			return Result{Episode: current, Steps: step, Paused: true}, nil
+		}
+		if !r.now().Before(current.DeadlineAt) {
+			return r.expire(ctx, current)
+		}
+		if err := r.step(ctx, current); err != nil {
+			latest, getErr := r.service.GetEpisode(ctx, episodeID)
+			if getErr == nil {
+				if episode.IsTerminal(latest.State) {
+					_ = r.markCompleted(ctx, episodeID)
+					return Result{Episode: latest, Steps: step + 1}, nil
+				}
+				if latest.State == episode.StateAwaitingParent {
+					_ = r.markPaused(ctx, episodeID)
+					return Result{Episode: latest, Steps: step + 1, Paused: true}, nil
+				}
+				if !r.now().Before(latest.DeadlineAt) {
+					return r.expire(ctx, latest)
+				}
+			}
+			failureEpisode := current
+			if getErr == nil && latest != nil {
+				failureEpisode = latest
+			}
+			return Result{Episode: failureEpisode, Steps: step + 1}, r.recordExecutionError(ctx, episodeID, status, err)
+		}
+	}
+	current, err = r.service.GetEpisode(ctx, episodeID)
+	if err != nil {
+		return Result{}, r.recordExecutionError(ctx, episodeID, status, err)
+	}
+	return Result{Episode: current, Steps: r.maxSteps}, r.recordExecutionError(ctx, episodeID, status, ErrRunnerStepLimit)
 }
 
-// Enqueue is used by the HTTP/MCP surface after a successful ingress commit.
-// Work is persisted before this function is called, so a process restart can
-// safely enqueue the same idempotent episode again.
-func (r *Runner) Enqueue(ctx context.Context, episodeID string) {
+// Enqueue only prompts execution. The worker uses the supervisor-owned root
+// context, never the HTTP request context and never an unbounded Background
+// context in production. jobs is a dedupe guard, not an authoritative queue.
+func (r *Runner) Enqueue(_ context.Context, episodeID string) {
+	if r == nil || strings.TrimSpace(episodeID) == "" {
+		return
+	}
+	episodeID = strings.TrimSpace(episodeID)
+	if _, loaded := r.jobs.LoadOrStore(episodeID, struct{}{}); loaded {
+		return
+	}
 	go func() {
-		background := context.Background()
-		if deadline, ok := ctx.Deadline(); ok {
-			var cancel context.CancelFunc
-			background, cancel = context.WithDeadline(background, deadline)
-			defer cancel()
-		}
-		for attempt := 0; attempt < 8; attempt++ {
-			result, err := r.ResumeEpisode(background, episodeID)
-			if err == nil || result.Paused || (result.Episode != nil && episode.IsTerminal(result.Episode.State)) {
-				return
-			}
-			backoff := time.Duration(attempt+1) * 250 * time.Millisecond
-			timer := time.NewTimer(backoff)
-			select {
-			case <-background.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
+		defer r.jobs.Delete(episodeID)
+		_, _ = r.ResumeEpisode(r.workerContextValue(), episodeID)
 	}()
+}
+
+func (r *Runner) workerContextValue() context.Context {
+	r.workerMu.RLock()
+	ctx := r.workerCtx
+	r.workerMu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (r *Runner) beginExecution(ctx context.Context, episodeID string) (*repository.EpisodeExecutionStatus, error) {
+	store, ok := r.store.(repository.ExecutionStatusRepository)
+	if !ok {
+		return nil, nil
+	}
+	now := r.now()
+	status, err := store.GetEpisodeExecutionStatus(ctx, episodeID)
+	if errors.Is(err, repository.ErrNotFound) {
+		status = &repository.EpisodeExecutionStatus{EpisodeID: episodeID, Status: repository.ExecutionIdle}
+	} else if err != nil {
+		return nil, err
+	}
+	status.Status = repository.ExecutionRunning
+	status.AttemptCount++
+	status.LastStartedAt = now
+	status.NextRetryAt = nil
+	status.UpdatedAt = now
+	if err := store.UpsertEpisodeExecutionStatus(ctx, status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
+func (r *Runner) getExecutionStatus(ctx context.Context, episodeID string) (*repository.EpisodeExecutionStatus, error) {
+	store, ok := r.store.(repository.ExecutionStatusRepository)
+	if !ok {
+		return nil, nil
+	}
+	return store.GetEpisodeExecutionStatus(ctx, episodeID)
+}
+
+func (r *Runner) markCompleted(ctx context.Context, episodeID string) error {
+	return r.finishExecution(ctx, episodeID, repository.ExecutionCompleted, "", "", nil)
+}
+
+func (r *Runner) markPaused(ctx context.Context, episodeID string) error {
+	return r.finishExecution(ctx, episodeID, repository.ExecutionPaused, "", "", nil)
+}
+
+func (r *Runner) recordExecutionError(ctx context.Context, episodeID string, status *repository.EpisodeExecutionStatus, err error) error {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return err
+	}
+	class := ClassifyError(err)
+	state := repository.ExecutionError
+	if class == Retryable {
+		state = repository.ExecutionRetryWait
+	}
+	code := ErrorCode(err)
+	message := SanitizeError(err)
+	now := r.now()
+	if status == nil {
+		status, _ = r.getExecutionStatus(ctx, episodeID)
+	}
+	if status == nil {
+		status = &repository.EpisodeExecutionStatus{EpisodeID: episodeID, AttemptCount: 1}
+	}
+	status.Status = state
+	status.LastErrorCode = code
+	status.LastErrorMessage = message
+	status.LastErrorAt = &now
+	status.UpdatedAt = now
+	status.LastFinishedAt = &now
+	if state == repository.ExecutionRetryWait {
+		delay := r.retryDelay(status.AttemptCount)
+		next := now.Add(delay)
+		status.NextRetryAt = &next
+	} else {
+		status.NextRetryAt = nil
+	}
+	store, ok := r.store.(repository.ExecutionStatusRepository)
+	if !ok {
+		return err
+	}
+	if saveErr := store.UpsertEpisodeExecutionStatus(ctx, status); saveErr != nil {
+		return saveErr
+	}
+	return err
+}
+
+func (r *Runner) finishExecution(ctx context.Context, episodeID string, state, code, message string, finishedAt *time.Time) error {
+	store, ok := r.store.(repository.ExecutionStatusRepository)
+	if !ok {
+		return nil
+	}
+	status, err := store.GetEpisodeExecutionStatus(ctx, episodeID)
+	if errors.Is(err, repository.ErrNotFound) {
+		status = &repository.EpisodeExecutionStatus{EpisodeID: episodeID, AttemptCount: 0}
+	} else if err != nil {
+		return err
+	}
+	now := r.now()
+	if finishedAt == nil {
+		finishedAt = &now
+	}
+	if status.LastStartedAt.IsZero() {
+		status.LastStartedAt = now
+	}
+	status.Status = state
+	status.LastFinishedAt = finishedAt
+	status.NextRetryAt = nil
+	status.LastErrorCode = code
+	status.LastErrorMessage = message
+	status.LastErrorAt = nil
+	status.UpdatedAt = now
+	return store.UpsertEpisodeExecutionStatus(ctx, status)
+}
+
+func (r *Runner) retryDelay(attempt int) time.Duration {
+	delay := r.retryBase
+	if attempt < 1 {
+		attempt = 1
+	}
+	for index := 1; index < attempt; index++ {
+		if delay >= r.retryMax || delay > r.retryMax/2 {
+			return r.retryMax
+		}
+		delay *= 2
+	}
+	if delay > r.retryMax {
+		return r.retryMax
+	}
+	return delay
+}
+
+func (r *Runner) expire(ctx context.Context, current *episode.CommerceEpisode) (Result, error) {
+	result, err := r.service.ExpireEpisode(ctx, current.EpisodeID, current.EpisodeID+":deadline")
+	if err != nil {
+		return Result{Episode: current}, r.recordExecutionError(ctx, current.EpisodeID, nil, err)
+	}
+	_ = r.markCompleted(ctx, current.EpisodeID)
+	return Result{Episode: result.Episode}, nil
+}
+
+func (r *Runner) now() time.Time {
+	if r.clock == nil {
+		return time.Now().UTC()
+	}
+	return r.clock().UTC()
 }
 
 func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) error {
@@ -191,6 +517,10 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 	case episode.StatePaying:
 		intent, err := r.currentPaymentIntent(ctx, current)
 		if err != nil {
+			return err
+		}
+		if intent.Status == payment.IntentPending || intent.Status == payment.IntentSubmitting || intent.Status == payment.IntentUnknown {
+			_, err = r.service.ReconcilePayment(ctx, intent.IntentID, traceID+":reconcile")
 			return err
 		}
 		_, err = r.service.AuthorizeAndSubmitPayment(ctx, intent.IntentID, traceID+":submit")
@@ -255,11 +585,7 @@ func (r *Runner) selectMerchant(ctx context.Context, current *episode.CommerceEp
 		return fmt.Errorf("candidate set %s contains no eligible merchant", setID)
 	}
 	candidate := set.Candidates[0]
-	now := time.Now().UTC()
-	// Durable catalog facts are normalized to millisecond precision. A wall
-	// clock read immediately after the commit can therefore still be a few
-	// hundred microseconds before GeneratedAt after rounding. Wait at this
-	// orchestration boundary instead of changing the frozen catalog semantics.
+	now := r.now()
 	if now.Before(set.GeneratedAt) {
 		timer := time.NewTimer(time.Until(set.GeneratedAt) + time.Millisecond)
 		select {
@@ -268,7 +594,7 @@ func (r *Runner) selectMerchant(ctx context.Context, current *episode.CommerceEp
 			return ctx.Err()
 		case <-timer.C:
 		}
-		now = time.Now().UTC()
+		now = r.now()
 	}
 	expires := now.Add(5 * time.Minute)
 	if set.ExpiresAt.Before(expires) {

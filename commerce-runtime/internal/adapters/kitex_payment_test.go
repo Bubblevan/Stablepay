@@ -86,3 +86,13 @@ func TestKitexPaymentAdapterUsesCanonicalTransportAndPayeeMapping(t *testing.T) 
 		t.Fatalf("Kitex status query failed: %#v err=%v", queried, err)
 	}
 }
+
+func TestCanonicalPaymentSkillDIDNormalizesRawSolanaWallet(t *testing.T) {
+	const wallet = "2kZGwkLnVdSxjjNueeUQmqBf3tRKMn7y1bbktRZKJWdR"
+	if got := canonicalPaymentSkillDID(wallet); got != "did:solana:"+wallet {
+		t.Fatalf("canonicalPaymentSkillDID(%q) = %q", wallet, got)
+	}
+	if got := canonicalPaymentSkillDID("did:merchant:payee"); got != "did:merchant:payee" {
+		t.Fatalf("non-Solana DID was rewritten: %q", got)
+	}
+}

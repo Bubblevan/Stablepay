@@ -108,13 +108,19 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 		application.WithValidatorRegistry(validatorRegistry),
 		application.WithRuleRecoveryFallback(false),
 	)
-	runner := runtime.NewRunner(service, store, runtime.WithMaxSteps(cfg.MaxRunnerSteps), runtime.WithCredentialProvider(credential))
+	runner := runtime.NewRunner(service, store, runtime.WithMaxSteps(cfg.MaxRunnerSteps), runtime.WithCredentialProvider(credential), runtime.WithRootContext(ctx), runtime.WithScanInterval(cfg.SupervisorInterval), runtime.WithRetryBackoff(250*time.Millisecond, cfg.RunnerRetryMax))
 	closeOnError = false
 	return &Composition{Config: cfg, DB: db, Store: store, Catalog: store, Evidence: store, Memory: store, DeepSeek: deepseek, Merchant: merchant, DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Entitlement: verification, Validator: validatorRegistry, Runtime: service, Runner: runner, Credential: credential}, nil
 }
 
 func (c *Composition) Close() error {
-	if c == nil || c.DB == nil {
+	if c == nil {
+		return nil
+	}
+	if c.Runner != nil {
+		c.Runner.StopSupervisor()
+	}
+	if c.DB == nil {
 		return nil
 	}
 	db, err := c.DB.DB()
@@ -125,7 +131,7 @@ func (c *Composition) Close() error {
 }
 
 func (c *Composition) Ready(ctx context.Context) error {
-	if c == nil || c.DB == nil || c.Runtime == nil || c.Runner == nil || c.DeepSeek == nil || c.Payment == nil || c.Merchant == nil {
+	if c == nil || c.DB == nil || c.Store == nil || c.Catalog == nil || c.Evidence == nil || c.Memory == nil || c.DeepSeek == nil || c.Merchant == nil || c.DID == nil || c.Payment == nil || c.Entitlement == nil || c.Validator == nil || c.Runtime == nil || c.Runner == nil || c.Credential == nil || !c.Runner.SupervisorStarted() {
 		return errors.New("production composition is incomplete")
 	}
 	db, err := c.DB.DB()
