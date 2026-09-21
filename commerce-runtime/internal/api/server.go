@@ -18,6 +18,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
+	"github.com/stablepay/commerce-runtime/internal/observability"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
@@ -163,6 +164,14 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"episode_id": episodeID, "events": events})
 		return
 	}
+	if len(parts) == 2 && parts[1] == "observability" {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")
+			return
+		}
+		s.observability(w, r, episodeID)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "parent-decisions" {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")
@@ -195,6 +204,21 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, episodeID string
 	}
 	response := s.statusValueFromEpisode(r.Context(), value)
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) observability(w http.ResponseWriter, r *http.Request, episodeID string) {
+	value, err := s.service.GetEpisode(r.Context(), episodeID)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	status := s.statusValueFromEpisode(r.Context(), value)
+	result, err := observability.Collect(r.Context(), s.store, value, status.Execution, status.ParentApproval, status.ParentDecision, status.Artifact, status.Validation)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) statusValueFromEpisode(ctx context.Context, value *episode.CommerceEpisode) statusResponse {

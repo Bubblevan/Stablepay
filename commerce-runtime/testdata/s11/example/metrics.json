@@ -1,0 +1,164 @@
+{
+  "schema_version": "s11.v1",
+  "generated_at": "2026-09-21T07:27:44.1977179Z",
+  "total_episodes": 6,
+  "completed_episodes": 6,
+  "successful_episodes": 4,
+  "recovery_episodes": 2,
+  "recovery_successes": 1,
+  "task_success_rate": 0.6666666666666666,
+  "recovery_success_rate": 0.5,
+  "llm_proposals": 2,
+  "llm_accepted": 1,
+  "llm_proposal_acceptance_rate": 0.5,
+  "guard_decisions": 3,
+  "guard_rejections": 1,
+  "guard_rejection_rate": 0.3333333333333333,
+  "unsafe_side_effect_count": 0,
+  "memory_retrieval_attempts": 2,
+  "memory_retrieval_hits": 2,
+  "memory_retrieval_hit_rate": 1,
+  "memory_citation_count": 1,
+  "memory_citation_rate": 0.5,
+  "memory_guided_actions": 1,
+  "memory_guided_action_success": 1,
+  "duplicate_settlement_count": 0,
+  "payment_retry_count": 0,
+  "delivery_retry_count": 0,
+  "episode_latency_p50_ms": 1500,
+  "episode_latency_p95_ms": 2000,
+  "llm_latency_p50_ms": 350,
+  "llm_latency_p95_ms": 395,
+  "payment_confirmation_latency_p50_ms": 0,
+  "payment_confirmation_latency_p95_ms": 0,
+  "recovery_latency_p50_ms": 1500,
+  "recovery_latency_p95_ms": 1500,
+  "failure_injection_recovery_steps": {
+    "delivery_invalid": {
+      "samples": 1,
+      "recovered": 1,
+      "p50": 1,
+      "p95": 1,
+      "mean": 1,
+      "applied_count": 1
+    },
+    "merchant_transient": {
+      "samples": 1,
+      "recovered": 0,
+      "p50": 0,
+      "p95": 0,
+      "mean": 0,
+      "applied_count": 1
+    }
+  },
+  "experiment_matrix": {
+    "memory_mode": {
+      "off": {
+        "episodes": 3,
+        "successes": 1,
+        "recovery_episodes": 1,
+        "recovery_successes": 0,
+        "task_success_rate": 0.3333333333333333,
+        "recovery_success_rate": 0,
+        "latency_p50_ms": 1000,
+        "latency_p95_ms": 1900
+      },
+      "on": {
+        "episodes": 3,
+        "successes": 3,
+        "recovery_episodes": 1,
+        "recovery_successes": 1,
+        "task_success_rate": 1,
+        "recovery_success_rate": 1,
+        "latency_p50_ms": 2000,
+        "latency_p95_ms": 2000
+      }
+    },
+    "recovery_provider": {
+      "llm": {
+        "episodes": 3,
+        "successes": 2,
+        "recovery_episodes": 1,
+        "recovery_successes": 1,
+        "task_success_rate": 0.6666666666666666,
+        "recovery_success_rate": 1,
+        "latency_p50_ms": 1000,
+        "latency_p95_ms": 1900
+      },
+      "rule": {
+        "episodes": 3,
+        "successes": 2,
+        "recovery_episodes": 1,
+        "recovery_successes": 0,
+        "task_success_rate": 0.6666666666666666,
+        "recovery_success_rate": 0,
+        "latency_p50_ms": 2000,
+        "latency_p95_ms": 2000
+      }
+    },
+    "failure_rate": {
+      "0%": {
+        "episodes": 2,
+        "successes": 2,
+        "recovery_episodes": 0,
+        "recovery_successes": 0,
+        "task_success_rate": 1,
+        "recovery_success_rate": 0,
+        "latency_p50_ms": 225,
+        "latency_p95_ms": 247.5
+      },
+      "10%": {
+        "episodes": 2,
+        "successes": 2,
+        "recovery_episodes": 1,
+        "recovery_successes": 1,
+        "task_success_rate": 1,
+        "recovery_success_rate": 1,
+        "latency_p50_ms": 2000,
+        "latency_p95_ms": 2000
+      },
+      "20%": {
+        "episodes": 2,
+        "successes": 0,
+        "recovery_episodes": 1,
+        "recovery_successes": 0,
+        "task_success_rate": 0,
+        "recovery_success_rate": 0,
+        "latency_p50_ms": 1500,
+        "latency_p95_ms": 1950
+      }
+    },
+    "path": {
+      "happy": {
+        "episodes": 2,
+        "successes": 2,
+        "recovery_episodes": 0,
+        "recovery_successes": 0,
+        "task_success_rate": 1,
+        "recovery_success_rate": 0,
+        "latency_p50_ms": 225,
+        "latency_p95_ms": 247.5
+      },
+      "recovery": {
+        "episodes": 4,
+        "successes": 2,
+        "recovery_episodes": 2,
+        "recovery_successes": 1,
+        "task_success_rate": 0.5,
+        "recovery_success_rate": 0.5,
+        "latency_p50_ms": 2000,
+        "latency_p95_ms": 2000
+      }
+    }
+  },
+  "evidence": {
+    "modes": {
+      "replay": 6
+    },
+    "live_with_model_trace": 0,
+    "live_without_model_trace": 0,
+    "applied_fault_cases": 4,
+    "requested_fault_cases": 4,
+    "sensitive_fields_omitted": true
+  }
+}

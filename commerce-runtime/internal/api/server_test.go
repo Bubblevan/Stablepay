@@ -153,6 +153,10 @@ func TestExternalHTTPAndMCPDriveDurableEpisode(t *testing.T) {
 	if decoded, err := base64.StdEncoding.DecodeString(final.Artifact.Body); err != nil || !strings.Contains(string(decoded), "fulfilled") {
 		t.Fatalf("final artifact missing: %q err=%v", final.Artifact.Body, err)
 	}
+	observabilityResponse := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/observability", http.MethodGet, "s10-test-token", "", nil)
+	if observabilityResponse.Code != http.StatusOK || !strings.Contains(observabilityResponse.Body.String(), "model_decision_traces") || !strings.Contains(observabilityResponse.Body.String(), "payment_intents") || !strings.Contains(observabilityResponse.Body.String(), "ledger") {
+		t.Fatalf("observability export failed: status=%d body=%s", observabilityResponse.Code, observabilityResponse.Body.String())
+	}
 
 	replay := doJSON(t, server.URL+"/v1/episodes", http.MethodPost, "s10-test-token", "external-api-1", body)
 	if replay.Code != http.StatusOK {

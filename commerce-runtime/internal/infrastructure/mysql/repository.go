@@ -512,6 +512,22 @@ func (s *Store) GetModelDecisionTrace(ctx context.Context, id string) (*llm.Mode
 	return modelToModelDecisionTrace(model)
 }
 
+func (s *Store) ListModelDecisionTraces(ctx context.Context, episodeID string) ([]*llm.ModelDecisionTrace, error) {
+	var models []ModelDecisionTraceModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ?", strings.TrimSpace(episodeID)).Order("request_started_at ASC, trace_id ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*llm.ModelDecisionTrace, 0, len(models))
+	for _, model := range models {
+		value, err := modelToModelDecisionTrace(model)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
 func (s *Store) SaveMerchantInvocation(ctx context.Context, value *invocation.MerchantInvocation) error {
 	model, err := merchantInvocationToModel(value)
 	if err != nil {

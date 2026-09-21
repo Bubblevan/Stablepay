@@ -1,4 +1,4 @@
-# StablePay Commerce Runtime - S10.1
+# StablePay Commerce Runtime - S11
 
 `cmd/server` is the production composition root. It loads the durable MySQL
 store, catalog/evidence/memory projections, DeepSeek-compatible decision
@@ -56,3 +56,33 @@ For a complete external-client poll/approval flow, use
 `cmd/external-agent-e2e`. It submits the request, polls the public status API,
 handles an optional parent approval, and exits only after `FULFILLED` with the
 final artifact.
+
+## S11 Agent Eval / Observability / Reliability Benchmark
+
+S11 adds a read-only public export:
+
+```text
+GET /v1/episodes/:id/observability
+```
+
+It contains the episode, event log, execution status, ledger, payment intents,
+model decision traces, memory-use traces, artifact and validation evidence.
+Sensitive credentials, prompts, raw LLM responses, private keys, API keys and
+DSNs are not exported.
+
+The external benchmark CLI writes reproducible JSONL/JSON/Markdown outputs:
+
+```text
+go run ./cmd/stablepay-agent-eval plans
+go run ./cmd/stablepay-agent-eval run --dataset testdata/s11/scenarios.jsonl --out-dir .local-run/s11
+go run ./cmd/stablepay-agent-eval report --input .local-run/s11/episode_results.jsonl --out-dir .local-run/s11
+go run ./cmd/stablepay-agent-eval export --episode-id <id> --out .local-run/s11/trace.json
+go run ./cmd/stablepay-agent-eval check --server http://127.0.0.1:8090
+```
+
+`run` uses only the external Runtime HTTP/MCP surface. A live fault case is
+marked `applied=false` unless an external controller is configured with
+`--injector`; this prevents replay/offline evidence from being misreported as
+live DeepSeek, payment or Devnet evidence. `cmd/s11-fault-proxy` is an opt-in
+HTTP injector for merchant, LLM and verification dependencies. Payment fault
+plans remain replay/controller cases unless a Kitex-aware injector is present.

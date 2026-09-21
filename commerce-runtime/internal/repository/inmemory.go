@@ -195,6 +195,27 @@ func (s *InMemoryStore) GetModelDecisionTrace(ctx context.Context, id string) (*
 	return value.Clone(), nil
 }
 
+func (s *InMemoryStore) ListModelDecisionTraces(ctx context.Context, episodeID string) ([]*llm.ModelDecisionTrace, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*llm.ModelDecisionTrace, 0)
+	for _, value := range s.modelDecisionTraces {
+		if value != nil && value.EpisodeID == strings.TrimSpace(episodeID) {
+			result = append(result, value.Clone())
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if !result[i].RequestStartedAt.Equal(result[j].RequestStartedAt) {
+			return result[i].RequestStartedAt.Before(result[j].RequestStartedAt)
+		}
+		return result[i].TraceID < result[j].TraceID
+	})
+	return result, nil
+}
+
 func capabilityKey(merchantDID, capabilityID string) string {
 	return merchantDID + "\x00" + capabilityID
 }

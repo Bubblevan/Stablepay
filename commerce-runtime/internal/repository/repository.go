@@ -118,6 +118,13 @@ type ModelDecisionTraceRepository interface {
 	GetModelDecisionTrace(context.Context, string) (*llm.ModelDecisionTrace, error)
 }
 
+// ModelDecisionTraceLister is an optional read-only observability projection.
+// It is deliberately separate from the S6 write boundary so exporting traces
+// cannot become an application mutation dependency.
+type ModelDecisionTraceLister interface {
+	ListModelDecisionTraces(context.Context, string) ([]*llm.ModelDecisionTrace, error)
+}
+
 type S6Store interface {
 	TransitionStore
 	EvidenceRepository
