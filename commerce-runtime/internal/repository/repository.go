@@ -86,6 +86,11 @@ type PaymentIntentRepository interface {
 	UpdatePaymentIntent(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, next *payment.PaymentIntent) error
 }
 
+type PaymentTransportTraceRepository interface {
+	SavePaymentTransportTrace(context.Context, *payment.PaymentTransportTrace) error
+	ListPaymentTransportTraces(context.Context, string) ([]*payment.PaymentTransportTrace, error)
+}
+
 // CatalogRepository stores immutable capability versions and exposes only the
 // current active view for discovery. Implementations must not update the
 // historical version payload when a newer version is registered.

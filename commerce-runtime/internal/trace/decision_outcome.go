@@ -1,6 +1,9 @@
 package trace
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -22,6 +25,7 @@ const (
 
 type DecisionOutcomeTrace struct {
 	DecisionOutcomeTraceID string                   `json:"decision_outcome_trace_id"`
+	DecisionAttemptID      string                   `json:"decision_attempt_id"`
 	EpisodeID              string                   `json:"episode_id"`
 	ModelDecisionTraceID   string                   `json:"model_decision_trace_id"`
 	ProposalID             string                   `json:"proposal_id"`
@@ -40,9 +44,60 @@ type DecisionOutcomeTrace struct {
 var ErrInvalidDecisionOutcomeTrace = errors.New("invalid decision outcome trace")
 
 func (t DecisionOutcomeTrace) Validate() error {
-	if strings.TrimSpace(t.DecisionOutcomeTraceID) == "" || strings.TrimSpace(t.EpisodeID) == "" || strings.TrimSpace(t.ModelDecisionTraceID) == "" || strings.TrimSpace(t.ProposalID) == "" || strings.TrimSpace(t.ProposedAction) == "" || t.Stage == "" || t.CreatedAt.IsZero() || t.FactsRef != "decision-outcome-trace://"+t.DecisionOutcomeTraceID || strings.TrimSpace(t.PayloadHash) == "" {
+	if strings.TrimSpace(t.DecisionOutcomeTraceID) == "" || strings.TrimSpace(t.DecisionAttemptID) == "" || strings.TrimSpace(t.EpisodeID) == "" || strings.TrimSpace(t.ModelDecisionTraceID) == "" || strings.TrimSpace(t.ProposalID) == "" || strings.TrimSpace(t.ProposedAction) == "" || !knownDecisionStage(t.Stage) || t.CreatedAt.IsZero() || t.FactsRef != "decision-outcome-trace://"+t.DecisionOutcomeTraceID || strings.TrimSpace(t.PayloadHash) == "" {
 		return ErrInvalidDecisionOutcomeTrace
 	}
+	expected, err := t.PayloadHashFor()
+	if err != nil || expected != t.PayloadHash {
+		return ErrInvalidDecisionOutcomeTrace
+	}
+	return nil
+}
+
+func knownDecisionStage(value DecisionStage) bool {
+	switch value {
+	case DecisionStageTransport, DecisionStageParseSchema, DecisionStageContextEvidence, DecisionStageContextMemory, DecisionStageRuntimeGuard, DecisionStageAccepted, DecisionStageFallback:
+		return true
+	default:
+		return false
+	}
+}
+
+// DecisionAttemptIDFor is the stable identity of one model proposal attempt.
+// Audit records for later context/guard stages must reuse this identity even
+// when their trace IDs differ from the original provider trace.
+func DecisionAttemptIDFor(episodeID, modelDecisionTraceID, proposalID string) string {
+	canonical := strings.Join([]string{strings.TrimSpace(episodeID), strings.TrimSpace(modelDecisionTraceID), strings.TrimSpace(proposalID)}, "\x00")
+	digest := sha256.Sum256([]byte(canonical))
+	return "decision-attempt:" + hex.EncodeToString(digest[:])
+}
+
+// CanonicalSnapshot excludes PayloadHash so the hash covers every persisted
+// decision fact, including the attempt identity and side-effect snapshots.
+func (t DecisionOutcomeTrace) CanonicalSnapshot() ([]byte, error) {
+	copy := t
+	copy.PayloadHash = ""
+	return json.Marshal(copy)
+}
+
+func (t DecisionOutcomeTrace) PayloadHashFor() (string, error) {
+	snapshot, err := t.CanonicalSnapshot()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(snapshot)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (t *DecisionOutcomeTrace) RefreshPayloadHash() error {
+	if t == nil {
+		return ErrInvalidDecisionOutcomeTrace
+	}
+	hash, err := t.PayloadHashFor()
+	if err != nil {
+		return err
+	}
+	t.PayloadHash = hash
 	return nil
 }
 

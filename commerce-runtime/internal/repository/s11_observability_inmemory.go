@@ -39,6 +39,9 @@ func (s *InMemoryStore) ListDecisionOutcomeTraces(ctx context.Context, episodeID
 	result := make([]*trace.DecisionOutcomeTrace, 0)
 	for _, value := range s.decisionOutcomeTraces {
 		if value != nil && value.EpisodeID == strings.TrimSpace(episodeID) {
+			if err := value.Validate(); err != nil {
+				return nil, err
+			}
 			copy := *value
 			result = append(result, &copy)
 		}

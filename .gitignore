@@ -20,6 +20,7 @@ hotwallet.json
 **/node_modules/
 **/.gomodcache/
 **/.gocache/
+**/.gocache-s11/
 **/.vite/
 **/.cache/
 **/.parcel-cache/

@@ -15,6 +15,7 @@ import (
 
 type DecisionOutcomeTraceModel struct {
 	DecisionOutcomeTraceID string    `gorm:"column:decision_outcome_trace_id;type:varchar(255);primaryKey"`
+	DecisionAttemptID      string    `gorm:"column:decision_attempt_id;type:varchar(255);not null;index:idx_decision_outcome_attempt"`
 	EpisodeID              string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_decision_outcome_episode"`
 	ModelDecisionTraceID   string    `gorm:"column:model_decision_trace_id;type:varchar(255);not null"`
 	ProposalID             string    `gorm:"column:proposal_id;type:varchar(255);not null"`
@@ -46,6 +47,7 @@ func decisionOutcomeToModel(value *trace.DecisionOutcomeTrace) (*DecisionOutcome
 	}
 	return &DecisionOutcomeTraceModel{
 		DecisionOutcomeTraceID: value.DecisionOutcomeTraceID,
+		DecisionAttemptID:      value.DecisionAttemptID,
 		EpisodeID:              value.EpisodeID,
 		ModelDecisionTraceID:   value.ModelDecisionTraceID,
 		ProposalID:             value.ProposalID,
@@ -65,6 +67,7 @@ func decisionOutcomeToModel(value *trace.DecisionOutcomeTrace) (*DecisionOutcome
 func modelToDecisionOutcome(value DecisionOutcomeTraceModel) (*trace.DecisionOutcomeTrace, error) {
 	result := &trace.DecisionOutcomeTrace{
 		DecisionOutcomeTraceID: value.DecisionOutcomeTraceID,
+		DecisionAttemptID:      value.DecisionAttemptID,
 		EpisodeID:              value.EpisodeID,
 		ModelDecisionTraceID:   value.ModelDecisionTraceID,
 		ProposalID:             value.ProposalID,

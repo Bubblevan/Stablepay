@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
@@ -36,7 +38,7 @@ func TestComputeS11MetricsFromRedactedTrace(t *testing.T) {
 		}},
 	}
 	metrics := Compute(results, start.Add(3*time.Second))
-	if metrics.TaskSuccessRate != 0.5 || metrics.RecoverySuccessRate != 0 {
+	if metrics.TaskSuccessRate != 0 || metrics.RecoverySuccessRate != 0 || metrics.Evidence.ValidTrials != 1 {
 		t.Fatalf("unexpected success rates: %#v", metrics)
 	}
 	if metrics.DuplicateSettlementCount != 1 || metrics.DeliveryRetryCount != 0 {
@@ -153,8 +155,8 @@ func TestRequiredEconomicGradersAreDeterministic(t *testing.T) {
 
 	goodEntitlement := EpisodeResult{CaseID: "good-entitlement", ExpectedEntitlementTxID: "tx-1", Trace: EpisodeTrace{
 		Episode:        &episode.CommerceEpisode{EpisodeID: "good-entitlement", State: episode.StateFulfilled},
-		Artifact:       &ArtifactSnapshot{PaymentIntentID: "pi-1"},
-		PaymentIntents: []*payment.PaymentIntent{{IntentID: "pi-1", TxID: "tx-1"}},
+		Artifact:       &ArtifactSnapshot{DeliveryID: "delivery-1", PayloadHash: "sha256:payload", PaymentIntentID: "pi-1", EntitlementRef: "verification:tx-1"},
+		PaymentIntents: []*payment.PaymentIntent{{IntentID: "pi-1", TxID: "tx-1", Status: payment.IntentConfirmed}},
 	}}
 	grade = GradeEpisode(goodEntitlement)
 	for _, assertion := range grade.Assertions {
@@ -174,4 +176,66 @@ func TestArtifactBodyIsOptInForExternalTrace(t *testing.T) {
 	if included == nil || string(included.Body) != "private artifact body" || !included.ArtifactBodyIncluded {
 		t.Fatalf("explicit artifact body opt-in was not honored: %#v", included)
 	}
+}
+
+func TestIntegrityCountsOneCanonicalDecisionAttempt(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	result := benchmarkResult("canonical", ModeReplay)
+	attemptID := trace.DecisionAttemptIDFor("canonical", "model-1", "proposal-1")
+	result.Trace.ModelDecisionTraces = []*llm.ModelDecisionTrace{{TraceID: "model-1", DecisionAttemptID: attemptID, EpisodeID: "canonical", Provider: "deepseek", ModelRef: "deepseek-chat", ContextHash: "sha256:context", RequestStartedAt: now, ResponseReceivedAt: now.Add(20 * time.Millisecond), Status: llm.TraceSuccess}}
+	result.Trace.DecisionOutcomeTraces = []*trace.DecisionOutcomeTrace{
+		{DecisionOutcomeTraceID: "outcome-guard", DecisionAttemptID: attemptID, EpisodeID: "canonical", ModelDecisionTraceID: "model-1", ProposalID: "proposal-1", ProposedAction: "RETRY_SAME_MERCHANT", Stage: trace.DecisionStageRuntimeGuard, ReachedRuntimeGuard: true, GuardAccepted: false, CreatedAt: now, FactsRef: "decision-outcome-trace://outcome-guard"},
+		{DecisionOutcomeTraceID: "outcome-accepted", DecisionAttemptID: attemptID, EpisodeID: "canonical", ModelDecisionTraceID: "model-1", ProposalID: "proposal-1", ProposedAction: "RETRY_SAME_MERCHANT", Stage: trace.DecisionStageAccepted, ReachedRuntimeGuard: true, GuardAccepted: true, CreatedAt: now.Add(time.Millisecond), FactsRef: "decision-outcome-trace://outcome-accepted"},
+	}
+	metrics := Compute([]EpisodeResult{result}, now)
+	if metrics.LLMDecisionAttempts != 1 || metrics.AcceptedDecisions != 1 || metrics.RuntimeGuardRejections != 0 {
+		t.Fatalf("decision attempt was counted more than once: %#v", metrics)
+	}
+	if metrics.LLMParsedProposalAcceptanceRate != 1 || metrics.LLMEndToEndDecisionSuccessRate != 1 {
+		t.Fatalf("unexpected LLM rates: %#v", metrics)
+	}
+}
+
+func TestFaultRecoverySeparatesBusinessAndOperationalRecovery(t *testing.T) {
+	result := benchmarkResult("fault", ModeReplay)
+	result.Failure = FailureInjection{Kind: "merchant_transient", Configured: true, Triggered: true, InjectionCount: 1}
+	result.Trace.Execution = &repository.EpisodeExecutionStatus{EpisodeID: "fault", Status: repository.ExecutionCompleted, AttemptCount: 2}
+	metrics := Compute([]EpisodeResult{result}, time.Now().UTC())
+	if metrics.FaultTriggered != 1 || metrics.FaultTaskRecovered != 1 || metrics.FaultRecoverySuccessRate != 1 {
+		t.Fatalf("fault recovery was not graded from EffectiveApplied and Grade.Passed: %#v", metrics)
+	}
+	if metrics.BusinessRecoveryEntered != 0 || metrics.OperationalRetryCases != 1 {
+		t.Fatalf("operational retry was conflated with business recovery: %#v", metrics)
+	}
+}
+
+func TestReliabilityPassKIsLiveOnlyAndAggregated(t *testing.T) {
+	results := make([]EpisodeResult, 0, 9)
+	for index := 1; index <= 8; index++ {
+		result := benchmarkResult(fmt.Sprintf("live-%d", index), ModeLive)
+		result.Suite = "live_local"
+		result.Environment = "local"
+		result.TaskID = "happy"
+		result.TrialIndex = index
+		result.RequestID = fmt.Sprintf("request-%d", index)
+		results = append(results, result)
+	}
+	// Replay trials with the same task metadata must not create pass^k eligibility.
+	replay := benchmarkResult("replay", ModeReplay)
+	replay.Suite, replay.Environment, replay.TaskID, replay.TrialIndex, replay.RequestID = "live_local", "local", "happy", 1, "replay-request"
+	results = append(results, replay)
+	metrics := Compute(results, time.Now().UTC())
+	if len(metrics.Reliability.PassP8) != 1 {
+		t.Fatalf("expected one live pass^8 group: %#v", metrics.Reliability)
+	}
+	aggregate := metrics.Reliability.Aggregate["pass^8"]
+	if aggregate.EligibleTasks != 1 || aggregate.PassingTasks != 1 || aggregate.Rate != 1 {
+		t.Fatalf("unexpected pass^8 aggregate: %#v", aggregate)
+	}
+}
+
+func benchmarkResult(id, mode string) EpisodeResult {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	variant := RuntimeVariant{RuntimeVersion: "test", MemoryMode: "off", RecoveryProvider: "rule", LLMProvider: "none", ModelRef: "rule-recovery"}.WithHash()
+	return EpisodeResult{CaseID: id, Mode: mode, Trace: EpisodeTrace{Episode: &episode.CommerceEpisode{EpisodeID: id, State: episode.StateFulfilled, CreatedAt: now, UpdatedAt: now.Add(time.Second)}, RuntimeVariant: variant, Artifact: &ArtifactSnapshot{DeliveryID: "delivery-" + id, PayloadHash: "sha256:payload"}, Validation: &invocation.ValidationEvidence{Valid: true, ReasonCode: "VALID"}}}
 }

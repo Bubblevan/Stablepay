@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -43,6 +44,25 @@ func (v RuntimeVariant) WithHash() RuntimeVariant {
 	digest := sha256.Sum256(canonical)
 	v.ConfigHash = "sha256:" + hex.EncodeToString(digest[:])
 	return v
+}
+
+// Validate qualifies a live trace. It also verifies that ConfigHash is the
+// digest of the non-secret runtime variant, so a scenario label cannot be
+// promoted into observed configuration.
+func (v RuntimeVariant) Validate() error {
+	v = v.Normalize()
+	if v.RuntimeVersion == "" || (v.MemoryMode != "on" && v.MemoryMode != "off") || (v.RecoveryProvider != "llm" && v.RecoveryProvider != "rule") || v.ConfigHash == "" {
+		return fmt.Errorf("incomplete runtime variant")
+	}
+	if v.RecoveryProvider == "llm" && (v.LLMProvider == "" || v.ModelRef == "") {
+		return fmt.Errorf("LLM runtime variant is missing provider/model")
+	}
+	withoutHash := v
+	withoutHash.ConfigHash = ""
+	if withoutHash.WithHash().ConfigHash != v.ConfigHash {
+		return fmt.Errorf("runtime variant config hash mismatch")
+	}
+	return nil
 }
 
 func (v RuntimeVariant) Matches(expected RuntimeVariant) bool {

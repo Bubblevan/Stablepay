@@ -37,6 +37,9 @@ func (s *InMemoryStore) GetMemoryUseTrace(ctx context.Context, id string) (*memo
 	if !ok {
 		return nil, ErrNotFound
 	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
 	return value.Clone(), nil
 }
 
@@ -48,6 +51,9 @@ func (s *InMemoryStore) ListMemoryUseTraces(ctx context.Context, episodeID strin
 	defer s.mu.RUnlock()
 	result := make([]*memory.MemoryUseTrace, 0)
 	for _, value := range s.memoryUseTraces {
+		if err := value.Validate(); err != nil {
+			return nil, err
+		}
 		if value.EpisodeID == episodeID {
 			result = append(result, value.Clone())
 		}

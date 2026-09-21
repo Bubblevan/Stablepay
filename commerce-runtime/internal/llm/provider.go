@@ -63,6 +63,7 @@ const (
 // are represented by hashes, never persisted here.
 type ModelDecisionTrace struct {
 	TraceID            string      `json:"trace_id"`
+	DecisionAttemptID  string      `json:"decision_attempt_id,omitempty"`
 	EpisodeID          string      `json:"episode_id"`
 	Provider           string      `json:"provider"`
 	ModelRef           string      `json:"model_ref"`
@@ -190,7 +191,7 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 		return DecisionResult{}, err
 	}
 	started := p.clock().UTC()
-	traceValue := ModelDecisionTrace{TraceID: p.idGenerator("llm-trace"), EpisodeID: input.Episode.EpisodeID, Provider: p.providerName, ModelRef: p.modelRef, ContextHash: contextHash, EvidenceRefs: contextEvidenceRefs(input), MemoryRefs: contextMemoryRefs(input), RequestStartedAt: started, Status: TraceTransportError}
+	traceValue := ModelDecisionTrace{TraceID: p.idGenerator("llm-trace"), EpisodeID: input.Episode.EpisodeID, Provider: p.providerName, ModelRef: p.modelRef, ContextHash: contextHash, EvidenceRefs: contextEvidenceRefs(input), MemoryRefs: contextMemoryRefs(input), RequestStartedAt: started, DecisionAttemptID: decisionAttemptID(input.Episode.EpisodeID, contextHash, started), Status: TraceTransportError}
 	var lastErr error
 	var raw []byte
 	for attempt := 0; attempt < p.maxAttempts; attempt++ {
@@ -260,6 +261,12 @@ func (p *LLMDecisionProvider) ProposeWithTrace(ctx context.Context, input Decisi
 		lastErr = ErrLLMUnavailable
 	}
 	return DecisionResult{Trace: traceValue}, lastErr
+}
+
+func decisionAttemptID(episodeID, contextHash string, started time.Time) string {
+	canonical := strings.Join([]string{strings.TrimSpace(episodeID), strings.TrimSpace(contextHash), started.UTC().Format(time.RFC3339Nano)}, "\x00")
+	digest := sha256.Sum256([]byte(canonical))
+	return "decision-attempt:" + hex.EncodeToString(digest[:])
 }
 
 func actionAllowedByContext(allowed []trace.ActionType, action trace.ActionType) bool {

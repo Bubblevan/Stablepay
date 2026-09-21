@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -366,29 +365,18 @@ func (s *Service) persistDecisionOutcome(ctx context.Context, modelTrace llm.Mod
 	if proposedAction == "" {
 		proposedAction = "UNKNOWN"
 	}
+	attemptID := strings.TrimSpace(modelTrace.DecisionAttemptID)
+	if attemptID == "" {
+		attemptID = trace.DecisionAttemptIDFor(modelTrace.EpisodeID, modelTraceID, proposalID)
+	}
 	identity := strings.Join([]string{modelTrace.EpisodeID, modelTraceID, proposalID, string(stage), errorCode}, "\x00")
 	digest := sha256.Sum256([]byte(identity))
 	id := "dot_" + hex.EncodeToString(digest[:])
 	now := s.clock().UTC()
-	value := &trace.DecisionOutcomeTrace{DecisionOutcomeTraceID: id, EpisodeID: modelTrace.EpisodeID, ModelDecisionTraceID: modelTraceID, ProposalID: proposalID, ProposedAction: proposedAction, Stage: stage, ReachedRuntimeGuard: reachedGuard, GuardAccepted: accepted, ErrorCode: errorCode, CreatedAt: now, FactsRef: "decision-outcome-trace://" + id, SideEffectsBefore: before, SideEffectsAfter: after}
-	canonical, err := json.Marshal(struct {
-		ID       string                         `json:"id"`
-		Episode  string                         `json:"episode"`
-		Model    string                         `json:"model"`
-		Proposal string                         `json:"proposal"`
-		Action   string                         `json:"action"`
-		Stage    trace.DecisionStage            `json:"stage"`
-		Reached  bool                           `json:"reached"`
-		Accepted bool                           `json:"accepted"`
-		Error    string                         `json:"error"`
-		Before   *trace.GuardSideEffectSnapshot `json:"before,omitempty"`
-		After    *trace.GuardSideEffectSnapshot `json:"after,omitempty"`
-	}{id, value.EpisodeID, modelTraceID, proposalID, proposedAction, stage, reachedGuard, accepted, errorCode, before, after})
-	if err != nil {
+	value := &trace.DecisionOutcomeTrace{DecisionOutcomeTraceID: id, DecisionAttemptID: attemptID, EpisodeID: modelTrace.EpisodeID, ModelDecisionTraceID: modelTraceID, ProposalID: proposalID, ProposedAction: proposedAction, Stage: stage, ReachedRuntimeGuard: reachedGuard, GuardAccepted: accepted, ErrorCode: errorCode, CreatedAt: now, FactsRef: "decision-outcome-trace://" + id, SideEffectsBefore: before, SideEffectsAfter: after}
+	if err := value.RefreshPayloadHash(); err != nil {
 		return err
 	}
-	payload := sha256.Sum256(canonical)
-	value.PayloadHash = "sha256:" + hex.EncodeToString(payload[:])
 	return store.SaveDecisionOutcomeTrace(ctx, value)
 }
 

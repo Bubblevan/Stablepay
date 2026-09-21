@@ -44,6 +44,12 @@ func CollectWithOptions(ctx context.Context, store repository.TransitionStore, v
 			return EpisodeTrace{}, err
 		}
 	}
+	if transportStore, ok := store.(repository.PaymentTransportTraceRepository); ok {
+		result.PaymentTransportTraces, err = transportStore.ListPaymentTransportTraces(ctx, value.EpisodeID)
+		if err != nil && !errors.Is(err, repository.ErrNotFound) {
+			return EpisodeTrace{}, err
+		}
+	}
 	if traceStore, ok := store.(repository.ModelDecisionTraceLister); ok {
 		result.ModelDecisionTraces, err = traceStore.ListModelDecisionTraces(ctx, value.EpisodeID)
 		if err != nil && !errors.Is(err, repository.ErrNotFound) {

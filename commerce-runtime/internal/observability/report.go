@@ -9,7 +9,7 @@ import (
 func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 	var out strings.Builder
 	onlyReplay := len(metrics.Evidence.Modes) == 1 && metrics.Evidence.Modes[ModeReplay] > 0
-	out.WriteString("# StablePay S11.1 Agent Eval / Metrics Integrity\n\n")
+	out.WriteString("# StablePay S11.2 Agent Eval / Final Metrics Semantics\n\n")
 	if onlyReplay {
 		out.WriteString("**EXAMPLE / REPLAY - NOT A LIVE BENCHMARK**\n\n")
 	}
@@ -20,7 +20,7 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 
 	out.WriteString("## Evidence boundary\n\n")
 	out.WriteString("`offline`, `replay`, `live_local`, and `live_real_business` are reported separately. Scenario labels never prove provider, memory, or recovery configuration; live claims require the persisted RuntimeVariant and trace evidence. A live row without a non-rule ModelDecisionTrace is reported as `no_llm_call`/unknown, never as DeepSeek.\n\n")
-	out.WriteString(fmt.Sprintf("Modes: `%s`; live rows with model trace: `%d`; live rows without model trace: `%d`; requested fault cases: `%d`; configured: `%d`; triggered: `%d`.\n\n", renderModes(metrics.Evidence.Modes), metrics.Evidence.LiveWithModelTrace, metrics.Evidence.LiveWithoutModelTrace, metrics.Evidence.RequestedFaultCases, configuredFaults(results), triggeredFaults(results)))
+	out.WriteString(fmt.Sprintf("Modes: `%s`; environments: `%s`; submitted trials: `%d`; valid trials: `%d`; collection errors: `%d` (%.2f%%); live rows with model trace: `%d`; live rows without model trace: `%d`; requested fault cases: `%d`; configured: `%d`; triggered: `%d`.\n\n", renderModes(metrics.Evidence.Modes), renderModes(metrics.Evidence.Environments), metrics.Evidence.SubmittedTrials, metrics.Evidence.ValidTrials, metrics.Evidence.CollectionErrorCount, metrics.Evidence.CollectionErrorRate*100, metrics.Evidence.LiveWithModelTrace, metrics.Evidence.LiveWithoutModelTrace, metrics.Evidence.RequestedFaultCases, configuredFaults(results), triggeredFaults(results)))
 
 	out.WriteString("## Mode-scoped headline metrics\n\n")
 	out.WriteString("| mode | trials | completed | task success | recovery success | LLM acceptance | Guard rejection | memory hit | latency p50/p95 ms | note |\n|---|---:|---:|---|---|---|---|---|---|---|\n")
@@ -35,19 +35,35 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 		}
 		out.WriteString(fmt.Sprintf("| `%s` | %d | %d | %s | %s | %s | %s | %s | %s | %s |\n", key, headline.Trials, headline.Completed, rateText(headline.TaskSuccessRate, headline.TaskSuccessNumerator, headline.TaskSuccessDenominator), rateText(headline.RecoverySuccessRate, headline.RecoverySuccessNumerator, headline.RecoverySuccessDenominator), rateText(headline.LLMProposalAcceptanceRate, headline.LLMProposalNumerator, headline.LLMProposalDenominator), rateText(headline.GuardRejectionRate, headline.GuardRejectionNumerator, headline.GuardRejectionDenominator), rateText(headline.MemoryRetrievalHitRate, headline.MemoryRetrievalHitNumerator, headline.MemoryRetrievalHitDenominator), latencyText(headline.LatencyP50MS, headline.LatencyP95MS), note))
 	}
+	additionalHeadlines := make([]string, 0)
+	for key := range metrics.Headline {
+		if strings.Contains(key, "/") {
+			additionalHeadlines = append(additionalHeadlines, key)
+		}
+	}
+	sort.Strings(additionalHeadlines)
+	for _, key := range additionalHeadlines {
+		headline := metrics.Headline[key]
+		note := "environment slice"
+		if headline.DescriptiveOnly {
+			note += "; descriptive only"
+		}
+		out.WriteString(fmt.Sprintf("| `%s` | %d | %d | %s | %s | %s | %s | %s | %s | %s |\n", key, headline.Trials, headline.Completed, rateText(headline.TaskSuccessRate, headline.TaskSuccessNumerator, headline.TaskSuccessDenominator), rateText(headline.RecoverySuccessRate, headline.RecoverySuccessNumerator, headline.RecoverySuccessDenominator), rateText(headline.LLMProposalAcceptanceRate, headline.LLMProposalNumerator, headline.LLMProposalDenominator), rateText(headline.GuardRejectionRate, headline.GuardRejectionNumerator, headline.GuardRejectionDenominator), rateText(headline.MemoryRetrievalHitRate, headline.MemoryRetrievalHitNumerator, headline.MemoryRetrievalHitDenominator), latencyText(headline.LatencyP50MS, headline.LatencyP95MS), note))
+	}
 
 	out.WriteString("\n## RuntimeGuard and parser/context stages\n\n")
 	out.WriteString(fmt.Sprintf("- `LLMTransportFailureRate`: %s\n- `LLMParseFailureRate`: %s\n- `ContextValidationRejectionRate`: %s\n- `RuntimeGuardRejectionRate`: %s\n\n", rateText(metrics.GuardStages.TransportFailureRate, metrics.GuardStages.TransportFailureNumerator, metrics.GuardStages.TransportFailureDenominator), rateText(metrics.GuardStages.ParseFailureRate, metrics.GuardStages.ParseFailureNumerator, metrics.GuardStages.ParseFailureDenominator), rateText(metrics.GuardStages.ContextValidationRejectionRate, metrics.GuardStages.ContextValidationNumerator, metrics.GuardStages.ContextValidationDenominator), rateText(metrics.GuardStages.RuntimeGuardRejectionRate, metrics.GuardStages.RuntimeGuardRejectionNumerator, metrics.GuardStages.RuntimeGuardRejectionDenominator)))
+	out.WriteString(fmt.Sprintf("- `llm_decision_attempts`: `%d`; transport failures: `%d`; parse failures: `%d`; context-evidence rejections: `%d`; context-memory rejections: `%d`; RuntimeGuard rejections: `%d`; accepted: `%d`; fallback: `%d`\n- `llm_parsed_proposal_acceptance_rate`: `%.2f%%` (%d/%d); `llm_end_to_end_decision_success_rate`: `%.2f%%` (%d/%d)\n\n", metrics.LLMDecisionAttempts, metrics.LLMTransportFailures, metrics.LLMParseFailures, metrics.ContextEvidenceRejections, metrics.ContextMemoryRejections, metrics.RuntimeGuardRejections, metrics.AcceptedDecisions, metrics.FallbackDecisions, metrics.LLMParsedProposalAcceptanceRate*100, metrics.AcceptedDecisions, metrics.LLMProposals, metrics.LLMEndToEndDecisionSuccessRate*100, metrics.AcceptedDecisions, metrics.LLMDecisionAttempts))
 	out.WriteString("Parse/schema and context failures are not counted as RuntimeGuard rejections. A rejected audit record is not itself a side effect.\n\n")
 
 	out.WriteString("## Reliability and side effects\n\n")
 	out.WriteString(fmt.Sprintf("- `unsafe_side_effect_count`: `%d` (only rejected decisions with a protected side-effect counter increase)\n- `duplicate_settlement_count`: `%d`\n- `business_payment_resubmission_count`: `%d`\n- `payment_exact_redelivery_count`: `%d`\n- `MemoryCitedActions`: `%d`; `MemoryCitedActionsInSuccessfulEpisodes`: `%d` - descriptive correlation, not causal credit assignment\n\n", metrics.UnsafeSideEffectCount, metrics.DuplicateSettlementCount, metrics.BusinessPaymentResubmissionCount, metrics.PaymentExactRedeliveryCount, metrics.MemoryCitedActions, metrics.MemoryCitedActionsInSuccessfulEpisodes))
 	out.WriteString("### pass^k\n\n")
-	out.WriteString("`pass^k` means the first k independent trials for a task all passed the required deterministic graders; it is not `pass@k`.\n\n")
+	out.WriteString("`pass^k` means the first k independent **live** trials for a task all passed the required deterministic graders; replay/offline rows never enter this denominator. It is not `pass@k`.\n\n")
 	renderPassK(&out, metrics.Reliability)
 
 	out.WriteString("## Fault coverage\n\n")
-	out.WriteString("| failure | configured | triggered | recovered |\n|---|---:|---:|---:|\n")
+	out.WriteString("| failure | requested | configured | triggered | task recovered | business recovery | operational retry |\n|---|---:|---:|---:|---:|---:|---:|\n")
 	keys := make([]string, 0, len(metrics.FaultCoverage))
 	for key := range metrics.FaultCoverage {
 		keys = append(keys, key)
@@ -55,9 +71,9 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 	sort.Strings(keys)
 	for _, key := range keys {
 		value := metrics.FaultCoverage[key]
-		out.WriteString(fmt.Sprintf("| `%s` | %d | %d | %d |\n", key, value.Configured, value.Triggered, value.Recovered))
+		out.WriteString(fmt.Sprintf("| `%s` | %d | %d | %d | %d | %d | %d |\n", key, value.Requested, value.Configured, value.Triggered, value.TaskRecovered, value.BusinessRecoveryEntered, value.OperationalRetryCases))
 	}
-	out.WriteString("\nA fault enters the recovery denominator only when `Triggered=true` and `InjectionCount>0`. Payment faults require a Kitex-aware controller; crash/restart requires a process supervisor.\n\n")
+	out.WriteString(fmt.Sprintf("\n`fault_recovery_success_rate` = %d/%d = %.2f%% and is based on `EffectiveApplied && Grade.Passed`; `business_recovery_success_rate` = %d/%d = %.2f%% and is based on explicit RECOVERING/business recovery. Operational retries are reported separately. A fault enters the recovery denominator only when `Triggered=true` and `InjectionCount>0`. Payment faults require a Kitex-aware controller; crash/restart requires a process supervisor.\n\n", metrics.FaultTaskRecovered, metrics.FaultTriggered, metrics.FaultRecoverySuccessRate*100, metrics.RecoverySuccesses, metrics.RecoveryEpisodes, metrics.BusinessRecoverySuccessRate*100))
 
 	out.WriteString("## Experiment matrix (all rows are qualified by the mode table above)\n\n")
 	renderCells(&out, "Memory on/off", metrics.ExperimentMatrix.MemoryMode)
@@ -66,12 +82,15 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 	renderCells(&out, "Happy vs recovery path", metrics.ExperimentMatrix.Path)
 
 	out.WriteString("## Episode evidence\n\n")
-	out.WriteString("| case | suite | environment | mode | ingress | task/trial | variant | fault | triggered | state | episode_id | payment_tx | artifact | validation | duration ms |\n|---|---|---|---|---|---|---|---|---:|---|---|---|---|---|---:|\n")
+	out.WriteString("| case | suite | environment | mode | ingress | task/trial | variant | fault | triggered | state | execution_status | episode_id | payment_tx | artifact | validation | duration ms |\n|---|---|---|---|---|---|---|---|---:|---|---|---|---|---|---|---:|\n")
 	for _, result := range results {
-		state, episodeID, tx, artifact, validation := "", result.EpisodeID, "", "", ""
+		state, executionStatus, episodeID, tx, artifact, validation := "", "", result.EpisodeID, "", "", ""
 		if result.Trace.Episode != nil {
 			state = string(result.Trace.Episode.State)
 			episodeID = result.Trace.Episode.EpisodeID
+		}
+		if result.Trace.Execution != nil {
+			executionStatus = string(result.Trace.Execution.Status)
 		}
 		for _, intent := range result.Trace.PaymentIntents {
 			if intent != nil && (intent.TxID != "" || intent.TxHash != "") {
@@ -89,7 +108,7 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 		if result.TrialIndex > 0 {
 			taskTrial = fmt.Sprintf("%s#%d", taskTrial, result.TrialIndex)
 		}
-		out.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %t | `%s` | `%s` | `%s` | `%s` | `%s` | %.2f |\n", result.CaseID, firstNonEmpty(result.Suite, "unknown"), firstNonEmpty(result.Environment, "unknown"), result.Mode, result.Ingress, taskTrial, variant, result.Failure.Kind, result.Failure.EffectiveApplied(), state, episodeID, tx, artifact, validation, result.DurationMS))
+		out.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %t | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %.2f |\n", result.CaseID, firstNonEmpty(result.Suite, "unknown"), firstNonEmpty(result.Environment, "unknown"), result.Mode, result.Ingress, taskTrial, variant, result.Failure.Kind, result.Failure.EffectiveApplied(), state, executionStatus, episodeID, tx, artifact, validation, result.DurationMS))
 	}
 
 	out.WriteString("\n## Latency semantics\n\n")
@@ -129,6 +148,11 @@ func renderPassK(out *strings.Builder, reliability ReliabilityMetrics) {
 			parts = append(parts, fmt.Sprintf("%s=%d", key, item.values[key]))
 		}
 		out.WriteString(strings.Join(parts, ", ") + "\n")
+	}
+	for _, key := range []string{"pass^1", "pass^2", "pass^4", "pass^8"} {
+		if aggregate, ok := reliability.Aggregate[key]; ok {
+			out.WriteString(fmt.Sprintf("- `%s` aggregate: `%d/%d` eligible task groups, `%.2f%%`\n", key, aggregate.PassingTasks, aggregate.EligibleTasks, aggregate.Rate*100))
+		}
 	}
 	out.WriteString("\n")
 }

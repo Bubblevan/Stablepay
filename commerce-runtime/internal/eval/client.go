@@ -112,6 +112,10 @@ func (c Client) Run(ctx context.Context, scenarios []Scenario) ([]observability.
 				trace, pollCount, pollErr := c.poll(ctx, episodeID, scenario.AutoApprove, scenario.Ingress)
 				result.PollCount = pollCount
 				result.Trace = redactTrace(trace)
+				// For live episodes the persisted RuntimeVariant is authoritative.
+				// Scenario labels remain expected configuration only.
+				result.MemoryMode = result.Trace.RuntimeVariant.MemoryMode
+				result.RecoveryProvider = result.Trace.RuntimeVariant.RecoveryProvider
 				if pollErr != nil {
 					result.CollectionError = pollErr.Error()
 				}
@@ -377,6 +381,12 @@ func (c Client) poll(ctx context.Context, episodeID string, autoApprove bool, in
 			}
 			return traceValue, polls, nil
 		}
+		// A persisted execution error is an externally observable benchmark
+		// outcome even when the episode is non-terminal. Preserve its trace for
+		// grading instead of turning a guard rejection into a collection error.
+		if traceValue.Execution != nil && strings.EqualFold(string(traceValue.Execution.Status), "ERROR") {
+			return traceValue, polls, nil
+		}
 		select {
 		case <-ctx.Done():
 			return traceValue, polls, ctx.Err()
@@ -489,6 +499,7 @@ func enrichResult(result *observability.EpisodeResult, scenario Scenario) {
 	result.ExpectedPaymentIntents = scenario.ExpectedPaymentIntents
 	result.ExpectedSettlementCount = scenario.ExpectedSettlementCount
 	result.ExpectedEntitlementTxID = scenario.ExpectedEntitlementTxID
+	result.RequirePayment = scenario.RequirePayment
 	result.RequireRecovery = scenario.RequireRecovery
 	result.MustNotCreateSecondPayment = scenario.MustNotCreateSecondPayment
 }

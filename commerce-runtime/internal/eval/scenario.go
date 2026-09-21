@@ -39,6 +39,7 @@ type Scenario struct {
 	ExpectedPaymentIntents     *int                           `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int                           `json:"expected_settlement_count,omitempty"`
 	ExpectedEntitlementTxID    string                         `json:"expected_entitlement_tx_id,omitempty"`
+	RequirePayment             bool                           `json:"require_payment,omitempty"`
 	RequireRecovery            bool                           `json:"require_recovery,omitempty"`
 	MustNotCreateSecondPayment bool                           `json:"must_not_create_second_payment,omitempty"`
 	ExpectedVariant            observability.RuntimeVariant   `json:"expected_variant,omitempty"`

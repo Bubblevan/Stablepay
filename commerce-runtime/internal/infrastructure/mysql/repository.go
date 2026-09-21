@@ -312,6 +312,7 @@ func (EvidenceRecordModel) TableName() string { return "evidence_records" }
 
 type ModelDecisionTraceModel struct {
 	TraceID            string    `gorm:"column:trace_id;type:varchar(255);primaryKey"`
+	DecisionAttemptID  string    `gorm:"column:decision_attempt_id;type:varchar(255);index:idx_model_trace_attempt"`
 	EpisodeID          string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_model_trace_episode"`
 	Provider           string    `gorm:"column:provider;type:varchar(64);not null"`
 	ModelRef           string    `gorm:"column:model_ref;type:varchar(128);not null"`
@@ -346,7 +347,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}, &DecisionOutcomeTraceModel{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &PaymentTransportTraceModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}, &DecisionOutcomeTraceModel{}); err != nil {
 		return err
 	}
 	// GORM's generic MySQL time mapping may retain an older DATETIME(3)
@@ -404,11 +405,11 @@ func modelDecisionTraceToModel(value *llm.ModelDecisionTrace) (*ModelDecisionTra
 	if err != nil {
 		return nil, err
 	}
-	return &ModelDecisionTraceModel{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, EvidenceRefs: refs, MemoryRefs: memoryRefs, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: string(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}, nil
+	return &ModelDecisionTraceModel{TraceID: value.TraceID, DecisionAttemptID: value.DecisionAttemptID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, EvidenceRefs: refs, MemoryRefs: memoryRefs, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: string(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}, nil
 }
 
 func modelToModelDecisionTrace(value ModelDecisionTraceModel) (*llm.ModelDecisionTrace, error) {
-	traceValue := &llm.ModelDecisionTrace{TraceID: value.TraceID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: llm.TraceStatus(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}
+	traceValue := &llm.ModelDecisionTrace{TraceID: value.TraceID, DecisionAttemptID: value.DecisionAttemptID, EpisodeID: value.EpisodeID, Provider: value.Provider, ModelRef: value.ModelRef, ContextHash: value.ContextHash, RequestStartedAt: value.RequestStartedAt, ResponseReceivedAt: value.ResponseReceivedAt, RawResponseHash: value.RawResponseHash, ParsedProposalHash: value.ParsedProposalHash, Status: llm.TraceStatus(value.Status), ErrorCode: value.ErrorCode, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, FallbackReason: value.FallbackReason}
 	if len(value.EvidenceRefs) > 0 {
 		if err := json.Unmarshal(value.EvidenceRefs, &traceValue.EvidenceRefs); err != nil {
 			return nil, err

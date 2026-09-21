@@ -44,6 +44,7 @@ type EpisodeTrace struct {
 	Execution              *repository.EpisodeExecutionStatus `json:"execution,omitempty"`
 	Ledger                 []*ledger.LedgerEntry              `json:"ledger"`
 	PaymentIntents         []*payment.PaymentIntent           `json:"payment_intents"`
+	PaymentTransportTraces []*payment.PaymentTransportTrace   `json:"payment_transport_traces"`
 	ModelDecisionTraces    []*llm.ModelDecisionTrace          `json:"model_decision_traces"`
 	MemoryUseTraces        []*memory.MemoryUseTrace           `json:"memory_use_traces"`
 	DecisionOutcomeTraces  []*trace.DecisionOutcomeTrace      `json:"decision_outcome_traces"`
@@ -107,6 +108,7 @@ type EpisodeResult struct {
 	ExpectedPaymentIntents     *int             `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int             `json:"expected_settlement_count,omitempty"`
 	ExpectedEntitlementTxID    string           `json:"expected_entitlement_tx_id,omitempty"`
+	RequirePayment             bool             `json:"require_payment,omitempty"`
 	RequireRecovery            bool             `json:"require_recovery,omitempty"`
 	MustNotCreateSecondPayment bool             `json:"must_not_create_second_payment,omitempty"`
 	Failure                    FailureInjection `json:"failure"`
@@ -210,16 +212,27 @@ type GuardStageMetrics struct {
 }
 
 type ReliabilityMetrics struct {
-	PassP1 map[string]int `json:"pass^1"`
-	PassP2 map[string]int `json:"pass^2"`
-	PassP4 map[string]int `json:"pass^4"`
-	PassP8 map[string]int `json:"pass^8"`
+	PassP1    map[string]int            `json:"pass^1"`
+	PassP2    map[string]int            `json:"pass^2"`
+	PassP4    map[string]int            `json:"pass^4"`
+	PassP8    map[string]int            `json:"pass^8"`
+	Aggregate map[string]PassKAggregate `json:"aggregate"`
+}
+
+type PassKAggregate struct {
+	EligibleTasks int     `json:"eligible_tasks"`
+	PassingTasks  int     `json:"passing_tasks"`
+	Rate          float64 `json:"rate"`
 }
 
 type FaultCoverage struct {
-	Configured int `json:"configured"`
-	Triggered  int `json:"triggered"`
-	Recovered  int `json:"recovered"`
+	Requested               int `json:"requested"`
+	Configured              int `json:"configured"`
+	Triggered               int `json:"triggered"`
+	TaskRecovered           int `json:"task_recovered"`
+	BusinessRecoveryEntered int `json:"business_recovery_entered"`
+	OperationalRetryCases   int `json:"operational_retry_cases"`
+	Recovered               int `json:"recovered"`
 }
 
 type Metrics struct {
@@ -233,9 +246,25 @@ type Metrics struct {
 	RecoverySuccesses                      int                      `json:"recovery_successes"`
 	TaskSuccessRate                        float64                  `json:"task_success_rate"`
 	RecoverySuccessRate                    float64                  `json:"recovery_success_rate"`
+	FaultRecoverySuccessRate               float64                  `json:"fault_recovery_success_rate"`
+	BusinessRecoverySuccessRate            float64                  `json:"business_recovery_success_rate"`
+	FaultTriggered                         int                      `json:"fault_triggered"`
+	FaultTaskRecovered                     int                      `json:"fault_task_recovered"`
+	BusinessRecoveryEntered                int                      `json:"business_recovery_entered"`
+	OperationalRetryCases                  int                      `json:"operational_retry_cases"`
 	LLMProposals                           int                      `json:"llm_proposals"`
 	LLMAccepted                            int                      `json:"llm_accepted"`
 	LLMProposalAcceptanceRate              float64                  `json:"llm_proposal_acceptance_rate"`
+	LLMDecisionAttempts                    int                      `json:"llm_decision_attempts"`
+	LLMTransportFailures                   int                      `json:"llm_transport_failures"`
+	LLMParseFailures                       int                      `json:"llm_parse_failures"`
+	ContextEvidenceRejections              int                      `json:"context_evidence_rejections"`
+	ContextMemoryRejections                int                      `json:"context_memory_rejections"`
+	RuntimeGuardRejections                 int                      `json:"runtime_guard_rejections"`
+	AcceptedDecisions                      int                      `json:"accepted_decisions"`
+	FallbackDecisions                      int                      `json:"fallback_decisions"`
+	LLMParsedProposalAcceptanceRate        float64                  `json:"llm_parsed_proposal_acceptance_rate"`
+	LLMEndToEndDecisionSuccessRate         float64                  `json:"llm_end_to_end_decision_success_rate"`
 	GuardDecisions                         int                      `json:"guard_decisions"`
 	GuardRejections                        int                      `json:"guard_rejections"`
 	GuardRejectionRate                     float64                  `json:"guard_rejection_rate"`
@@ -272,16 +301,24 @@ type Metrics struct {
 }
 
 type StepSummary struct {
-	Samples      int     `json:"samples"`
-	Recovered    int     `json:"recovered"`
-	P50          float64 `json:"p50"`
-	P95          float64 `json:"p95"`
-	Mean         float64 `json:"mean"`
-	AppliedCount int     `json:"applied_count"`
+	Samples                 int     `json:"samples"`
+	Recovered               int     `json:"recovered"`
+	TaskRecovered           int     `json:"task_recovered"`
+	BusinessRecoveryEntered int     `json:"business_recovery_entered"`
+	OperationalRetryCases   int     `json:"operational_retry_cases"`
+	P50                     float64 `json:"p50"`
+	P95                     float64 `json:"p95"`
+	Mean                    float64 `json:"mean"`
+	AppliedCount            int     `json:"applied_count"`
 }
 
 type EvidenceSummary struct {
 	Modes                  map[string]int `json:"modes"`
+	Environments           map[string]int `json:"environments"`
+	SubmittedTrials        int            `json:"submitted_trials"`
+	ValidTrials            int            `json:"valid_trials"`
+	CollectionErrorCount   int            `json:"collection_error_count"`
+	CollectionErrorRate    float64        `json:"collection_error_rate"`
 	LiveWithModelTrace     int            `json:"live_with_model_trace"`
 	LiveWithoutModelTrace  int            `json:"live_without_model_trace"`
 	AppliedFaultCases      int            `json:"applied_fault_cases"`
@@ -307,7 +344,7 @@ type Cell struct {
 	LatencyP95MS        float64 `json:"latency_p95_ms"`
 }
 
-func Compute(results []EpisodeResult, now time.Time) Metrics {
+func computeLegacy(results []EpisodeResult, now time.Time) Metrics {
 	metrics := Metrics{SchemaVersion: SchemaVersion, GeneratedAt: now.UTC(), FailureInjectionRecoverySteps: map[string]StepSummary{}, Evidence: EvidenceSummary{Modes: map[string]int{}, SensitiveFieldsOmitted: true}, ExperimentMatrix: ExperimentMatrix{MemoryMode: map[string]Cell{}, RecoveryProvider: map[string]Cell{}, FailureRate: map[string]Cell{}, Path: map[string]Cell{}}}
 	var episodeLatencies, llmLatencies, paymentLatencies, recoveryLatencies []float64
 	stepValues := map[string][]float64{}
@@ -444,11 +481,11 @@ func Compute(results []EpisodeResult, now time.Time) Metrics {
 				}
 			}
 		}
-		updateCell(metrics.ExperimentMatrix.MemoryMode, matrixLatencies["memory"], normalizedKey(result.MemoryMode, "unknown"), result, success, recovery)
-		updateCell(metrics.ExperimentMatrix.RecoveryProvider, matrixLatencies["provider"], normalizedKey(result.RecoveryProvider, "unknown"), result, success, recovery)
+		updateCellLegacy(metrics.ExperimentMatrix.MemoryMode, matrixLatencies["memory"], normalizedKey(result.MemoryMode, "unknown"), result, success, recovery)
+		updateCellLegacy(metrics.ExperimentMatrix.RecoveryProvider, matrixLatencies["provider"], normalizedKey(result.RecoveryProvider, "unknown"), result, success, recovery)
 		failureRate := fmt.Sprintf("%d%%", result.Failure.RatePercent)
-		updateCell(metrics.ExperimentMatrix.FailureRate, matrixLatencies["failure"], failureRate, result, success, recovery)
-		updateCell(metrics.ExperimentMatrix.Path, matrixLatencies["path"], normalizedKey(result.Path, "unknown"), result, success, recovery)
+		updateCellLegacy(metrics.ExperimentMatrix.FailureRate, matrixLatencies["failure"], failureRate, result, success, recovery)
+		updateCellLegacy(metrics.ExperimentMatrix.Path, matrixLatencies["path"], normalizedKey(result.Path, "unknown"), result, success, recovery)
 	}
 	metrics.TaskSuccessRate = ratio(metrics.SuccessfulEpisodes, metrics.TotalEpisodes)
 	metrics.RecoverySuccessRate = ratio(metrics.RecoverySuccesses, metrics.RecoveryEpisodes)
@@ -636,7 +673,7 @@ func deliveryRetries(events []*episode.EpisodeEvent) int {
 	return 0
 }
 
-func updateCell(cells map[string]Cell, latencySamples map[string][]float64, key string, result EpisodeResult, success, recovery bool) {
+func updateCellLegacy(cells map[string]Cell, latencySamples map[string][]float64, key string, result EpisodeResult, success, recovery bool) {
 	cell := cells[key]
 	cell.Episodes++
 	if success {

@@ -1,4 +1,6 @@
-# StablePay S11.1 Agent Eval / Metrics Integrity
+# StablePay S11.2 Agent Eval / Metrics Integrity
+
+This committed report is a replay example, not a live DeepSeek/payment/Devnet claim; use the live-local recipe for current external-client evidence.
 
 **EXAMPLE / REPLAY - NOT A LIVE BENCHMARK**
 

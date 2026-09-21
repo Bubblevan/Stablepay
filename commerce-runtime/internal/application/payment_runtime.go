@@ -416,7 +416,9 @@ func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, trace
 		}
 		return PaymentExecutionResult{}, err
 	}
+	transportStarted := s.clock().UTC()
 	outcome, adapterErr := s.paymentDeps.Payment.Submit(ctx, adapters.PaymentSubmitRequest{Intent: intentNext, Authorization: authorization, PayeeDID: intentNext.PayeeDID, RequestFingerprint: intentNext.RequestFingerprint, TraceID: traceID})
+	_ = s.persistPaymentTransportTrace(ctx, intentNext, "INITIAL_SUBMIT", transportStarted, s.clock().UTC(), outcome.Status)
 	if adapterErr != nil && outcome.Status == "" {
 		outcome.Status = payment.OutcomeUnknown
 	}
@@ -436,7 +438,13 @@ func (s *Service) ReconcilePayment(ctx context.Context, intentID, traceID string
 		return s.persistedPaymentResult(ctx, intent, false)
 	}
 	initial := outcomeFromIntent(intent)
+	transportStarted := s.clock().UTC()
 	resolution, err := (reconciliation.Resolver{PaymentStatus: s.paymentDeps.Status, ChainStatus: s.paymentDeps.Chain, Entitlement: s.paymentDeps.Entitlement}).Resolve(ctx, *intent, initial)
+	resultStatus := "UNKNOWN"
+	if resolution.Outcome.Status != "" {
+		resultStatus = string(resolution.Outcome.Status)
+	}
+	_ = s.persistPaymentTransportTrace(ctx, *intent, "STATUS_QUERY", transportStarted, s.clock().UTC(), payment.OutcomeStatus(resultStatus))
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}
@@ -465,11 +473,32 @@ func (s *Service) resubmitExactPayment(ctx context.Context, intent *payment.Paym
 	if err := s.guard.CheckPayment(current, intent, authorization, s.clock().UTC()); err != nil {
 		return s.closePaymentIntent(ctx, intent, current, payment.IntentFailed, paymentGuardFailureCode(err), traceID, err)
 	}
+	transportStarted := s.clock().UTC()
 	outcome, adapterErr := s.paymentDeps.Payment.Submit(ctx, adapters.PaymentSubmitRequest{Intent: *intent, Authorization: authorization, PayeeDID: intent.PayeeDID, RequestFingerprint: intent.RequestFingerprint, TraceID: traceID})
+	_ = s.persistPaymentTransportTrace(ctx, *intent, "EXACT_REDELIVERY", transportStarted, s.clock().UTC(), outcome.Status)
 	if adapterErr != nil && outcome.Status == "" {
 		outcome.Status = payment.OutcomeUnknown
 	}
 	return s.recordPaymentOutcome(ctx, intent.IntentID, intent.Status, outcome, traceID, adapterErr)
+}
+
+func (s *Service) persistPaymentTransportTrace(ctx context.Context, intent payment.PaymentIntent, kind string, started, finished time.Time, resultStatus payment.OutcomeStatus) error {
+	store, ok := s.store.(repository.PaymentTransportTraceRepository)
+	if !ok {
+		return nil
+	}
+	if finished.Before(started) {
+		finished = started
+	}
+	status := strings.TrimSpace(string(resultStatus))
+	if status == "" {
+		status = string(payment.OutcomeUnknown)
+	}
+	value := &payment.PaymentTransportTrace{TraceID: s.idGenerator("payment-transport"), EpisodeID: intent.EpisodeID, PaymentIntentID: intent.IntentID, Kind: kind, IdempotencyKey: intent.IdempotencyKey, RequestFingerprint: intent.RequestFingerprint, StartedAt: started.UTC(), FinishedAt: finished.UTC(), ResultStatus: status}
+	if err := value.RefreshPayloadHash(); err != nil {
+		return err
+	}
+	return store.SavePaymentTransportTrace(ctx, value)
 }
 
 func (s *Service) recordPaymentOutcome(ctx context.Context, intentID string, expectedStatus payment.IntentStatus, outcome payment.PaymentOutcome, traceID string, adapterErr error) (PaymentExecutionResult, error) {
