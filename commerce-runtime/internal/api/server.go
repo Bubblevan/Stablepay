@@ -37,10 +37,15 @@ type Server struct {
 	runner  *runtime.Runner
 	ready   func(context.Context) error
 	auth    AuthConfig
+	variant observability.RuntimeVariant
 }
 
-func NewServer(service *application.Service, store repository.TransitionStore, runner *runtime.Runner, auth AuthConfig, ready func(context.Context) error) *Server {
-	return &Server{service: service, store: store, runner: runner, ready: ready, auth: auth}
+func NewServer(service *application.Service, store repository.TransitionStore, runner *runtime.Runner, auth AuthConfig, ready func(context.Context) error, variants ...observability.RuntimeVariant) *Server {
+	variant := observability.RuntimeVariant{}
+	if len(variants) > 0 {
+		variant = variants[0]
+	}
+	return &Server{service: service, store: store, runner: runner, ready: ready, auth: auth, variant: variant.WithHash()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +218,7 @@ func (s *Server) observability(w http.ResponseWriter, r *http.Request, episodeID
 		return
 	}
 	status := s.statusValueFromEpisode(r.Context(), value)
-	result, err := observability.Collect(r.Context(), s.store, value, status.Execution, status.ParentApproval, status.ParentDecision, status.Artifact, status.Validation)
+	result, err := observability.CollectWithOptions(r.Context(), s.store, value, status.Execution, status.ParentApproval, status.ParentDecision, status.Artifact, status.Validation, observability.CollectOptions{IncludeArtifactBody: strings.EqualFold(r.URL.Query().Get("include_artifact_body"), "true"), RuntimeVariant: s.variant})
 	if err != nil {
 		writeDomainError(w, err)
 		return

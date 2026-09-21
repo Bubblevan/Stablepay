@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,10 +28,13 @@ type S6DecisionRequest struct {
 }
 
 type S6DecisionResult struct {
-	Context      llm.DecisionContext
-	Proposal     decision.DecisionProposal
-	Trace        llm.ModelDecisionTrace
-	UsedFallback bool
+	Context                       llm.DecisionContext
+	Proposal                      decision.DecisionProposal
+	Trace                         llm.ModelDecisionTrace
+	UsedFallback                  bool
+	MemoryRetrievalAttempted      bool
+	MemoryRetrievalPolicyReason   string
+	MemoryRetrievalCandidateCount int
 }
 
 // BuildDecisionContext is the only application read path used to assemble an
@@ -180,13 +184,20 @@ func (s *Service) ProposeRecoveryDecision(ctx context.Context, request S6Decisio
 	if current.State != episode.StateRecovering {
 		return S6DecisionResult{}, decision.ErrActionNotAllowed
 	}
+	memoryAttempted, memoryReason, memoryCandidates := s.memoryRetrievalMetadata(current)
+	if memoryAttempted {
+		memoryCandidates = len(contextValue.RetrievedMemories)
+		for _, candidate := range contextValue.CandidateMemories {
+			memoryCandidates += len(candidate.Memories)
+		}
+	}
 	if s.llmProvider != nil {
 		result, providerErr := s.llmProvider.ProposeWithTrace(ctx, contextValue)
 		if providerErr == nil {
 			if err := s.persistModelTrace(ctx, &result.Trace); err != nil {
 				return S6DecisionResult{}, err
 			}
-			return S6DecisionResult{Context: contextValue, Proposal: result.Proposal, Trace: result.Trace}, nil
+			return S6DecisionResult{Context: contextValue, Proposal: result.Proposal, Trace: result.Trace, MemoryRetrievalAttempted: memoryAttempted, MemoryRetrievalPolicyReason: memoryReason, MemoryRetrievalCandidateCount: memoryCandidates}, nil
 		}
 		if result.Trace.Validate() != nil {
 			now := s.clock().UTC()
@@ -195,6 +206,11 @@ func (s *Service) ProposeRecoveryDecision(ctx context.Context, request S6Decisio
 		if err := s.persistModelTrace(ctx, &result.Trace); err != nil {
 			return S6DecisionResult{}, err
 		}
+		stage := trace.DecisionStageTransport
+		if result.Trace.Status == llm.TraceParseError {
+			stage = trace.DecisionStageParseSchema
+		}
+		_ = s.persistDecisionOutcome(ctx, result.Trace, result.Proposal, stage, false, false, result.Trace.ErrorCode, nil, nil)
 		if !s.allowRuleFallback {
 			return S6DecisionResult{}, providerErr
 		}
@@ -202,12 +218,22 @@ func (s *Service) ProposeRecoveryDecision(ctx context.Context, request S6Decisio
 		if fallbackErr != nil {
 			return S6DecisionResult{}, fallbackErr
 		}
+		fallback.MemoryRetrievalAttempted = memoryAttempted
+		fallback.MemoryRetrievalPolicyReason = memoryReason
+		fallback.MemoryRetrievalCandidateCount = memoryCandidates
 		return fallback, nil
 	}
 	if !s.allowRuleFallback {
 		return S6DecisionResult{}, llm.ErrLLMUnavailable
 	}
-	return s.ruleFallback(ctx, contextValue, current, request.Query, llm.ErrLLMUnavailable)
+	fallback, fallbackErr := s.ruleFallback(ctx, contextValue, current, request.Query, llm.ErrLLMUnavailable)
+	if fallbackErr != nil {
+		return S6DecisionResult{}, fallbackErr
+	}
+	fallback.MemoryRetrievalAttempted = memoryAttempted
+	fallback.MemoryRetrievalPolicyReason = memoryReason
+	fallback.MemoryRetrievalCandidateCount = memoryCandidates
+	return fallback, nil
 }
 
 // ExecuteRecoveryDecision is the explicit LLM-to-runtime handoff. The model
@@ -218,6 +244,7 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 	if err != nil {
 		return CommitResult{}, result, err
 	}
+	before := s.snapshotGuardSideEffects(ctx, request.EpisodeID)
 	if evidenceErr := llm.ValidateProposalEvidenceAgainstContext(result.Context, result.Proposal); evidenceErr != nil {
 		rejected := result.Trace
 		rejected.TraceID = result.Trace.TraceID + ":context"
@@ -225,6 +252,7 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = "CONTEXT_EVIDENCE_MISMATCH"
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistDecisionOutcome(ctx, rejected, result.Proposal, trace.DecisionStageContextEvidence, false, false, rejected.ErrorCode, before, s.snapshotGuardSideEffects(ctx, request.EpisodeID))
 		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, evidenceErr
 	}
@@ -235,6 +263,7 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = "CONTEXT_MEMORY_MISMATCH"
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistDecisionOutcome(ctx, rejected, result.Proposal, trace.DecisionStageContextMemory, false, false, rejected.ErrorCode, before, s.snapshotGuardSideEffects(ctx, request.EpisodeID))
 		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, memoryErr
 	}
@@ -252,12 +281,14 @@ func (s *Service) ExecuteRecoveryDecision(ctx context.Context, request S6Decisio
 		rejected.ErrorCode = errorCodeForS6(commitErr)
 		rejected.ResponseReceivedAt = s.clock().UTC()
 		_ = s.persistModelTrace(ctx, &rejected)
+		_ = s.persistDecisionOutcome(ctx, rejected, result.Proposal, trace.DecisionStageRuntimeGuard, true, false, rejected.ErrorCode, before, s.snapshotGuardSideEffects(ctx, request.EpisodeID))
 		_ = s.persistMemoryUseTrace(ctx, result, false)
 		return CommitResult{}, result, commitErr
 	}
 	if err := s.persistMemoryUseTrace(ctx, result, true); err != nil {
 		return CommitResult{}, result, err
 	}
+	_ = s.persistDecisionOutcome(ctx, result.Trace, result.Proposal, trace.DecisionStageAccepted, true, true, "", before, s.snapshotGuardSideEffects(ctx, request.EpisodeID))
 	return commit, result, nil
 }
 
@@ -291,7 +322,74 @@ func (s *Service) ruleFallback(ctx context.Context, contextValue llm.DecisionCon
 	if err := s.persistModelTrace(ctx, &traceValue); err != nil {
 		return S6DecisionResult{}, err
 	}
+	_ = s.persistDecisionOutcome(ctx, traceValue, proposal, trace.DecisionStageFallback, false, false, traceValue.ErrorCode, nil, nil)
 	return S6DecisionResult{Context: contextValue, Proposal: proposal, Trace: traceValue, UsedFallback: true}, nil
+}
+
+func (s *Service) memoryRetrievalMetadata(current *episode.CommerceEpisode) (bool, string, int) {
+	if s.memoryStore == nil || s.memoryRetrievalPolicy == nil {
+		return false, "memory_disabled_runtime_variant", 0
+	}
+	plan := s.memoryRetrievalPolicy.Plan(memory.EpisodeSnapshot{State: current.State, SelectedMerchantDID: current.SelectedMerchantDID, SelectedCapabilityID: current.SelectedCapabilityID, RequesterDID: current.RequesterDID, ParentSessionID: current.SessionID}, nil, nil)
+	if !plan.Enabled {
+		return false, plan.Reason, 0
+	}
+	return true, plan.Reason, plan.TotalLimit
+}
+
+func (s *Service) snapshotGuardSideEffects(ctx context.Context, episodeID string) *trace.GuardSideEffectSnapshot {
+	store, ok := s.store.(repository.SideEffectSnapshotRepository)
+	if !ok {
+		return nil
+	}
+	snapshot, err := store.SnapshotSideEffects(ctx, episodeID)
+	if err != nil {
+		return nil
+	}
+	return &snapshot
+}
+
+func (s *Service) persistDecisionOutcome(ctx context.Context, modelTrace llm.ModelDecisionTrace, proposal decision.DecisionProposal, stage trace.DecisionStage, reachedGuard, accepted bool, errorCode string, before, after *trace.GuardSideEffectSnapshot) error {
+	store, ok := s.store.(repository.DecisionOutcomeTraceRepository)
+	if !ok {
+		return nil
+	}
+	modelTraceID := strings.TrimSpace(modelTrace.TraceID)
+	if modelTraceID == "" {
+		modelTraceID = "unknown-model-trace"
+	}
+	proposalID := strings.TrimSpace(proposal.ProposalID)
+	if proposalID == "" {
+		proposalID = modelTraceID + ":unknown-proposal"
+	}
+	proposedAction := strings.TrimSpace(string(proposal.ProposedAction))
+	if proposedAction == "" {
+		proposedAction = "UNKNOWN"
+	}
+	identity := strings.Join([]string{modelTrace.EpisodeID, modelTraceID, proposalID, string(stage), errorCode}, "\x00")
+	digest := sha256.Sum256([]byte(identity))
+	id := "dot_" + hex.EncodeToString(digest[:])
+	now := s.clock().UTC()
+	value := &trace.DecisionOutcomeTrace{DecisionOutcomeTraceID: id, EpisodeID: modelTrace.EpisodeID, ModelDecisionTraceID: modelTraceID, ProposalID: proposalID, ProposedAction: proposedAction, Stage: stage, ReachedRuntimeGuard: reachedGuard, GuardAccepted: accepted, ErrorCode: errorCode, CreatedAt: now, FactsRef: "decision-outcome-trace://" + id, SideEffectsBefore: before, SideEffectsAfter: after}
+	canonical, err := json.Marshal(struct {
+		ID       string                         `json:"id"`
+		Episode  string                         `json:"episode"`
+		Model    string                         `json:"model"`
+		Proposal string                         `json:"proposal"`
+		Action   string                         `json:"action"`
+		Stage    trace.DecisionStage            `json:"stage"`
+		Reached  bool                           `json:"reached"`
+		Accepted bool                           `json:"accepted"`
+		Error    string                         `json:"error"`
+		Before   *trace.GuardSideEffectSnapshot `json:"before,omitempty"`
+		After    *trace.GuardSideEffectSnapshot `json:"after,omitempty"`
+	}{id, value.EpisodeID, modelTraceID, proposalID, proposedAction, stage, reachedGuard, accepted, errorCode, before, after})
+	if err != nil {
+		return err
+	}
+	payload := sha256.Sum256(canonical)
+	value.PayloadHash = "sha256:" + hex.EncodeToString(payload[:])
+	return store.SaveDecisionOutcomeTrace(ctx, value)
 }
 
 func (s *Service) persistModelTrace(ctx context.Context, value *llm.ModelDecisionTrace) error {
@@ -366,7 +464,7 @@ func (s *Service) persistMemoryUseTrace(ctx context.Context, result S6DecisionRe
 	if strings.TrimSpace(action) == "" {
 		action = "UNKNOWN"
 	}
-	value := &memory.MemoryUseTrace{MemoryUseTraceID: id, EpisodeID: result.Context.Episode.EpisodeID, ModelDecisionTraceID: result.Trace.TraceID, ContextHash: contextHash, RetrievedMemoryRefs: fallbackMemoryRefs(result.Context), CitedMemoryRefs: append([]string(nil), result.Proposal.MemoryRefs...), ProposedAction: action, GuardAccepted: accepted, CreatedAt: s.clock().UTC(), FactsRef: "memory-use-trace://" + id}
+	value := &memory.MemoryUseTrace{MemoryUseTraceID: id, EpisodeID: result.Context.Episode.EpisodeID, ModelDecisionTraceID: result.Trace.TraceID, ContextHash: contextHash, RetrievedMemoryRefs: fallbackMemoryRefs(result.Context), CitedMemoryRefs: append([]string(nil), result.Proposal.MemoryRefs...), RetrievalAttempted: result.MemoryRetrievalAttempted, RetrievalPolicyReason: result.MemoryRetrievalPolicyReason, RetrievalCandidateCount: result.MemoryRetrievalCandidateCount, ProposedAction: action, GuardAccepted: accepted, CreatedAt: s.clock().UTC(), FactsRef: "memory-use-trace://" + id}
 	if err := value.RefreshPayloadHash(); err != nil {
 		return err
 	}

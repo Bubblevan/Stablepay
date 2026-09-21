@@ -14,17 +14,20 @@ import (
 )
 
 type MemoryUseTraceModel struct {
-	MemoryUseTraceID     string    `gorm:"column:memory_use_trace_id;type:varchar(128);primaryKey"`
-	EpisodeID            string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_memory_use_trace_episode"`
-	ModelDecisionTraceID string    `gorm:"column:model_decision_trace_id;type:varchar(255);not null"`
-	ContextHash          string    `gorm:"column:context_hash;type:char(71);not null"`
-	RetrievedMemoryRefs  []byte    `gorm:"column:retrieved_memory_refs;type:json"`
-	CitedMemoryRefs      []byte    `gorm:"column:cited_memory_refs;type:json"`
-	ProposedAction       string    `gorm:"column:proposed_action;type:varchar(64);not null"`
-	GuardAccepted        bool      `gorm:"column:guard_accepted;not null"`
-	CreatedAt            time.Time `gorm:"column:created_at;type:datetime(6);not null"`
-	FactsRef             string    `gorm:"column:facts_ref;type:varchar(255);not null"`
-	PayloadHash          string    `gorm:"column:payload_hash;type:char(71);not null"`
+	MemoryUseTraceID        string    `gorm:"column:memory_use_trace_id;type:varchar(128);primaryKey"`
+	EpisodeID               string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_memory_use_trace_episode"`
+	ModelDecisionTraceID    string    `gorm:"column:model_decision_trace_id;type:varchar(255);not null"`
+	ContextHash             string    `gorm:"column:context_hash;type:char(71);not null"`
+	RetrievedMemoryRefs     []byte    `gorm:"column:retrieved_memory_refs;type:json"`
+	CitedMemoryRefs         []byte    `gorm:"column:cited_memory_refs;type:json"`
+	RetrievalAttempted      bool      `gorm:"column:retrieval_attempted;not null;default:false"`
+	RetrievalPolicyReason   string    `gorm:"column:retrieval_policy_reason;type:varchar(128)"`
+	RetrievalCandidateCount int       `gorm:"column:retrieval_candidate_count;not null;default:0"`
+	ProposedAction          string    `gorm:"column:proposed_action;type:varchar(64);not null"`
+	GuardAccepted           bool      `gorm:"column:guard_accepted;not null"`
+	CreatedAt               time.Time `gorm:"column:created_at;type:datetime(6);not null"`
+	FactsRef                string    `gorm:"column:facts_ref;type:varchar(255);not null"`
+	PayloadHash             string    `gorm:"column:payload_hash;type:char(71);not null"`
 }
 
 func (MemoryUseTraceModel) TableName() string { return "memory_use_traces" }
@@ -41,11 +44,11 @@ func memoryUseTraceToModel(value *memory.MemoryUseTrace) (*MemoryUseTraceModel, 
 	if err != nil {
 		return nil, err
 	}
-	return &MemoryUseTraceModel{MemoryUseTraceID: value.MemoryUseTraceID, EpisodeID: value.EpisodeID, ModelDecisionTraceID: value.ModelDecisionTraceID, ContextHash: value.ContextHash, RetrievedMemoryRefs: retrieved, CitedMemoryRefs: cited, ProposedAction: value.ProposedAction, GuardAccepted: value.GuardAccepted, CreatedAt: value.CreatedAt, FactsRef: value.FactsRef, PayloadHash: value.PayloadHash}, nil
+	return &MemoryUseTraceModel{MemoryUseTraceID: value.MemoryUseTraceID, EpisodeID: value.EpisodeID, ModelDecisionTraceID: value.ModelDecisionTraceID, ContextHash: value.ContextHash, RetrievedMemoryRefs: retrieved, CitedMemoryRefs: cited, RetrievalAttempted: value.RetrievalAttempted, RetrievalPolicyReason: value.RetrievalPolicyReason, RetrievalCandidateCount: value.RetrievalCandidateCount, ProposedAction: value.ProposedAction, GuardAccepted: value.GuardAccepted, CreatedAt: value.CreatedAt, FactsRef: value.FactsRef, PayloadHash: value.PayloadHash}, nil
 }
 
 func modelToMemoryUseTrace(row MemoryUseTraceModel) (*memory.MemoryUseTrace, error) {
-	value := &memory.MemoryUseTrace{MemoryUseTraceID: row.MemoryUseTraceID, EpisodeID: row.EpisodeID, ModelDecisionTraceID: row.ModelDecisionTraceID, ContextHash: row.ContextHash, ProposedAction: row.ProposedAction, GuardAccepted: row.GuardAccepted, CreatedAt: row.CreatedAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
+	value := &memory.MemoryUseTrace{MemoryUseTraceID: row.MemoryUseTraceID, EpisodeID: row.EpisodeID, ModelDecisionTraceID: row.ModelDecisionTraceID, ContextHash: row.ContextHash, RetrievalAttempted: row.RetrievalAttempted, RetrievalPolicyReason: row.RetrievalPolicyReason, RetrievalCandidateCount: row.RetrievalCandidateCount, ProposedAction: row.ProposedAction, GuardAccepted: row.GuardAccepted, CreatedAt: row.CreatedAt, FactsRef: row.FactsRef, PayloadHash: row.PayloadHash}
 	if len(row.RetrievedMemoryRefs) > 0 {
 		if err := json.Unmarshal(row.RetrievedMemoryRefs, &value.RetrievedMemoryRefs); err != nil {
 			return nil, err

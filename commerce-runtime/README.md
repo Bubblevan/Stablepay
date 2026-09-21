@@ -75,10 +75,17 @@ The external benchmark CLI writes reproducible JSONL/JSON/Markdown outputs:
 ```text
 go run ./cmd/stablepay-agent-eval plans
 go run ./cmd/stablepay-agent-eval run --dataset testdata/s11/scenarios.jsonl --out-dir .local-run/s11
+go run ./cmd/stablepay-agent-eval run --dataset testdata/s11/scenarios.jsonl --runtime-cli stablepay-runtime --out-dir .local-run/s11-cli
 go run ./cmd/stablepay-agent-eval report --input .local-run/s11/episode_results.jsonl --out-dir .local-run/s11
 go run ./cmd/stablepay-agent-eval export --episode-id <id> --out .local-run/s11/trace.json
 go run ./cmd/stablepay-agent-eval check --server http://127.0.0.1:8090
 ```
+
+`testdata/s11/adversarial.jsonl` is a deterministic replay/controller fixture
+set for malformed output, unknown actions, fake evidence/memory references,
+hallucinated merchants, and stale proposals. It is graded by persisted
+DecisionOutcomeTrace stages and protected side-effect counters; it is not
+presented as a live provider benchmark.
 
 `run` uses only the external Runtime HTTP/MCP surface. A live fault case is
 marked `applied=false` unless an external controller is configured with
@@ -86,3 +93,19 @@ marked `applied=false` unless an external controller is configured with
 live DeepSeek, payment or Devnet evidence. `cmd/s11-fault-proxy` is an opt-in
 HTTP injector for merchant, LLM and verification dependencies. Payment fault
 plans remain replay/controller cases unless a Kitex-aware injector is present.
+
+S11.1 integrity controls qualify every headline by `offline`, `replay`, or
+`live`, emit numerator/denominator pairs, and mark small samples descriptive
+only. A terminal episode is determined by `episode.IsTerminal`, while
+`execution.status=COMPLETED` is operational evidence only. Use
+`COMMERCE_RUNTIME_MEMORY_MODE=on|off` and
+`COMMERCE_RUNTIME_RECOVERY_PROVIDER=llm|rule` to select the actual runtime
+variant. The eval CLI requires `--runtime-cli` for `IngressCLI`; it never
+silently substitutes HTTP. Artifact bodies are omitted by default and require
+`--include-artifact-body` for an explicit export.
+
+The committed replay example is intentionally labelled **EXAMPLE / REPLAY -
+NOT A LIVE BENCHMARK**. A live-local run, when its external services are
+available, should be written under `.local-run/s11`; it must be inspected for
+`RuntimeVariant`, `ModelDecisionTrace`, fault-controller status, and the
+terminal artifact before making provider or recovery claims.

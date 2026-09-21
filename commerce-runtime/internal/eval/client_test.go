@@ -80,3 +80,26 @@ func TestExternalClientUsesPublicHTTPMCPAndRuntimeChecks(t *testing.T) {
 		t.Fatalf("idempotency did not reach public ingress: %#v", seenIdempotency)
 	}
 }
+
+func TestCLIIngressDoesNotSilentlyFallBackToHTTP(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		http.Error(writer, "unexpected HTTP fallback", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, PollInterval: time.Millisecond, PollTimeout: time.Second}
+	results, err := client.Run(context.Background(), []Scenario{{
+		CaseID: "cli-no-fallback", Seed: 9, Ingress: IngressCLI, MemoryMode: "off", RecoveryProvider: "rule", Path: "happy",
+		Request: json.RawMessage(`{"request_id":"cli-no-fallback"}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !strings.Contains(results[0].CollectionError, "HTTP fallback is disabled") {
+		t.Fatalf("CLI ingress did not report the missing executable: %#v", results)
+	}
+	if called {
+		t.Fatal("CLI ingress silently called the HTTP server")
+	}
+}

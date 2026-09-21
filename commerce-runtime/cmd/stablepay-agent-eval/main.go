@@ -54,6 +54,8 @@ func run(args []string) error {
 	server := set.String("server", envOr("COMMERCE_RUNTIME_URL", "http://127.0.0.1:8090"), "Runtime server URL")
 	token := set.String("token", os.Getenv("COMMERCE_RUNTIME_API_TOKEN"), "Runtime API token")
 	injector := set.String("injector", "", "external fault-controller URL")
+	runtimeCLI := set.String("runtime-cli", "", "stablepay-runtime executable for true CLI ingress")
+	trials := set.Int("trials", 1, "independent trials per task")
 	poll := set.Duration("poll", 500*time.Millisecond, "status poll interval")
 	timeout := set.Duration("timeout", 5*time.Minute, "per episode poll timeout")
 	if err := set.Parse(args); err != nil {
@@ -66,7 +68,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := eval.Client{BaseURL: *server, Token: *token, InjectorURL: *injector, PollInterval: *poll, PollTimeout: *timeout}
+	scenarios, err = expandTrials(scenarios, *trials)
+	if err != nil {
+		return err
+	}
+	client := eval.Client{BaseURL: *server, Token: *token, InjectorURL: *injector, RuntimeCLI: *runtimeCLI, PollInterval: *poll, PollTimeout: *timeout}
 	results, err := client.Run(context.Background(), scenarios)
 	if err != nil {
 		return err
@@ -97,13 +103,18 @@ func export(args []string) error {
 	token := set.String("token", os.Getenv("COMMERCE_RUNTIME_API_TOKEN"), "Runtime API token")
 	episodeID := set.String("episode-id", "", "episode id")
 	out := set.String("out", "trace.json", "trace JSON output")
+	includeBody := set.Bool("include-artifact-body", false, "explicitly include artifact body")
 	if err := set.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*episodeID) == "" {
 		return errors.New("--episode-id is required")
 	}
-	request, err := http.NewRequest(http.MethodGet, strings.TrimRight(*server, "/")+"/v1/episodes/"+*episodeID+"/observability", nil)
+	path := "/v1/episodes/" + *episodeID + "/observability"
+	if *includeBody {
+		path += "?include_artifact_body=true"
+	}
+	request, err := http.NewRequest(http.MethodGet, strings.TrimRight(*server, "/")+path, nil)
 	if err != nil {
 		return err
 	}
@@ -182,6 +193,24 @@ func writeOutputs(outDir string, results []observability.EpisodeResult) error {
 	if err := jsonl.Close(); err != nil {
 		return err
 	}
+	grades, err := os.Create(filepath.Join(outDir, "grade_results.jsonl"))
+	if err != nil {
+		return err
+	}
+	gradeEncoder := json.NewEncoder(grades)
+	for _, result := range results {
+		grade := result.Grade
+		if len(grade.Assertions) == 0 {
+			grade = observability.GradeEpisode(result)
+		}
+		if err := gradeEncoder.Encode(map[string]any{"case_id": result.CaseID, "task_id": result.TaskID, "trial_index": result.TrialIndex, "grade": grade}); err != nil {
+			_ = grades.Close()
+			return err
+		}
+	}
+	if err := grades.Close(); err != nil {
+		return err
+	}
 	metrics := observability.Compute(results, time.Now().UTC())
 	encoded, err := json.MarshalIndent(metrics, "", "  ")
 	if err != nil {
@@ -252,4 +281,52 @@ func envOr(key, fallback string) string {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: stablepay-agent-eval {run|report|export|check|plans} [flags]")
+}
+
+func expandTrials(scenarios []eval.Scenario, trials int) ([]eval.Scenario, error) {
+	if trials <= 0 {
+		return nil, errors.New("--trials must be positive")
+	}
+	if trials == 1 {
+		return scenarios, nil
+	}
+	result := make([]eval.Scenario, 0, len(scenarios)*trials)
+	for _, scenario := range scenarios {
+		taskID := scenario.TaskID
+		if taskID == "" {
+			taskID = scenario.CaseID
+		}
+		for trial := 0; trial < trials; trial++ {
+			copy := scenario
+			copy.TaskID = taskID
+			copy.TrialIndex = trial + 1
+			copy.CaseID = fmt.Sprintf("%s#trial-%d", scenario.CaseID, trial+1)
+			copy.Seed = scenario.Seed + int64((trial+1)*1000003)
+			if len(copy.Request) > 0 {
+				var request map[string]any
+				if err := json.Unmarshal(copy.Request, &request); err != nil {
+					return nil, fmt.Errorf("trial request %s: %w", copy.CaseID, err)
+				}
+				request["request_id"] = fmt.Sprintf("%s-trial-%d", requestIDFromScenario(copy.Request), trial+1)
+				encoded, err := json.Marshal(request)
+				if err != nil {
+					return nil, err
+				}
+				copy.Request = encoded
+			}
+			result = append(result, copy)
+		}
+	}
+	return result, nil
+}
+
+func requestIDFromScenario(raw json.RawMessage) string {
+	var value struct {
+		RequestID string `json:"request_id"`
+	}
+	_ = json.Unmarshal(raw, &value)
+	if strings.TrimSpace(value.RequestID) == "" {
+		return "s11-task"
+	}
+	return value.RequestID
 }

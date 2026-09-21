@@ -22,6 +22,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/infrastructure/mysql"
 	"github.com/stablepay/commerce-runtime/internal/llm"
 	"github.com/stablepay/commerce-runtime/internal/memory"
+	"github.com/stablepay/commerce-runtime/internal/observability"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
@@ -46,14 +47,23 @@ type Composition struct {
 	Runtime     *application.Service
 	Runner      *runtime.Runner
 	Credential  *adapters.RealCredentialProvider
+	Variant     observability.RuntimeVariant
 }
 
 func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error) {
 	if strings.TrimSpace(cfg.MySQLDSN) == "" {
 		return nil, errors.New("COMMERCE_RUNTIME_MYSQL_DSN is required")
 	}
-	if strings.TrimSpace(cfg.LLMBaseURL) == "" || strings.TrimSpace(cfg.LLMModel) == "" {
-		return nil, errors.New("LLM_BASE_URL and LLM_MODEL are required")
+	memoryMode := strings.ToLower(strings.TrimSpace(cfg.MemoryMode))
+	if memoryMode != "on" && memoryMode != "off" {
+		return nil, errors.New("COMMERCE_RUNTIME_MEMORY_MODE must be on or off")
+	}
+	recoveryProvider := strings.ToLower(strings.TrimSpace(cfg.RecoveryProvider))
+	if recoveryProvider != "llm" && recoveryProvider != "rule" {
+		return nil, errors.New("COMMERCE_RUNTIME_RECOVERY_PROVIDER must be llm or rule")
+	}
+	if recoveryProvider == "llm" && (strings.TrimSpace(cfg.LLMBaseURL) == "" || strings.TrimSpace(cfg.LLMModel) == "") {
+		return nil, errors.New("LLM_BASE_URL and LLM_MODEL are required for recovery_provider=llm")
 	}
 	network := firstEnvironmentValue("COMMERCE_RUNTIME_SETTLEMENT_NETWORK", "SOLANA_NETWORK")
 	assets := settlementAssets()
@@ -81,9 +91,12 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 	}
 	store := mysql.NewStore(db)
 
-	deepseek, err := llm.NewProviderFromConfig(cfg.LLMProvider, cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, llm.WithProviderTTL(2*time.Minute))
-	if err != nil {
-		return nil, fmt.Errorf("configure DeepSeek: %w", err)
+	var deepseek *llm.LLMDecisionProvider
+	if recoveryProvider == "llm" {
+		deepseek, err = llm.NewProviderFromConfig(cfg.LLMProvider, cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, llm.WithProviderTTL(2*time.Minute))
+		if err != nil {
+			return nil, fmt.Errorf("configure DeepSeek: %w", err)
+		}
 	}
 	credential, err := adapters.NewRealCredentialProvider(adapters.RealCredentialProviderConfig{AgentKeypairPath: cfg.AgentKeypairPath, DIDServiceAddr: cfg.DIDServiceAddr, BlockchainAddr: cfg.BlockchainAdapterAddr, RPCTimeout: 90 * time.Second})
 	if err != nil {
@@ -97,20 +110,32 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 	merchant := adapters.NewHTTPMerchantAdapter(&http.Client{Timeout: cfg.MerchantTimeout})
 	verification := adapters.NewStablePayVerificationEntitlement(cfg.GatewayBaseURL, cfg.GatewayAPIKey)
 	validatorRegistry := validator.NewBuiltinRegistry()
-	service := application.NewService(store,
+	serviceOptions := []application.Option{
 		application.WithRuntimeVersion(cfg.RuntimeVersion),
 		application.WithMerchantAdapter(merchant),
 		application.WithSettlementPolicy(application.SettlementPolicy{Network: network, Assets: assets}),
 		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Status: kitexPayment, Entitlement: verification}),
-		application.WithLLMDecisionProvider(deepseek),
 		application.WithPersistentEvidenceStore(store),
-		application.WithMemoryStore(store),
 		application.WithValidatorRegistry(validatorRegistry),
-		application.WithRuleRecoveryFallback(false),
-	)
+		application.WithRuleRecoveryFallback(recoveryProvider == "rule"),
+	}
+	if deepseek != nil {
+		serviceOptions = append(serviceOptions, application.WithLLMDecisionProvider(deepseek))
+	}
+	if memoryMode == "on" {
+		serviceOptions = append(serviceOptions, application.WithMemoryStore(store))
+	}
+	service := application.NewService(store, serviceOptions...)
 	runner := runtime.NewRunner(service, store, runtime.WithMaxSteps(cfg.MaxRunnerSteps), runtime.WithCredentialProvider(credential), runtime.WithRootContext(ctx), runtime.WithScanInterval(cfg.SupervisorInterval), runtime.WithRetryBackoff(250*time.Millisecond, cfg.RunnerRetryMax))
 	closeOnError = false
-	return &Composition{Config: cfg, DB: db, Store: store, Catalog: store, Evidence: store, Memory: store, DeepSeek: deepseek, Merchant: merchant, DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Entitlement: verification, Validator: validatorRegistry, Runtime: service, Runner: runner, Credential: credential}, nil
+	modelRef := cfg.LLMModel
+	llmProvider := cfg.LLMProvider
+	if recoveryProvider == "rule" {
+		llmProvider = "none"
+		modelRef = "rule-recovery"
+	}
+	variant := observability.RuntimeVariant{RuntimeVersion: cfg.RuntimeVersion, MemoryMode: memoryMode, RecoveryProvider: recoveryProvider, LLMProvider: llmProvider, ModelRef: modelRef}.WithHash()
+	return &Composition{Config: cfg, DB: db, Store: store, Catalog: store, Evidence: store, Memory: store, DeepSeek: deepseek, Merchant: merchant, DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Entitlement: verification, Validator: validatorRegistry, Runtime: service, Runner: runner, Credential: credential, Variant: variant}, nil
 }
 
 func (c *Composition) Close() error {
@@ -131,7 +156,7 @@ func (c *Composition) Close() error {
 }
 
 func (c *Composition) Ready(ctx context.Context) error {
-	if c == nil || c.DB == nil || c.Store == nil || c.Catalog == nil || c.Evidence == nil || c.Memory == nil || c.DeepSeek == nil || c.Merchant == nil || c.DID == nil || c.Payment == nil || c.Entitlement == nil || c.Validator == nil || c.Runtime == nil || c.Runner == nil || c.Credential == nil || !c.Runner.SupervisorStarted() {
+	if c == nil || c.DB == nil || c.Store == nil || c.Catalog == nil || c.Evidence == nil || c.Memory == nil || (c.Variant.RecoveryProvider == "llm" && c.DeepSeek == nil) || c.Merchant == nil || c.DID == nil || c.Payment == nil || c.Entitlement == nil || c.Validator == nil || c.Runtime == nil || c.Runner == nil || c.Credential == nil || !c.Runner.SupervisorStarted() {
 		return errors.New("production composition is incomplete")
 	}
 	db, err := c.DB.DB()

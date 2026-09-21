@@ -14,6 +14,8 @@ type Config struct {
 	LLMBaseURL            string
 	LLMAPIKey             string
 	LLMModel              string
+	MemoryMode            string
+	RecoveryProvider      string
 	HTTPAddr              string
 	APIToken              string
 	AllowInsecure         bool
@@ -42,6 +44,7 @@ func FromEnv() Config {
 	return Config{
 		MySQLDSN: os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN"), RuntimeVersion: version,
 		LLMProvider: firstNonEmpty(os.Getenv("LLM_PROVIDER"), "deepseek"), LLMBaseURL: os.Getenv("LLM_BASE_URL"), LLMAPIKey: os.Getenv("LLM_API_KEY"), LLMModel: firstNonEmpty(os.Getenv("LLM_MODEL"), os.Getenv("LLM_MODEL_ID")),
+		MemoryMode: firstNonEmpty(os.Getenv("COMMERCE_RUNTIME_MEMORY_MODE"), "on"), RecoveryProvider: firstNonEmpty(os.Getenv("COMMERCE_RUNTIME_RECOVERY_PROVIDER"), "llm"),
 		HTTPAddr: addr, APIToken: strings.TrimSpace(os.Getenv("COMMERCE_RUNTIME_API_TOKEN")), AllowInsecure: strings.EqualFold(os.Getenv("COMMERCE_RUNTIME_ALLOW_INSECURE"), "true"),
 		PaymentServiceAddr: firstNonEmpty(os.Getenv("STABLEPAY_PAYMENT_SERVICE_ADDR"), "127.0.0.1:8888"), DIDServiceAddr: firstNonEmpty(os.Getenv("STABLEPAY_DID_SERVICE_ADDR"), "127.0.0.1:8081"), BlockchainAdapterAddr: firstNonEmpty(os.Getenv("STABLEPAY_BLOCKCHAIN_ADAPTER_ADDR"), "127.0.0.1:8083"), AgentKeypairPath: os.Getenv("STABLEPAY_E2E_AGENT_KEYPAIR_PATH"),
 		GatewayBaseURL: firstNonEmpty(os.Getenv("STABLEPAY_GATEWAY_BASE_URL"), "http://127.0.0.1:8080"), GatewayAPIKey: firstNonEmpty(os.Getenv("STABLEPAY_API_KEY"), "stablepay-dev-key"), MerchantTimeout: merchantTimeout, MaxRunnerSteps: maxSteps, SupervisorInterval: supervisorInterval, RunnerRetryMax: runnerRetryMax,

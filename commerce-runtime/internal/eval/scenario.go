@@ -25,16 +25,27 @@ const (
 )
 
 type Scenario struct {
-	CaseID           string                         `json:"case_id"`
-	Seed             int64                          `json:"seed"`
-	Ingress          string                         `json:"ingress"`
-	MemoryMode       string                         `json:"memory_mode"`
-	RecoveryProvider string                         `json:"recovery_provider"`
-	Path             string                         `json:"path"`
-	Failure          observability.FailureInjection `json:"failure"`
-	Request          json.RawMessage                `json:"request,omitempty"`
-	AutoApprove      bool                           `json:"auto_approve"`
-	ReplayResult     *observability.EpisodeResult   `json:"replay_result,omitempty"`
+	CaseID                     string                         `json:"case_id"`
+	Seed                       int64                          `json:"seed"`
+	Ingress                    string                         `json:"ingress"`
+	MemoryMode                 string                         `json:"memory_mode"`
+	RecoveryProvider           string                         `json:"recovery_provider"`
+	Path                       string                         `json:"path"`
+	Suite                      string                         `json:"suite,omitempty"`
+	Environment                string                         `json:"environment,omitempty"`
+	TaskID                     string                         `json:"task_id,omitempty"`
+	TrialIndex                 int                            `json:"trial_index,omitempty"`
+	ExpectedTerminal           string                         `json:"expected_terminal,omitempty"`
+	ExpectedPaymentIntents     *int                           `json:"expected_payment_intents,omitempty"`
+	ExpectedSettlementCount    *int                           `json:"expected_settlement_count,omitempty"`
+	ExpectedEntitlementTxID    string                         `json:"expected_entitlement_tx_id,omitempty"`
+	RequireRecovery            bool                           `json:"require_recovery,omitempty"`
+	MustNotCreateSecondPayment bool                           `json:"must_not_create_second_payment,omitempty"`
+	ExpectedVariant            observability.RuntimeVariant   `json:"expected_variant,omitempty"`
+	Failure                    observability.FailureInjection `json:"failure"`
+	Request                    json.RawMessage                `json:"request,omitempty"`
+	AutoApprove                bool                           `json:"auto_approve"`
+	ReplayResult               *observability.EpisodeResult   `json:"replay_result,omitempty"`
 }
 
 func (s Scenario) Validate() error {
@@ -87,14 +98,14 @@ func RequiredFailurePlans() []FailurePlan {
 
 // InjectAt applies a stable hash sampler to a case index. It is used by a
 // controller or replay generator, never as a source of fake success metrics.
-func InjectAt(seed int64, caseID string, index, ratePercent int) bool {
+func InjectAt(seed int64, caseID, failureKind string, eligibleIndex, ratePercent int) bool {
 	if ratePercent <= 0 {
 		return false
 	}
 	if ratePercent >= 100 {
 		return true
 	}
-	key := fmt.Sprintf("%d\x00%s\x00%d", seed, caseID, index)
+	key := fmt.Sprintf("%d\x00%s\x00%s\x00%d", seed, caseID, failureKind, eligibleIndex)
 	digest := sha256.Sum256([]byte(key))
 	value, _ := hex.DecodeString(hex.EncodeToString(digest[:2]))
 	if len(value) != 2 {

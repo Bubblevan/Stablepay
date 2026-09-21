@@ -1,4 +1,6 @@
-# StablePay S11 Agent Eval / Observability / Reliability Benchmark
+# StablePay S11.1 Agent Eval / Metrics Integrity
+
+**EXAMPLE / REPLAY - NOT A LIVE BENCHMARK**
 
 - Schema: `s11.v1`
 - Generated: `2026-09-21T07:27:44Z`
@@ -6,7 +8,7 @@
 
 ## Evidence boundary
 
-This report is computed from externally collected Runtime observability snapshots. `offline`, `replay`, and `live` are counted separately. A live row without a `ModelDecisionTrace` is not described as having passed through DeepSeek; a real happy path may be `CLI -> Runtime -> Merchant -> Payment -> Devnet -> Verification -> FULFILLED` without an LLM recovery call.
+This report is computed from replayed, externally shaped Runtime observability snapshots. `offline`, `replay`, and `live` are counted separately, and headline rates must be read with their numerator/denominator. A live row without a `ModelDecisionTrace` is not described as having passed through DeepSeek; a real happy path may be `CLI -> Runtime -> Merchant -> Payment -> Devnet -> Verification -> FULFILLED` without an LLM recovery call. Small samples are descriptive only.
 
 Modes: `replay:6`; live rows with model trace: `0`; live rows without model trace: `0`; requested fault cases: `4`; applied fault cases: `4`.
 

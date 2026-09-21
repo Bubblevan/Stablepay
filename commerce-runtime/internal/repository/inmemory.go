@@ -18,6 +18,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
+	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
 // InMemoryStore is a deterministic repository for unit tests and local
@@ -51,6 +52,7 @@ type InMemoryStore struct {
 	memoryUseTraces          map[string]*memory.MemoryUseTrace
 	memoryRecords            map[string]*memory.MemoryRecord
 	memoryObservations       map[string]*memory.MemoryObservation
+	decisionOutcomeTraces    map[string]*trace.DecisionOutcomeTrace
 	executionStatuses        map[string]*EpisodeExecutionStatus
 }
 
@@ -83,6 +85,7 @@ func NewInMemoryStore() *InMemoryStore {
 		memoryUseTraces:          make(map[string]*memory.MemoryUseTrace),
 		memoryRecords:            make(map[string]*memory.MemoryRecord),
 		memoryObservations:       make(map[string]*memory.MemoryObservation),
+		decisionOutcomeTraces:    make(map[string]*trace.DecisionOutcomeTrace),
 		executionStatuses:        make(map[string]*EpisodeExecutionStatus),
 	}
 }

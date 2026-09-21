@@ -24,8 +24,8 @@ type proxy struct {
 	mu       sync.Mutex
 	upstream *httputil.ReverseProxy
 	profile  observability.FailureInjection
+	caseID   string
 	seed     int64
-	count    int
 }
 
 func main() {
@@ -59,6 +59,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.configure(w, r)
 		return
 	}
+	if r.URL.Path == "/v1/injections/current" && r.Method == http.MethodGet {
+		p.status(w)
+		return
+	}
 	if failure := p.nextFailure(r); failure != "" {
 		p.inject(w, r, failure)
 		return
@@ -82,42 +86,73 @@ func (p *proxy) configure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.Failure.Kind == "payment_transient" || request.Failure.Kind == "payment_permanent" {
-		writeJSON(w, http.StatusOK, map[string]any{"applied": false, "evidence": "payment requires a Kitex-aware external injector; HTTP proxy did not apply it"})
+		p.setUnsupportedProfile(request)
+		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "applied": false, "evidence": "payment requires a Kitex-aware external injector; HTTP proxy did not apply it"})
 		return
 	}
 	if request.Failure.Kind == "crash_restart" {
-		writeJSON(w, http.StatusOK, map[string]any{"applied": false, "evidence": "crash/restart requires an external process supervisor; HTTP proxy did not terminate Runtime"})
+		p.setUnsupportedProfile(request)
+		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "applied": false, "evidence": "crash/restart requires an external process supervisor; HTTP proxy did not terminate Runtime"})
 		return
 	}
+	request.Failure.Configured = true
+	request.Failure.Triggered = false
+	request.Failure.InjectionCount = 0
+	request.Failure.RequestCount = 0
+	request.Failure.EligibleCount = 0
+	request.Failure.LastInjectedAt = time.Time{}
 	p.mu.Lock()
 	p.profile = request.Failure
+	p.caseID = request.CaseID
 	p.seed = request.Seed
-	p.count = 0
 	p.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "evidence": fmt.Sprintf("http fault profile %s installed for case %s", request.Failure.Kind, request.CaseID)})
+	writeJSON(w, http.StatusOK, map[string]any{"configured": true, "applied": false, "evidence": fmt.Sprintf("http fault profile %s installed for case %s; awaiting trigger", request.Failure.Kind, request.CaseID)})
+}
+
+func (p *proxy) setUnsupportedProfile(request struct {
+	CaseID  string                         `json:"case_id"`
+	Seed    int64                          `json:"seed"`
+	Failure observability.FailureInjection `json:"failure"`
+}) {
+	p.mu.Lock()
+	p.profile = observability.FailureInjection{Kind: request.Failure.Kind, RatePercent: request.Failure.RatePercent, Repeat: request.Failure.Repeat, Evidence: "fault kind is unsupported by the HTTP proxy"}
+	p.caseID = request.CaseID
+	p.seed = request.Seed
+	p.mu.Unlock()
+}
+
+func (p *proxy) status(w http.ResponseWriter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	value := p.profile
+	value.Configured = p.profile.Configured
+	writeJSON(w, http.StatusOK, map[string]any{"case_id": p.caseID, "seed": p.seed, "kind": value.Kind, "configured": value.Configured, "request_count": value.RequestCount, "eligible_count": value.EligibleCount, "injection_count": value.InjectionCount, "last_injected_at": value.LastInjectedAt, "evidence": value.Evidence})
 }
 
 func (p *proxy) nextFailure(r *http.Request) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.count++
-	profile := p.profile
-	if profile.Kind == "" || profile.Kind == "none" {
+	if !p.profile.Configured || p.profile.Kind == "" || p.profile.Kind == "none" {
 		return ""
 	}
+	p.profile.RequestCount++
+	profile := p.profile
 	// The first merchant call is the x402 challenge. Delivery-invalid must
 	// preserve that challenge and corrupt the subsequent paid delivery.
-	if profile.Kind == "delivery_invalid" && p.count == 1 {
+	if profile.Kind == "delivery_invalid" && p.profile.RequestCount == 1 {
 		return ""
 	}
-	if profile.RatePercent > 0 && !eval.InjectAt(p.seed, profile.Kind, p.count, profile.RatePercent) {
+	if profile.Repeat > 0 && p.profile.InjectionCount >= profile.Repeat {
 		return ""
 	}
-	if profile.Kind == "merchant_transient" || profile.Kind == "llm_malformed" || profile.Kind == "llm_timeout" || profile.Kind == "verification_mismatch" || profile.Kind == "delivery_invalid" {
-		if profile.Repeat > 0 && p.count > profile.Repeat {
-			return ""
-		}
+	p.profile.EligibleCount++
+	if profile.RatePercent <= 0 || !eval.InjectAt(p.seed, p.caseID, profile.Kind, p.profile.EligibleCount, profile.RatePercent) {
+		return ""
 	}
+	p.profile.InjectionCount++
+	p.profile.Triggered = true
+	p.profile.LastInjectedAt = time.Now().UTC()
+	p.profile.Evidence = fmt.Sprintf("injection %d triggered for case %s", p.profile.InjectionCount, p.caseID)
 	if profile.Kind == "merchant_permanent" || profile.Kind == "payment_permanent" {
 		return profile.Kind
 	}

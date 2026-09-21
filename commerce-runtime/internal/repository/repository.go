@@ -14,6 +14,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/memory"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
+	"github.com/stablepay/commerce-runtime/internal/trace"
 )
 
 var (
@@ -37,6 +38,7 @@ var (
 	ErrRecoveryConflict           = errors.New("recovery context conflicts with an existing identity")
 	ErrModelTraceConflict         = errors.New("model decision trace conflicts with an existing identity")
 	ErrMemoryUseTraceConflict     = errors.New("memory use trace conflicts with an existing identity")
+	ErrDecisionOutcomeConflict    = errors.New("decision outcome trace conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {
@@ -123,6 +125,15 @@ type ModelDecisionTraceRepository interface {
 // cannot become an application mutation dependency.
 type ModelDecisionTraceLister interface {
 	ListModelDecisionTraces(context.Context, string) ([]*llm.ModelDecisionTrace, error)
+}
+
+type DecisionOutcomeTraceRepository interface {
+	SaveDecisionOutcomeTrace(context.Context, *trace.DecisionOutcomeTrace) error
+	ListDecisionOutcomeTraces(context.Context, string) ([]*trace.DecisionOutcomeTrace, error)
+}
+
+type SideEffectSnapshotRepository interface {
+	SnapshotSideEffects(context.Context, string) (trace.GuardSideEffectSnapshot, error)
 }
 
 type S6Store interface {

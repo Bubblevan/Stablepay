@@ -19,6 +19,9 @@ type MemoryUseTrace struct {
 	ContextHash          string    `json:"context_hash"`
 	RetrievedMemoryRefs  []string  `json:"retrieved_memory_refs,omitempty"`
 	CitedMemoryRefs      []string  `json:"cited_memory_refs,omitempty"`
+	RetrievalAttempted   bool      `json:"retrieval_attempted"`
+	RetrievalPolicyReason string   `json:"retrieval_policy_reason,omitempty"`
+	RetrievalCandidateCount int     `json:"retrieval_candidate_count,omitempty"`
 	ProposedAction       string    `json:"proposed_action"`
 	GuardAccepted        bool      `json:"guard_accepted"`
 	CreatedAt            time.Time `json:"created_at"`
@@ -37,6 +40,22 @@ func (t MemoryUseTrace) CanonicalSnapshot() ([]byte, error) {
 	copy.PayloadHash = ""
 	copy.RetrievedMemoryRefs = sortedUnique(copy.RetrievedMemoryRefs)
 	copy.CitedMemoryRefs = sortedUnique(copy.CitedMemoryRefs)
+	return json.Marshal(copy)
+}
+
+func (t MemoryUseTrace) legacyCanonicalSnapshot() ([]byte, error) {
+	copy := struct {
+		MemoryUseTraceID     string    `json:"memory_use_trace_id"`
+		EpisodeID            string    `json:"episode_id"`
+		ModelDecisionTraceID string    `json:"model_decision_trace_id"`
+		ContextHash          string    `json:"context_hash"`
+		RetrievedMemoryRefs  []string  `json:"retrieved_memory_refs,omitempty"`
+		CitedMemoryRefs      []string  `json:"cited_memory_refs,omitempty"`
+		ProposedAction       string    `json:"proposed_action"`
+		GuardAccepted        bool      `json:"guard_accepted"`
+		CreatedAt            time.Time `json:"created_at"`
+		FactsRef             string    `json:"facts_ref"`
+	}{t.MemoryUseTraceID, t.EpisodeID, t.ModelDecisionTraceID, t.ContextHash, sortedUnique(t.RetrievedMemoryRefs), sortedUnique(t.CitedMemoryRefs), t.ProposedAction, t.GuardAccepted, t.CreatedAt, t.FactsRef}
 	return json.Marshal(copy)
 }
 
@@ -66,7 +85,14 @@ func (t MemoryUseTrace) Validate() error {
 		return ErrInvalidMemoryUseTrace
 	}
 	if expected, err := t.PayloadHashFor(); err != nil || expected != t.PayloadHash {
-		return ErrInvalidMemoryUseTrace
+		legacy, legacyErr := t.legacyCanonicalSnapshot()
+		if legacyErr != nil {
+			return ErrInvalidMemoryUseTrace
+		}
+		digest := sha256.Sum256(legacy)
+		if "sha256:"+hex.EncodeToString(digest[:]) != t.PayloadHash {
+			return ErrInvalidMemoryUseTrace
+		}
 	}
 	return nil
 }
