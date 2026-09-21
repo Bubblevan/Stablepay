@@ -19,6 +19,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/trace"
+	"github.com/stablepay/commerce-runtime/internal/workflow"
 )
 
 // InMemoryStore is a deterministic repository for unit tests and local
@@ -55,6 +56,11 @@ type InMemoryStore struct {
 	decisionOutcomeTraces    map[string]*trace.DecisionOutcomeTrace
 	paymentTransportTraces   map[string]*payment.PaymentTransportTrace
 	executionStatuses        map[string]*EpisodeExecutionStatus
+	workflowDefinitions      map[string]*workflow.WorkflowDefinition
+	workflowRuns             map[string]*workflow.WorkflowRun
+	workflowRunsByRequest    map[string]string
+	workflowStepRuns         map[string]*workflow.WorkflowStepRun
+	workflowEvents           map[string][]*workflow.WorkflowEvent
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -89,6 +95,11 @@ func NewInMemoryStore() *InMemoryStore {
 		decisionOutcomeTraces:    make(map[string]*trace.DecisionOutcomeTrace),
 		paymentTransportTraces:   make(map[string]*payment.PaymentTransportTrace),
 		executionStatuses:        make(map[string]*EpisodeExecutionStatus),
+		workflowDefinitions:      make(map[string]*workflow.WorkflowDefinition),
+		workflowRuns:             make(map[string]*workflow.WorkflowRun),
+		workflowRunsByRequest:    make(map[string]string),
+		workflowStepRuns:         make(map[string]*workflow.WorkflowStepRun),
+		workflowEvents:           make(map[string][]*workflow.WorkflowEvent),
 	}
 }
 

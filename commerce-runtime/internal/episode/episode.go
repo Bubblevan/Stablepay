@@ -149,13 +149,14 @@ func New(episodeID string, request contract.AcquireCapabilityRequest, now time.T
 	}
 	now = now.UTC()
 	return &CommerceEpisode{
-		EpisodeID:            episodeID,
-		RequestID:            normalized.RequestID,
-		RequesterDID:         normalized.RequesterDID,
-		SessionID:            normalized.ParentSessionID,
-		State:                StateAccepted,
-		ContractSnapshotHash: hash,
-		ContractSnapshot:     append([]byte(nil), snapshot...),
+		EpisodeID:               episodeID,
+		RequestID:               normalized.RequestID,
+		RequesterDID:            normalized.RequesterDID,
+		SessionID:               normalized.ParentSessionID,
+		SelectedWorkflowVersion: workflowVersion(normalized),
+		State:                   StateAccepted,
+		ContractSnapshotHash:    hash,
+		ContractSnapshot:        append([]byte(nil), snapshot...),
 		Budget: BudgetSnapshot{
 			Currency:         normalized.Constraints.Currency,
 			BudgetLimitMinor: normalized.Constraints.BudgetLimitMinor,
@@ -170,6 +171,13 @@ func New(episodeID string, request contract.AcquireCapabilityRequest, now time.T
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}, nil
+}
+
+func workflowVersion(request contract.AcquireCapabilityRequest) string {
+	if request.WorkflowID == "" || request.WorkflowVersion == "" {
+		return ""
+	}
+	return request.WorkflowID + "@" + request.WorkflowVersion
 }
 
 func (e *CommerceEpisode) Validate() error {

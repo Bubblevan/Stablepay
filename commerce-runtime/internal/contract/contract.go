@@ -83,6 +83,10 @@ type AcquireCapabilityRequest struct {
 	RequestID       string          `json:"request_id"`
 	ParentSessionID string          `json:"parent_session_id,omitempty"`
 	ParentEpisodeID string          `json:"parent_episode_id,omitempty"`
+	WorkflowID      string          `json:"workflow_id,omitempty"`
+	WorkflowVersion string          `json:"workflow_version,omitempty"`
+	WorkflowRunID   string          `json:"workflow_run_id,omitempty"`
+	WorkflowStepID  string          `json:"workflow_step_id,omitempty"`
 	RequesterDID    string          `json:"requester_did"`
 	AcquisitionGoal AcquisitionGoal `json:"acquisition_goal"`
 	Input           Input           `json:"input"`
@@ -113,6 +117,21 @@ func (r AcquireCapabilityRequest) ValidateAt(now time.Time) error {
 func (r AcquireCapabilityRequest) validateStructure() error {
 	if strings.TrimSpace(r.RequestID) == "" || strings.TrimSpace(r.RequesterDID) == "" {
 		return fmt.Errorf("%w: request_id and requester_did are required", ErrInvalidRequest)
+	}
+	workflowFields := []string{r.WorkflowID, r.WorkflowVersion, r.WorkflowRunID, r.WorkflowStepID}
+	workflowPresent := false
+	for _, value := range workflowFields {
+		if strings.TrimSpace(value) != "" {
+			workflowPresent = true
+			break
+		}
+	}
+	if workflowPresent {
+		for _, value := range workflowFields {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("%w: workflow metadata must be complete", ErrInvalidRequest)
+			}
+		}
 	}
 	if strings.TrimSpace(r.AcquisitionGoal.TaskType) == "" || strings.TrimSpace(r.AcquisitionGoal.Description) == "" {
 		return fmt.Errorf("%w: acquisition goal task_type and description are required", ErrInvalidRequest)
@@ -193,6 +212,10 @@ func (r AcquireCapabilityRequest) normalizeFields() AcquireCapabilityRequest {
 	r.RequestID = strings.TrimSpace(r.RequestID)
 	r.ParentSessionID = strings.TrimSpace(r.ParentSessionID)
 	r.ParentEpisodeID = strings.TrimSpace(r.ParentEpisodeID)
+	r.WorkflowID = strings.TrimSpace(r.WorkflowID)
+	r.WorkflowVersion = strings.TrimSpace(r.WorkflowVersion)
+	r.WorkflowRunID = strings.TrimSpace(r.WorkflowRunID)
+	r.WorkflowStepID = strings.TrimSpace(r.WorkflowStepID)
 	r.RequesterDID = strings.TrimSpace(r.RequesterDID)
 	r.AcquisitionGoal.TaskType = strings.TrimSpace(r.AcquisitionGoal.TaskType)
 	r.AcquisitionGoal.Description = strings.TrimSpace(r.AcquisitionGoal.Description)

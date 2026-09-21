@@ -29,6 +29,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
+	"github.com/stablepay/commerce-runtime/internal/workflowruntime"
 )
 
 type Config struct {
@@ -37,12 +38,13 @@ type Config struct {
 }
 
 type Runtime struct {
-	Store   *repository.InMemoryStore
-	Service *application.Service
-	Runner  *runtime.Runner
-	Handler http.Handler
-	Variant observability.RuntimeVariant
-	Fault   *faultController
+	Store    *repository.InMemoryStore
+	Service  *application.Service
+	Runner   *runtime.Runner
+	Workflow *workflowruntime.Manager
+	Handler  http.Handler
+	Variant  observability.RuntimeVariant
+	Fault    *faultController
 }
 
 func New(ctx context.Context, config Config) (*Runtime, error) {
@@ -92,22 +94,30 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if err := runner.StartSupervisor(ctx); err != nil {
 		return nil, err
 	}
+	workflowRunner := workflowruntime.NewManager(store, service, store, runner, workflowruntime.Config{RootContext: ctx, ScanInterval: 25 * time.Millisecond})
+	if err := workflowRunner.StartSupervisor(ctx); err != nil {
+		runner.StopSupervisor()
+		return nil, err
+	}
 	providerName, modelRef, recoveryProvider := "none", "rule-recovery", "rule"
 	if llmMode == "local" {
 		providerName, modelRef, recoveryProvider = "local", "s11-local-adversarial", "llm"
 	}
 	variant := observability.RuntimeVariant{RuntimeVersion: "s11-live-local", MemoryMode: memoryMode, RecoveryProvider: recoveryProvider, LLMProvider: providerName, ModelRef: modelRef}.WithHash()
-	return &Runtime{Store: store, Service: service, Runner: runner, Handler: apiServer(service, store, runner, variant, fault), Variant: variant, Fault: fault}, nil
+	return &Runtime{Store: store, Service: service, Runner: runner, Workflow: workflowRunner, Handler: apiServer(service, store, runner, workflowRunner, variant, fault), Variant: variant, Fault: fault}, nil
 }
 
 func (r *Runtime) Close() {
+	if r != nil && r.Workflow != nil {
+		r.Workflow.StopSupervisor()
+	}
 	if r != nil && r.Runner != nil {
 		r.Runner.StopSupervisor()
 	}
 }
 
-func apiServer(service *application.Service, store *repository.InMemoryStore, runner *runtime.Runner, variant observability.RuntimeVariant, fault *faultController) http.Handler {
-	return fault.Wrap(api.NewServer(service, store, runner, api.AuthConfig{AllowInsecure: true}, func(context.Context) error { return nil }, variant))
+func apiServer(service *application.Service, store *repository.InMemoryStore, runner *runtime.Runner, workflowRunner *workflowruntime.Manager, variant observability.RuntimeVariant, fault *faultController) http.Handler {
+	return fault.Wrap(api.NewServerWithWorkflow(service, store, runner, workflowRunner, api.AuthConfig{AllowInsecure: true}, func(context.Context) error { return nil }, variant))
 }
 
 func localIDGenerator() func(string) string {
@@ -123,6 +133,8 @@ func seedCatalog(ctx context.Context, store *repository.InMemoryStore) error {
 		{"did:merchant:local", "local-capability", "local-eval", "StablePay local capability"},
 		{"did:merchant:local-hit", "local-capability-hit", "local-eval-memory-hit", "StablePay memory-hit capability"},
 		{"did:merchant:local-miss", "local-capability-miss", "local-eval-memory-miss", "StablePay memory-miss capability"},
+		{"did:merchant:s8-source", "s8-source", "s8-source", "StablePay S8 source capability"},
+		{"did:merchant:s8-transform", "s8-transform", "s8-transform", "StablePay S8 transform capability"},
 	}
 	for _, fixture := range fixtures {
 		price := int64(1000000)

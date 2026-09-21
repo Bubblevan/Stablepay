@@ -26,6 +26,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
+	"github.com/stablepay/commerce-runtime/internal/workflowruntime"
 
 	kitexpaymentservice "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service/paymentservice"
 )
@@ -46,6 +47,7 @@ type Composition struct {
 	Validator   *validator.Registry
 	Runtime     *application.Service
 	Runner      *runtime.Runner
+	Workflow    *workflowruntime.Manager
 	Credential  *adapters.RealCredentialProvider
 	Variant     observability.RuntimeVariant
 }
@@ -127,6 +129,7 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 	}
 	service := application.NewService(store, serviceOptions...)
 	runner := runtime.NewRunner(service, store, runtime.WithMaxSteps(cfg.MaxRunnerSteps), runtime.WithCredentialProvider(credential), runtime.WithRootContext(ctx), runtime.WithScanInterval(cfg.SupervisorInterval), runtime.WithRetryBackoff(250*time.Millisecond, cfg.RunnerRetryMax))
+	workflowRunner := workflowruntime.NewManager(store, service, store, runner, workflowruntime.Config{RootContext: ctx, ScanInterval: cfg.SupervisorInterval})
 	closeOnError = false
 	modelRef := cfg.LLMModel
 	llmProvider := cfg.LLMProvider
@@ -135,12 +138,15 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 		modelRef = "rule-recovery"
 	}
 	variant := observability.RuntimeVariant{RuntimeVersion: cfg.RuntimeVersion, MemoryMode: memoryMode, RecoveryProvider: recoveryProvider, LLMProvider: llmProvider, ModelRef: modelRef}.WithHash()
-	return &Composition{Config: cfg, DB: db, Store: store, Catalog: store, Evidence: store, Memory: store, DeepSeek: deepseek, Merchant: merchant, DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Entitlement: verification, Validator: validatorRegistry, Runtime: service, Runner: runner, Credential: credential, Variant: variant}, nil
+	return &Composition{Config: cfg, DB: db, Store: store, Catalog: store, Evidence: store, Memory: store, DeepSeek: deepseek, Merchant: merchant, DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Entitlement: verification, Validator: validatorRegistry, Runtime: service, Runner: runner, Workflow: workflowRunner, Credential: credential, Variant: variant}, nil
 }
 
 func (c *Composition) Close() error {
 	if c == nil {
 		return nil
+	}
+	if c.Workflow != nil {
+		c.Workflow.StopSupervisor()
 	}
 	if c.Runner != nil {
 		c.Runner.StopSupervisor()
@@ -156,7 +162,7 @@ func (c *Composition) Close() error {
 }
 
 func (c *Composition) Ready(ctx context.Context) error {
-	if c == nil || c.DB == nil || c.Store == nil || c.Catalog == nil || c.Evidence == nil || c.Memory == nil || (c.Variant.RecoveryProvider == "llm" && c.DeepSeek == nil) || c.Merchant == nil || c.DID == nil || c.Payment == nil || c.Entitlement == nil || c.Validator == nil || c.Runtime == nil || c.Runner == nil || c.Credential == nil || !c.Runner.SupervisorStarted() {
+	if c == nil || c.DB == nil || c.Store == nil || c.Catalog == nil || c.Evidence == nil || c.Memory == nil || (c.Variant.RecoveryProvider == "llm" && c.DeepSeek == nil) || c.Merchant == nil || c.DID == nil || c.Payment == nil || c.Entitlement == nil || c.Validator == nil || c.Runtime == nil || c.Runner == nil || c.Workflow == nil || c.Credential == nil || !c.Runner.SupervisorStarted() || !c.Workflow.SupervisorStarted() {
 		return errors.New("production composition is incomplete")
 	}
 	db, err := c.DB.DB()

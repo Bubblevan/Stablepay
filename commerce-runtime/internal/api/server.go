@@ -22,6 +22,8 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
+	"github.com/stablepay/commerce-runtime/internal/workflow"
+	"github.com/stablepay/commerce-runtime/internal/workflowruntime"
 )
 
 const maxRequestBytes = 1 << 20
@@ -32,20 +34,29 @@ type AuthConfig struct {
 }
 
 type Server struct {
-	service *application.Service
-	store   repository.TransitionStore
-	runner  *runtime.Runner
-	ready   func(context.Context) error
-	auth    AuthConfig
-	variant observability.RuntimeVariant
+	service  *application.Service
+	store    repository.TransitionStore
+	runner   *runtime.Runner
+	workflow *workflowruntime.Manager
+	ready    func(context.Context) error
+	auth     AuthConfig
+	variant  observability.RuntimeVariant
 }
 
 func NewServer(service *application.Service, store repository.TransitionStore, runner *runtime.Runner, auth AuthConfig, ready func(context.Context) error, variants ...observability.RuntimeVariant) *Server {
+	return newServer(service, store, runner, nil, auth, ready, variants...)
+}
+
+func NewServerWithWorkflow(service *application.Service, store repository.TransitionStore, runner *runtime.Runner, workflowRunner *workflowruntime.Manager, auth AuthConfig, ready func(context.Context) error, variants ...observability.RuntimeVariant) *Server {
+	return newServer(service, store, runner, workflowRunner, auth, ready, variants...)
+}
+
+func newServer(service *application.Service, store repository.TransitionStore, runner *runtime.Runner, workflowRunner *workflowruntime.Manager, auth AuthConfig, ready func(context.Context) error, variants ...observability.RuntimeVariant) *Server {
 	variant := observability.RuntimeVariant{}
 	if len(variants) > 0 {
 		variant = variants[0]
 	}
-	return &Server{service: service, store: store, runner: runner, ready: ready, auth: auth, variant: variant.WithHash()}
+	return &Server{service: service, store: store, runner: runner, workflow: workflowRunner, ready: ready, auth: auth, variant: variant.WithHash()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +78,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/episodes/") {
 		s.episodeRoute(w, r)
+		return
+	}
+	if r.URL.Path == "/v1/workflows" {
+		s.workflowDefinitions(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/workflows/") {
+		s.workflowDefinitionRoute(w, r)
+		return
+	}
+	if r.URL.Path == "/v1/workflow-runs" {
+		s.workflowRuns(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/workflow-runs/") {
+		s.workflowRunRoute(w, r)
 		return
 	}
 	writeError(w, http.StatusNotFound, "not_found", "route not found")
@@ -366,7 +393,18 @@ func mcpTools() []map[string]any {
 		{"name": "stablepay.acquire", "description": "Submit an AcquireCapabilityRequest. The same request_id and contract replay the same episode; a changed contract conflicts.", "inputSchema": acquireSchema()},
 		{"name": "stablepay.status", "description": "Read episode, artifact, validation, parent approval/decision, and operational execution status.", "inputSchema": map[string]any{"type": "object", "required": []string{"episode_id"}, "properties": map[string]any{"episode_id": map[string]any{"type": "string", "minLength": 1}}}},
 		{"name": "stablepay.approve", "description": "Record a persisted parent approval or denial and resume the episode. approval_id must already exist.", "inputSchema": map[string]any{"type": "object", "required": []string{"approval_id", "decision", "actor_ref"}, "properties": map[string]any{"approval_id": map[string]any{"type": "string", "minLength": 1}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]any{"type": "string", "minLength": 1}, "idempotency_key": map[string]any{"type": "string"}}}},
+		{"name": "stablepay.run_workflow", "description": "Register no code and run a previously registered declarative workflow through the WorkflowRunner.", "inputSchema": workflowRunSchema()},
+		{"name": "stablepay.workflow_status", "description": "Read a durable workflow run, immutable definition hash, step projections, child episode IDs and budget refs.", "inputSchema": map[string]any{"type": "object", "required": []string{"workflow_run_id"}, "properties": map[string]any{"workflow_run_id": map[string]any{"type": "string", "minLength": 1}}}},
+		{"name": "stablepay.workflow_approve", "description": "Delegate approval to the active child Episode parent-decision authority.", "inputSchema": map[string]any{"type": "object", "required": []string{"workflow_run_id", "approval_id", "decision", "actor_ref"}, "properties": map[string]any{"workflow_run_id": map[string]any{"type": "string", "minLength": 1}, "approval_id": map[string]any{"type": "string", "minLength": 1}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]any{"type": "string", "minLength": 1}}}},
 	}
+}
+
+func workflowRunSchema() map[string]any {
+	return map[string]any{"type": "object", "required": []string{"request_id", "workflow_id", "requester_did", "input", "budget_limit_minor", "currency", "deadline_at"}, "properties": map[string]any{
+		"request_id": map[string]any{"type": "string", "minLength": 1}, "workflow_id": map[string]any{"type": "string", "minLength": 1}, "workflow_version": map[string]any{"type": "string"}, "requester_did": map[string]any{"type": "string", "minLength": 1}, "parent_session_id": map[string]any{"type": "string"},
+		"input":              map[string]any{"type": "object", "required": []string{"content_type"}, "properties": map[string]any{"uri": map[string]any{"type": "string"}, "ref": map[string]any{"type": "string"}, "content_type": map[string]any{"type": "string"}, "sha256": map[string]any{"type": "string"}, "access_token_ref": map[string]any{"type": "string"}}},
+		"budget_limit_minor": map[string]any{"type": "integer", "minimum": 1}, "currency": map[string]any{"type": "string"}, "deadline_at": map[string]any{"type": "string", "format": "date-time"},
+	}}
 }
 
 func acquireSchema() map[string]any {
@@ -442,6 +480,45 @@ func (s *Server) mcpCall(ctx context.Context, call mcpCallParams) map[string]any
 			s.runner.Enqueue(ctx, approval.EpisodeID)
 		}
 		return callResult(map[string]any{"episode": result.Episode, "approval_id": payload.ApprovalID, "replayed": result.Replayed}, err)
+	case "stablepay.run_workflow":
+		if s.workflow == nil {
+			return callResult(nil, errors.New("workflow runtime is unavailable"))
+		}
+		var request workflow.WorkflowRunRequest
+		if err := json.Unmarshal(call.Arguments, &request); err != nil {
+			return callResult(nil, err)
+		}
+		created, err := s.workflow.CreateRun(ctx, request)
+		if err == nil {
+			s.workflow.Enqueue(ctx, created.Run.WorkflowRunID)
+		}
+		return callResult(map[string]any{"workflow_run": created.Run, "replayed": created.Replayed}, err)
+	case "stablepay.workflow_status":
+		if s.workflow == nil {
+			return callResult(nil, errors.New("workflow runtime is unavailable"))
+		}
+		var args struct {
+			WorkflowRunID string `json:"workflow_run_id"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil || strings.TrimSpace(args.WorkflowRunID) == "" {
+			return callResult(nil, errors.New("workflow_run_id is required"))
+		}
+		value, err := s.workflow.GetStatus(ctx, args.WorkflowRunID)
+		return callResult(value, err)
+	case "stablepay.workflow_approve":
+		if s.workflow == nil {
+			return callResult(nil, errors.New("workflow runtime is unavailable"))
+		}
+		var arguments map[string]any
+		if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
+			return callResult(nil, err)
+		}
+		runID, decision, err := workflowApproveArguments(arguments)
+		if err != nil {
+			return callResult(nil, err)
+		}
+		result, replayed, err := s.workflow.RecordParentDecision(ctx, runID, decision)
+		return callResult(map[string]any{"workflow_run_id": runID, "episode": result, "replayed": replayed}, err)
 	default:
 		return callResult(nil, fmt.Errorf("unknown MCP tool %q", call.Name))
 	}
@@ -493,8 +570,12 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		status, code = http.StatusNotFound, "not_found"
 	case errors.Is(err, repository.ErrRequestIDConflict), errors.Is(err, repository.ErrIdempotencyConflict), errors.Is(err, repository.ErrParentDecisionConflict), errors.Is(err, repository.ErrVersionConflict):
 		status, code = http.StatusConflict, "conflict"
+	case errors.Is(err, workflow.ErrDefinitionConflict), errors.Is(err, workflow.ErrWorkflowRequestConflict), errors.Is(err, workflow.ErrWorkflowVersionConflict), errors.Is(err, workflow.ErrWorkflowEventConflict):
+		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, episode.ErrEpisodeExpired):
 		status, code = http.StatusUnprocessableEntity, "episode_expired"
+	case errors.Is(err, workflow.ErrWorkflowDeadline), errors.Is(err, workflow.ErrWorkflowBudget), errors.Is(err, workflow.ErrWorkflowArtifact):
+		status, code = http.StatusUnprocessableEntity, "workflow_rejected"
 	case errors.Is(err, repository.ErrRepositoryUnavailable):
 		status, code = http.StatusServiceUnavailable, "repository_unavailable"
 	default:
