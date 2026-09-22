@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -64,6 +65,8 @@ var (
 	ErrWorkflowArtifactHashMismatch        = errors.New("workflow artifact hash mismatch")
 	ErrWorkflowArtifactContentTypeMismatch = errors.New("workflow artifact content type mismatch")
 	ErrWorkflowArtifactTooLarge            = errors.New("workflow artifact exceeds the bounded payload limit")
+	ErrWorkflowArtifactProvenanceMismatch  = errors.New("workflow artifact provenance mismatch")
+	ErrInvalidIdentifier                   = errors.New("invalid workflow identifier")
 	ErrWorkflowDeadline                    = errors.New("workflow deadline has expired")
 	ErrWorkflowNotReady                    = errors.New("workflow step is not ready")
 )
@@ -108,12 +111,14 @@ type WorkflowStepDefinition struct {
 	ExpectedOutput contract.ExpectedOutput `json:"expected_output"`
 	Validator      contract.ValidatorRef   `json:"validator"`
 
-	MaxBudgetMinor         int64  `json:"max_budget_minor"`
-	MaxTotalAttempts       int    `json:"max_total_attempts"`
-	MaxPaymentAttempts     int    `json:"max_payment_attempts"`
-	MaxDeliveryAttempts    int    `json:"max_delivery_attempts"`
-	TimeoutSeconds         int64  `json:"timeout_seconds"`
-	RequiredInputSchemaRef string `json:"required_input_schema_ref,omitempty"`
+	MaxBudgetMinor                      int64  `json:"max_budget_minor"`
+	MaxTotalAttempts                    int    `json:"max_total_attempts"`
+	MaxPaymentAttempts                  int    `json:"max_payment_attempts"`
+	MaxDeliveryAttempts                 int    `json:"max_delivery_attempts"`
+	TimeoutSeconds                      int64  `json:"timeout_seconds"`
+	RequiredInputSchemaRef              string `json:"required_input_schema_ref,omitempty"`
+	AllowCrossMerchantSwitch            bool   `json:"allow_cross_merchant_switch"`
+	RequireParentConfirmationAboveMinor int64  `json:"require_parent_confirmation_above_minor"`
 }
 
 type WorkflowDefinition struct {
@@ -189,6 +194,9 @@ func (d WorkflowDefinition) Normalize() WorkflowDefinition {
 }
 
 func (d WorkflowDefinition) Validate() error {
+	if err := validateDefinitionIdentifiers(d); err != nil {
+		return err
+	}
 	d = d.Normalize()
 	if d.WorkflowID == "" || d.Version == "" || d.Name == "" || d.Currency == "" || d.Input.ContentType == "" || d.Output.ContentType == "" || len(d.Steps) == 0 {
 		return fmt.Errorf("%w: identity, currency, input/output content types and steps are required", ErrInvalidDefinition)
@@ -198,7 +206,7 @@ func (d WorkflowDefinition) Validate() error {
 	}
 	steps := make(map[string]WorkflowStepDefinition, len(d.Steps))
 	for _, step := range d.Steps {
-		if step.StepID == "" || step.StepType != StepAcquireCapability || step.Capability.TaskType == "" || step.Capability.RequiredInputContentType == "" || step.Capability.RequiredOutputContentType == "" || step.ExpectedOutput.ContentType == "" || step.MaxBudgetMinor <= 0 || step.MaxTotalAttempts <= 0 || step.MaxPaymentAttempts <= 0 || step.MaxDeliveryAttempts <= 0 || step.MaxPaymentAttempts > step.MaxTotalAttempts || step.MaxDeliveryAttempts > step.MaxTotalAttempts || step.TimeoutSeconds < 0 {
+		if step.StepID == "" || step.StepType != StepAcquireCapability || step.Capability.TaskType == "" || step.Capability.RequiredInputContentType == "" || step.Capability.RequiredOutputContentType == "" || step.ExpectedOutput.ContentType == "" || step.MaxBudgetMinor <= 0 || step.MaxTotalAttempts <= 0 || step.MaxPaymentAttempts <= 0 || step.MaxDeliveryAttempts <= 0 || step.MaxPaymentAttempts > step.MaxTotalAttempts || step.MaxDeliveryAttempts > step.MaxTotalAttempts || step.TimeoutSeconds < 0 || step.RequireParentConfirmationAboveMinor < 0 {
 			return fmt.Errorf("%w: invalid step %q", ErrInvalidDefinition, step.StepID)
 		}
 		if err := step.Validator.Validate(); err != nil {
@@ -274,10 +282,18 @@ func (d WorkflowDefinition) Validate() error {
 			}
 		}
 	}
+	sinkCount := 0
 	for _, step := range d.Steps {
-		if len(children[step.StepID]) == 0 && (step.ExpectedOutput.ContentType != d.Output.ContentType || (d.Output.Schema != "" && step.ExpectedOutput.Schema != d.Output.Schema)) {
-			return fmt.Errorf("%w: terminal step %s output content type does not match workflow output", ErrInvalidDefinition, step.StepID)
+		if len(children[step.StepID]) != 0 {
+			continue
 		}
+		sinkCount++
+		if step.ExpectedOutput.ContentType != d.Output.ContentType || (d.Output.Schema != "" && step.ExpectedOutput.Schema != d.Output.Schema) {
+			return fmt.Errorf("%w: sink step %s output content type does not match workflow output", ErrInvalidDefinition, step.StepID)
+		}
+	}
+	if sinkCount != 1 {
+		return fmt.Errorf("%w: workflow must contain exactly one sink step, found %d", ErrInvalidDefinition, sinkCount)
 	}
 	if hash := d.DefinitionHash; hash != "" {
 		computed, hashErr := d.ComputedDefinitionHash()
@@ -289,6 +305,9 @@ func (d WorkflowDefinition) Validate() error {
 }
 
 func (d WorkflowDefinition) CanonicalSnapshot() ([]byte, error) {
+	if err := validateDefinitionIdentifiers(d); err != nil {
+		return nil, err
+	}
 	d = d.Normalize()
 	d.DefinitionHash = ""
 	if err := d.ValidateWithoutHash(); err != nil {
@@ -315,6 +334,9 @@ func (d WorkflowDefinition) ComputedDefinitionHash() (string, error) {
 }
 
 func (d WorkflowDefinition) WithComputedHash() (WorkflowDefinition, error) {
+	if err := validateDefinitionIdentifiers(d); err != nil {
+		return WorkflowDefinition{}, err
+	}
 	d = d.Normalize()
 	if d.CreatedAt.IsZero() {
 		d.CreatedAt = time.Now().UTC().Truncate(time.Nanosecond)
@@ -325,6 +347,53 @@ func (d WorkflowDefinition) WithComputedHash() (WorkflowDefinition, error) {
 	}
 	d.DefinitionHash = hash
 	return d, d.Validate()
+}
+
+var stableIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+// ValidateIdentifier protects identifiers embedded in HTTP paths,
+// deterministic IDs, and workflow-artifact URIs. Case is preserved because
+// identity canonicalization must not silently change names.
+func ValidateIdentifier(value string) error {
+	if strings.TrimSpace(value) != value || !stableIdentifierPattern.MatchString(value) || strings.Contains(value, "..") {
+		return fmt.Errorf("%w: %q", ErrInvalidIdentifier, value)
+	}
+	return nil
+}
+
+func validateDefinitionIdentifiers(definition WorkflowDefinition) error {
+	if err := ValidateIdentifier(definition.WorkflowID); err != nil {
+		return fmt.Errorf("%w: workflow_id: %v", ErrInvalidDefinition, err)
+	}
+	if err := ValidateIdentifier(definition.Version); err != nil {
+		return fmt.Errorf("%w: version: %v", ErrInvalidDefinition, err)
+	}
+	for _, step := range definition.Steps {
+		if err := ValidateIdentifier(step.StepID); err != nil {
+			return fmt.Errorf("%w: step_id: %v", ErrInvalidDefinition, err)
+		}
+	}
+	return nil
+}
+
+// OutputStep is the sole semantic source of a workflow's final output.
+func OutputStep(definition WorkflowDefinition) (WorkflowStepDefinition, error) {
+	if err := definition.Validate(); err != nil {
+		return WorkflowStepDefinition{}, err
+	}
+	definition = definition.Normalize()
+	children := make(map[string]int, len(definition.Steps))
+	for _, step := range definition.Steps {
+		for _, dependency := range step.DependsOn {
+			children[dependency]++
+		}
+	}
+	for _, step := range definition.Steps {
+		if children[step.StepID] == 0 {
+			return step, nil
+		}
+	}
+	return WorkflowStepDefinition{}, fmt.Errorf("%w: workflow has no output step", ErrInvalidDefinition)
 }
 
 func TopologicalOrder(def WorkflowDefinition) ([]string, error) {
@@ -431,7 +500,7 @@ type ArtifactRef struct {
 }
 
 func (r ArtifactRef) URI() string {
-	return "workflow-artifact://" + strings.TrimSpace(r.WorkflowRunID) + "/" + strings.TrimSpace(r.StepID)
+	return "workflow-artifact://" + r.WorkflowRunID + "/" + r.StepID
 }
 
 func (r WorkflowRun) Clone() *WorkflowRun { copy := r; return &copy }
@@ -447,6 +516,9 @@ func IsTerminalRun(state string) bool {
 
 func (r WorkflowRun) Validate() error {
 	if strings.TrimSpace(r.WorkflowRunID) == "" || strings.TrimSpace(r.RequestID) == "" || strings.TrimSpace(r.WorkflowID) == "" || strings.TrimSpace(r.WorkflowVersion) == "" || strings.TrimSpace(r.DefinitionHash) == "" || strings.TrimSpace(r.RequesterDID) == "" || r.State == "" || r.Version == 0 || r.DeadlineAt.IsZero() || r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() {
+		return ErrInvalidWorkflowRun
+	}
+	if ValidateIdentifier(r.WorkflowRunID) != nil || ValidateIdentifier(r.WorkflowID) != nil || ValidateIdentifier(r.WorkflowVersion) != nil {
 		return ErrInvalidWorkflowRun
 	}
 	if r.Budget.Currency == "" || r.Budget.BudgetLimitMinor < 0 || r.Budget.SettledMinor < 0 || r.Budget.RefundedMinor < 0 || r.Budget.ConsumedMinor < 0 || r.Budget.AvailableMinor < 0 || r.Budget.SunkCostMinor < 0 {
@@ -496,6 +568,12 @@ func (s WorkflowStepRun) Clone() *WorkflowStepRun {
 
 func (s WorkflowStepRun) Validate() error {
 	if strings.TrimSpace(s.WorkflowRunID) == "" || strings.TrimSpace(s.StepID) == "" || !IsKnownStepState(s.State) || s.Attempt < 0 || s.Version == 0 {
+		return ErrInvalidWorkflowRun
+	}
+	if ValidateIdentifier(s.WorkflowRunID) != nil || ValidateIdentifier(s.StepID) != nil {
+		return ErrInvalidWorkflowRun
+	}
+	if s.State == StepFulfilled && (strings.TrimSpace(s.ChildEpisodeID) == "" || strings.TrimSpace(s.DeliveryID) == "" || strings.TrimSpace(s.OutputRef) == "" || strings.TrimSpace(s.OutputHash) == "" || strings.TrimSpace(s.ContentType) == "") {
 		return ErrInvalidWorkflowRun
 	}
 	return nil

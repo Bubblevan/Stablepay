@@ -65,6 +65,16 @@ type AskParentRequest struct {
 	ExpiresAt                    time.Time
 }
 
+// ParentConfirmationRequest is a runtime-owned policy gate. It is used when
+// a trusted quote exceeds a contract threshold; no model proposal is accepted
+// and the same durable S5 approval/decision path is used for resumption.
+type ParentConfirmationRequest struct {
+	EpisodeID  string
+	ApprovalID string
+	TraceID    string
+	ExpiresAt  time.Time
+}
+
 type ParentDecisionRequest struct {
 	ApprovalID  string
 	Decision    recovery.Decision
@@ -562,6 +572,86 @@ func (s *Service) AskParent(ctx context.Context, request AskParentRequest) (Comm
 	return CommitResult{Episode: next, Event: event}, nil
 }
 
+func (s *Service) RequestParentConfirmation(ctx context.Context, request ParentConfirmationRequest) (CommitResult, error) {
+	store, err := s.s5Store()
+	if err != nil {
+		return CommitResult{}, err
+	}
+	current, err := s.store.Get(ctx, request.EpisodeID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	if current.State != episode.StateNegotiating {
+		return CommitResult{}, decision.ErrActionNotAllowed
+	}
+	now := s.clock().UTC()
+	idempotencyKey := "parent-threshold:" + current.EpisodeID + ":" + fmt.Sprint(current.ActionCount+1)
+	if existing, findErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, idempotencyKey); findErr == nil {
+		return CommitResult{Episode: current, Event: existing, Replayed: true}, nil
+	} else if !errors.Is(findErr, repository.ErrNotFound) {
+		return CommitResult{}, findErr
+	}
+	if request.ApprovalID == "" {
+		request.ApprovalID = "approval:" + current.EpisodeID + ":" + fmt.Sprint(current.ActionCount+1)
+	}
+	if request.ExpiresAt.IsZero() {
+		request.ExpiresAt = now.Add(10 * time.Minute)
+	}
+	if request.ExpiresAt.After(current.DeadlineAt) {
+		request.ExpiresAt = current.DeadlineAt
+	}
+	if !request.ExpiresAt.After(now) {
+		return CommitResult{}, recovery.ErrInvalidParentRequest
+	}
+	rc, err := s.currentRecoveryContext(ctx, current, recovery.ReasonParentConfirmation, current.SelectedCandidateSetID, "")
+	if err != nil {
+		return CommitResult{}, err
+	}
+	approval := &recovery.ParentApprovalRequest{
+		ApprovalID: request.ApprovalID, EpisodeID: current.EpisodeID, RecoveryID: rc.RecoveryID,
+		ReasonCode: recovery.ReasonParentConfirmation, RequestedAction: string(trace.ActionRetrySameMerchant),
+		ApprovalScope: recovery.AllowSwitch, CurrentBudgetMinor: current.Budget.BudgetLimitMinor,
+		ConsumedMinor: current.Budget.ConsumedAmount, AvailableMinor: current.Budget.AvailableBudget,
+		SunkCostMinor: current.Budget.SunkCost, CurrentMerchantDID: current.SelectedMerchantDID,
+		CandidateSetID: current.SelectedCandidateSetID, CandidateCapabilityID: current.SelectedCapabilityID,
+		ExpiresAt: request.ExpiresAt, FactsRef: "parent-approval://" + request.ApprovalID, CreatedAt: now,
+	}
+	if err := approval.RefreshPayloadHash(); err != nil {
+		return CommitResult{}, err
+	}
+	if err := approval.Validate(); err != nil {
+		return CommitResult{}, err
+	}
+	next := current.Clone()
+	next.ActionCount++
+	if err := next.ApplyCommittedState(episode.StateAwaitingParent, now, string(recovery.ReasonParentConfirmation)); err != nil {
+		return CommitResult{}, err
+	}
+	if request.TraceID == "" {
+		request.TraceID = current.EpisodeID + ":parent-threshold"
+	}
+	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, now, current.State,
+		trace.Action{Type: trace.ActionAskParent, IdempotencyKey: idempotencyKey},
+		trace.Observation{Type: trace.ObservationPolicyDenied, Code: string(recovery.ReasonParentConfirmation), FactsRef: approval.FactsRef, PayloadHash: approval.PayloadHash},
+		trace.Decision{ProposedAction: trace.ActionAskParent, ProposalID: approval.ApprovalID, Reason: "trusted quote exceeds parent confirmation threshold"},
+		trace.RuntimeVerdict{Allowed: true}, next.State, "runtime", request.TraceID, s.runtimeVersion)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	rc.TriggerEventID = event.EventID
+	if err := rc.RefreshPayloadHash(); err != nil {
+		return CommitResult{}, err
+	}
+	next.RecoveryID = rc.RecoveryID
+	if err := store.CommitRecoveryTransition(ctx, repository.RecoveryTransition{
+		EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next,
+		Event: event, RecoveryContext: rc, ParentApproval: approval,
+	}); err != nil {
+		return CommitResult{}, err
+	}
+	return CommitResult{Episode: next, Event: event}, nil
+}
+
 func (s *Service) RecordParentDecision(ctx context.Context, request ParentDecisionRequest) (CommitResult, error) {
 	store, err := s.s5Store()
 	if err != nil {
@@ -612,6 +702,9 @@ func (s *Service) RecordParentDecision(ctx context.Context, request ParentDecisi
 	if request.Decision == recovery.Approve {
 		observation = trace.ObservationParentApproved
 		reason = approval.ReasonCode
+		if approval.ReasonCode == recovery.ReasonParentConfirmation {
+			after = episode.StateNegotiating
+		}
 		if approval.ApprovalScope == recovery.BudgetIncrease {
 			newLimit := current.Budget.BudgetLimitMinor + approval.RequestedBudgetIncreaseMinor
 			if newLimit < current.Budget.ConsumedAmount+current.Budget.ReservedAmount {

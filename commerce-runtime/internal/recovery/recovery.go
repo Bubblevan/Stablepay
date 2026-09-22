@@ -27,6 +27,7 @@ const (
 	ReasonNoRecoveryCandidate    ReasonCode = "NO_RECOVERY_CANDIDATE"
 	ReasonRecoveryExhausted      ReasonCode = "RECOVERY_EXHAUSTED"
 	ReasonParentDenied           ReasonCode = "PARENT_DENIED"
+	ReasonParentConfirmation     ReasonCode = "PARENT_CONFIRMATION_REQUIRED"
 	ReasonBudgetExhausted        ReasonCode = "BUDGET_EXHAUSTED"
 	ReasonDeadlineExceeded       ReasonCode = "DEADLINE_EXCEEDED"
 )
@@ -37,6 +38,7 @@ func (r ReasonCode) Valid() bool {
 		ReasonQuoteExpired, ReasonPaymentFailed, ReasonEntitlementInvalid,
 		ReasonAttemptLimit, ReasonBudgetInsufficient, ReasonCatalogStale,
 		ReasonNoRecoveryCandidate, ReasonRecoveryExhausted, ReasonParentDenied,
+		ReasonParentConfirmation,
 		ReasonBudgetExhausted, ReasonDeadlineExceeded:
 		return true
 	default:

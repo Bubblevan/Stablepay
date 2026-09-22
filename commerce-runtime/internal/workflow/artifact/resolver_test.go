@@ -37,7 +37,7 @@ func TestResolverValidatesRunScopedArtifactAndBoundsPayload(t *testing.T) {
 	hash := invocation.PayloadHash(body)
 	run := &workflow.WorkflowRun{WorkflowRunID: runID, RequestID: "resolver-request", WorkflowID: definition.WorkflowID, WorkflowVersion: definition.Version, DefinitionHash: definition.DefinitionHash, RequesterDID: "did:agent:resolver", State: workflow.WorkflowFulfilled, Input: contract.Input{URI: "object://root", ContentType: "text/plain"}, Budget: workflow.WorkflowBudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 100, AvailableMinor: 100}, DeadlineAt: now.Add(time.Hour), Version: 1, CreatedAt: now, UpdatedAt: now}
 	ref := (workflow.ArtifactRef{WorkflowRunID: runID, StepID: stepID}).URI()
-	step := &workflow.WorkflowStepRun{WorkflowRunID: runID, StepID: stepID, State: workflow.StepFulfilled, OutputRef: ref, OutputHash: hash, ContentType: "text/plain", DeliveryID: "delivery:resolver", Version: 1, CompletedAt: &now}
+	step := &workflow.WorkflowStepRun{WorkflowRunID: runID, StepID: stepID, State: workflow.StepFulfilled, ChildEpisodeID: "episode:resolver", OutputRef: ref, OutputHash: hash, ContentType: "text/plain", DeliveryID: "delivery:resolver", Version: 1, CompletedAt: &now}
 	event := &workflow.WorkflowEvent{EventID: "event:resolver", WorkflowRunID: runID, Sequence: 1, Type: workflow.EventWorkflowCreated, WorkflowVersion: definition.Version, DefinitionHash: definition.DefinitionHash, OccurredAt: now, FactsRef: "workflow://resolver", PayloadHash: hash, IdempotencyKey: "event:resolver"}
 	if err := store.CreateAggregate(ctx, run, []*workflow.WorkflowStepRun{step}, event); err != nil {
 		t.Fatal(err)
@@ -71,6 +71,59 @@ func TestResolverValidatesRunScopedArtifactAndBoundsPayload(t *testing.T) {
 	oversized, err := overflowResolver.Resolve(ctx, workflow.ArtifactRef{WorkflowRunID: runID, StepID: stepID}, []byte(hash), "text/plain")
 	if !errors.Is(err, artifactresolver.ErrPayloadTooLarge) || oversized != nil {
 		t.Fatalf("oversized payload was not rejected without body: artifact=%#v err=%v", oversized, err)
+	}
+}
+
+func TestResolverRejectsUnsafeRefsAndCrossEpisodeOrDeliveryArtifacts(t *testing.T) {
+	for _, value := range []string{
+		"workflow-artifact://wr:resolver/step/a",
+		"workflow-artifact://wr:resolver/step?x",
+		"workflow-artifact://wr:resolver/step#x",
+		"workflow-artifact://wr:resolver/..",
+		"workflow-artifact://wr:resolver/ step",
+	} {
+		if _, err := artifactresolver.ParseRef(value); !errors.Is(err, artifactresolver.ErrInvalidRef) {
+			t.Fatalf("unsafe artifact reference %q was accepted: %v", value, err)
+		}
+	}
+
+	ctx := context.Background()
+	store := repository.NewInMemoryStore()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	definition, err := testDefinition(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveDefinition(ctx, &definition); err != nil {
+		t.Fatal(err)
+	}
+	runID, stepID := "wr:provenance", "source"
+	body := []byte("hello")
+	hash := invocation.PayloadHash(body)
+	ref := (workflow.ArtifactRef{WorkflowRunID: runID, StepID: stepID}).URI()
+	run := &workflow.WorkflowRun{WorkflowRunID: runID, RequestID: "provenance-request", WorkflowID: definition.WorkflowID, WorkflowVersion: definition.Version, DefinitionHash: definition.DefinitionHash, RequesterDID: "did:agent:resolver", State: workflow.WorkflowFulfilled, Input: contract.Input{URI: "object://root", ContentType: "text/plain"}, Budget: workflow.WorkflowBudgetSnapshot{Currency: "USDC", BudgetLimitMinor: 100, AvailableMinor: 100}, DeadlineAt: now.Add(time.Hour), Version: 1, CreatedAt: now, UpdatedAt: now}
+	step := &workflow.WorkflowStepRun{WorkflowRunID: runID, StepID: stepID, State: workflow.StepFulfilled, ChildEpisodeID: "episode:expected", OutputRef: ref, OutputHash: hash, ContentType: "text/plain", DeliveryID: "delivery:expected", Version: 1, CompletedAt: &now}
+	event := &workflow.WorkflowEvent{EventID: "event:provenance", WorkflowRunID: runID, Sequence: 1, Type: workflow.EventWorkflowCreated, WorkflowVersion: definition.Version, DefinitionHash: definition.DefinitionHash, OccurredAt: now, FactsRef: "workflow://provenance", PayloadHash: hash, IdempotencyKey: "event:provenance"}
+	if err := store.CreateAggregate(ctx, run, []*workflow.WorkflowStepRun{step}, event); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		delivery string
+		episode  string
+	}{
+		{name: "wrong delivery", delivery: "delivery:other", episode: "episode:expected"},
+		{name: "wrong episode", delivery: "delivery:expected", episode: "episode:other"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := artifactresolver.NewResolver(store, artifactStoreFunc(func(context.Context, string) (*invocation.DeliveryArtifact, error) {
+				return &invocation.DeliveryArtifact{DeliveryID: test.delivery, EpisodeID: test.episode, PayloadHash: hash, Body: body, ContentType: "text/plain"}, nil
+			}))
+			resolved, err := resolver.Resolve(ctx, workflow.ArtifactRef{WorkflowRunID: runID, StepID: stepID}, []byte(hash), "text/plain")
+			if !errors.Is(err, artifactresolver.ErrArtifactProvenanceMismatch) || resolved != nil {
+				t.Fatalf("provenance mismatch returned body or wrong error: resolved=%#v err=%v", resolved, err)
+			}
+		})
 	}
 }
 

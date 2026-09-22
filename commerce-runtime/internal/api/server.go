@@ -576,7 +576,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "workflow_not_fulfilled"
 	case errors.Is(err, workflow.ErrWorkflowArtifactNotFound):
 		status, code = http.StatusNotFound, "workflow_artifact_not_found"
-	case errors.Is(err, workflow.ErrWorkflowArtifactHashMismatch), errors.Is(err, workflow.ErrWorkflowArtifactContentTypeMismatch), errors.Is(err, workflow.ErrWorkflowArtifactTooLarge):
+	case errors.Is(err, workflow.ErrWorkflowArtifactHashMismatch), errors.Is(err, workflow.ErrWorkflowArtifactContentTypeMismatch), errors.Is(err, workflow.ErrWorkflowArtifactTooLarge), errors.Is(err, workflow.ErrWorkflowArtifactProvenanceMismatch):
 		status, code = http.StatusUnprocessableEntity, "workflow_artifact_invalid"
 	case errors.Is(err, episode.ErrEpisodeExpired):
 		status, code = http.StatusUnprocessableEntity, "episode_expired"

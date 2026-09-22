@@ -40,18 +40,23 @@ type Config struct {
 }
 
 type Manager struct {
-	store        workflow.Repository
-	episodes     *application.Service
-	facts        EpisodeFactReader
-	childRunner  ChildEnqueuer
-	clock        func() time.Time
-	rootContext  context.Context
-	scanInterval time.Duration
-	locks        sync.Map
-	started      atomic.Bool
-	stopMu       sync.Mutex
-	stop         context.CancelFunc
-	wg           sync.WaitGroup
+	store           workflow.Repository
+	episodes        *application.Service
+	facts           EpisodeFactReader
+	childRunner     ChildEnqueuer
+	clock           func() time.Time
+	rootContext     context.Context
+	scanInterval    time.Duration
+	locks           sync.Map
+	started         atomic.Bool
+	workerMu        sync.Mutex
+	workerCtx       context.Context
+	workerCancel    context.CancelFunc
+	workerAccepting bool
+	workerWG        sync.WaitGroup
+	stopMu          sync.Mutex
+	stop            context.CancelFunc
+	wg              sync.WaitGroup
 }
 
 type CreateRunResult struct {
@@ -79,7 +84,6 @@ func (m *Manager) RegisterDefinition(ctx context.Context, definition workflow.Wo
 	if m == nil || m.store == nil {
 		return nil, errors.New("workflow repository is unavailable")
 	}
-	definition = definition.Normalize()
 	// A registration request may omit server-owned metadata. Once an
 	// immutable ID/version exists, reuse that metadata before computing the
 	// hash so retrying the same registration remains idempotent.
@@ -108,8 +112,14 @@ func (m *Manager) RegisterDefinition(ctx context.Context, definition workflow.Wo
 }
 
 func (m *Manager) GetDefinition(ctx context.Context, workflowID, version string) (*workflow.WorkflowDefinition, error) {
+	if err := workflow.ValidateIdentifier(workflowID); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(version) == "" {
 		return m.store.GetLatestDefinition(ctx, workflowID)
+	}
+	if err := workflow.ValidateIdentifier(version); err != nil {
+		return nil, err
 	}
 	return m.store.GetDefinition(ctx, workflowID, version)
 }
@@ -173,6 +183,9 @@ func (m *Manager) CreateRun(ctx context.Context, request workflow.WorkflowRunReq
 }
 
 func (m *Manager) GetStatus(ctx context.Context, runID string) (*workflow.WorkflowStatus, error) {
+	if err := workflow.ValidateIdentifier(runID); err != nil {
+		return nil, err
+	}
 	run, err := m.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -185,34 +198,45 @@ func (m *Manager) GetStatus(ctx context.Context, runID string) (*workflow.Workfl
 	if err != nil {
 		return nil, err
 	}
-	if budget, budgetErr := m.rebuildBudget(ctx, run, steps); budgetErr == nil {
-		run.Budget = budget
+	budget, err := m.rebuildBudget(ctx, run, steps)
+	if err != nil {
+		return nil, err
 	}
+	run.Budget = budget
 	status := &workflow.WorkflowStatus{WorkflowRun: run, Definition: definition, Budget: run.Budget, Steps: steps}
 	// The durable WorkflowRun stores only artifact references and hashes. The
 	// public status projection exposes final-artifact metadata, never its body.
 	if run.State == workflow.WorkflowFulfilled && m.facts != nil && m.episodes != nil {
-		if order, orderErr := workflow.TopologicalOrder(*definition); orderErr == nil {
-			for index := len(order) - 1; index >= 0; index-- {
-				step, found := findStepRun(steps, order[index])
-				if !found || step.State != workflow.StepFulfilled || step.ChildEpisodeID == "" || step.DeliveryID == "" {
-					continue
-				}
-				if artifact, artifactErr := m.facts.GetDeliveryArtifact(ctx, step.DeliveryID); artifactErr == nil && artifact != nil {
-					status.FinalArtifact = &workflow.WorkflowFinalArtifactRef{
-						DeliveryID:      artifact.DeliveryID,
-						PayloadHash:     artifact.PayloadHash,
-						ContentType:     artifact.ContentType,
-						PaymentIntentID: artifact.PaymentIntentID,
-						EntitlementRef:  artifact.EntitlementRef,
-						Size:            int64(len(artifact.Body)),
-					}
-				}
-				if child, childErr := m.episodes.GetEpisode(ctx, step.ChildEpisodeID); childErr == nil && len(child.ValidationEvidenceRefs) > 0 {
-					status.FinalValidation, _ = m.facts.GetValidationEvidence(ctx, child.ValidationEvidenceRefs[len(child.ValidationEvidenceRefs)-1])
-				}
-				break
-			}
+		outputStep, outputErr := workflow.OutputStep(*definition)
+		if outputErr != nil {
+			return nil, outputErr
+		}
+		step, found := findStepRun(steps, outputStep.StepID)
+		if !found || step.State != workflow.StepFulfilled || step.ChildEpisodeID == "" || step.DeliveryID == "" || step.OutputRef == "" || step.OutputHash == "" || step.ContentType == "" {
+			return nil, workflow.ErrWorkflowArtifactNotFound
+		}
+		artifact, artifactErr := m.facts.GetDeliveryArtifact(ctx, step.DeliveryID)
+		if artifactErr != nil || artifact == nil {
+			return nil, workflow.ErrWorkflowArtifactNotFound
+		}
+		if artifact.DeliveryID != step.DeliveryID || artifact.EpisodeID != step.ChildEpisodeID {
+			return nil, workflow.ErrWorkflowArtifactProvenanceMismatch
+		}
+		status.FinalArtifact = &workflow.WorkflowFinalArtifactRef{
+			DeliveryID:      artifact.DeliveryID,
+			PayloadHash:     artifact.PayloadHash,
+			ContentType:     artifact.ContentType,
+			PaymentIntentID: artifact.PaymentIntentID,
+			EntitlementRef:  artifact.EntitlementRef,
+			Size:            int64(len(artifact.Body)),
+		}
+		child, childErr := m.episodes.GetEpisode(ctx, step.ChildEpisodeID)
+		if childErr != nil || child == nil || len(child.ValidationEvidenceRefs) == 0 {
+			return nil, workflow.ErrWorkflowArtifactNotFound
+		}
+		status.FinalValidation, err = m.facts.GetValidationEvidence(ctx, child.ValidationEvidenceRefs[len(child.ValidationEvidenceRefs)-1])
+		if err != nil || status.FinalValidation == nil {
+			return nil, workflow.ErrWorkflowArtifactNotFound
 		}
 	}
 	return status, nil
@@ -239,14 +263,12 @@ func (m *Manager) GetFinalArtifact(ctx context.Context, runID string) (*invocati
 	if status.FinalArtifact == nil || strings.TrimSpace(status.FinalArtifact.DeliveryID) == "" {
 		return nil, workflow.ErrWorkflowArtifactNotFound
 	}
-	var terminalStep *workflow.WorkflowStepRun
-	for _, step := range status.Steps {
-		if step != nil && step.State == workflow.StepFulfilled && step.DeliveryID == status.FinalArtifact.DeliveryID {
-			terminalStep = step
-			break
-		}
+	outputStep, err := workflow.OutputStep(*status.Definition)
+	if err != nil {
+		return nil, err
 	}
-	if terminalStep == nil {
+	terminalStep, found := findStepRun(status.Steps, outputStep.StepID)
+	if !found || terminalStep == nil {
 		return nil, workflow.ErrWorkflowArtifactNotFound
 	}
 	if strings.TrimSpace(terminalStep.OutputHash) != strings.TrimSpace(status.FinalArtifact.PayloadHash) {
@@ -258,6 +280,9 @@ func (m *Manager) GetFinalArtifact(ctx context.Context, runID string) (*invocati
 	artifact, err := m.facts.GetDeliveryArtifact(ctx, status.FinalArtifact.DeliveryID)
 	if err != nil || artifact == nil {
 		return nil, workflow.ErrWorkflowArtifactNotFound
+	}
+	if artifact.DeliveryID != terminalStep.DeliveryID || artifact.EpisodeID != terminalStep.ChildEpisodeID {
+		return nil, workflow.ErrWorkflowArtifactProvenanceMismatch
 	}
 	if len(artifact.Body) > invocation.MaxStoredPayloadBytes {
 		return nil, workflow.ErrWorkflowArtifactTooLarge
@@ -292,6 +317,9 @@ func (m *Manager) GetObservability(ctx context.Context, runID string) (*workflow
 }
 
 func (m *Manager) ListEvents(ctx context.Context, runID string) ([]*workflow.WorkflowEvent, error) {
+	if err := workflow.ValidateIdentifier(runID); err != nil {
+		return nil, err
+	}
 	return m.store.ListEvents(ctx, runID)
 }
 
@@ -314,6 +342,11 @@ func (m *Manager) StartSupervisor(ctx context.Context) error {
 		ctx = m.rootContext
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
+	m.workerMu.Lock()
+	m.workerCtx = workerCtx
+	m.workerCancel = cancel
+	m.workerAccepting = true
+	m.workerMu.Unlock()
 	m.stopMu.Lock()
 	m.stop = cancel
 	m.stopMu.Unlock()
@@ -333,7 +366,13 @@ func (m *Manager) StopSupervisor() {
 	if stop != nil {
 		stop()
 	}
+	m.workerMu.Lock()
+	m.workerAccepting = false
+	m.workerCtx = nil
+	m.workerCancel = nil
+	m.workerMu.Unlock()
 	m.wg.Wait()
+	m.workerWG.Wait()
 	m.started.Store(false)
 }
 
@@ -345,9 +384,16 @@ func (m *Manager) ResumePersisted(ctx context.Context) error {
 		return err
 	}
 	for _, run := range runs {
-		if run != nil {
-			m.Enqueue(ctx, run.WorkflowRunID)
+		if run == nil || workflow.IsTerminalRun(run.State) || run.State == workflow.WorkflowAwaitingParent {
+			continue
 		}
+		if m.started.Load() {
+			m.Enqueue(ctx, run.WorkflowRunID)
+			continue
+		}
+		// A startup resume is best-effort per durable run. A later supervisor
+		// sweep must be allowed to retry a transient child/repository race.
+		_, _ = m.run(ctx, run.WorkflowRunID)
 	}
 	return nil
 }
@@ -361,7 +407,20 @@ func (m *Manager) Enqueue(_ context.Context, runID string) {
 	if !lock.TryLock() {
 		return
 	}
-	go func() { defer lock.Unlock(); _, _ = m.run(m.rootContext, runID) }()
+	m.workerMu.Lock()
+	if !m.workerAccepting || m.workerCtx == nil {
+		m.workerMu.Unlock()
+		lock.Unlock()
+		return
+	}
+	workerCtx := m.workerCtx
+	m.workerWG.Add(1)
+	m.workerMu.Unlock()
+	go func() {
+		defer m.workerWG.Done()
+		defer lock.Unlock()
+		_, _ = m.run(workerCtx, runID)
+	}()
 }
 
 func (m *Manager) supervisorLoop(ctx context.Context) {
@@ -537,12 +596,18 @@ func (m *Manager) attachChild(ctx context.Context, run *workflow.WorkflowRun, st
 }
 
 func (m *Manager) completeStepFromArtifact(ctx context.Context, run *workflow.WorkflowRun, step *workflow.WorkflowStepRun, child *episode.CommerceEpisode) error {
-	if m.facts == nil || len(child.DeliveryRefs) == 0 || len(child.ValidationEvidenceRefs) == 0 {
+	if child == nil || m.facts == nil || len(child.DeliveryRefs) == 0 || len(child.ValidationEvidenceRefs) == 0 {
 		return workflow.ErrWorkflowArtifact
+	}
+	if step == nil || child == nil || step.ChildEpisodeID == "" || step.ChildEpisodeID != child.EpisodeID {
+		return workflow.ErrWorkflowArtifactProvenanceMismatch
 	}
 	artifact, err := m.facts.GetDeliveryArtifact(ctx, child.DeliveryRefs[len(child.DeliveryRefs)-1])
 	if err != nil || artifact == nil {
 		return workflow.ErrWorkflowArtifact
+	}
+	if artifact.DeliveryID != child.DeliveryRefs[len(child.DeliveryRefs)-1] || artifact.EpisodeID != child.EpisodeID {
+		return workflow.ErrWorkflowArtifactProvenanceMismatch
 	}
 	validation, err := m.facts.GetValidationEvidence(ctx, child.ValidationEvidenceRefs[len(child.ValidationEvidenceRefs)-1])
 	if err != nil || validation == nil || !validation.Valid || validation.PayloadHash != artifact.PayloadHash {
@@ -563,7 +628,7 @@ func (m *Manager) completeStepFromArtifact(ctx context.Context, run *workflow.Wo
 	nextRun.UpdatedAt = now
 	nextStep := step.Clone()
 	nextStep.State = workflow.StepFulfilled
-	nextStep.OutputRef = "workflow-artifact://" + run.WorkflowRunID + "/" + step.StepID
+	nextStep.OutputRef = (workflow.ArtifactRef{WorkflowRunID: run.WorkflowRunID, StepID: step.StepID}).URI()
 	nextStep.OutputHash = artifact.PayloadHash
 	nextStep.ContentType = artifact.ContentType
 	nextStep.DeliveryID = artifact.DeliveryID
@@ -706,8 +771,18 @@ func (m *Manager) buildChildRequest(run *workflow.WorkflowRun, definition workfl
 		RequesterDID:    run.RequesterDID,
 		AcquisitionGoal: contract.AcquisitionGoal{TaskType: step.Capability.TaskType, Description: definition.Name + " / " + step.StepID, SemanticConstraints: append([]contract.KeyValue(nil), step.Capability.SemanticConstraints...)},
 		Input:           input,
-		Constraints:     contract.Constraints{BudgetLimitMinor: budget, Currency: definition.Currency, DeadlineAt: deadline, SupportedProtocolVersions: protocols, MaxTotalAttempts: step.MaxTotalAttempts, MaxPaymentAttempts: step.MaxPaymentAttempts, MaxDeliveryAttempts: step.MaxDeliveryAttempts},
-		ExpectedOutput:  step.ExpectedOutput, Validator: step.Validator,
+		Constraints: contract.Constraints{
+			BudgetLimitMinor:                    budget,
+			Currency:                            definition.Currency,
+			DeadlineAt:                          deadline,
+			SupportedProtocolVersions:           protocols,
+			MaxTotalAttempts:                    step.MaxTotalAttempts,
+			MaxPaymentAttempts:                  step.MaxPaymentAttempts,
+			MaxDeliveryAttempts:                 step.MaxDeliveryAttempts,
+			AllowCrossMerchantSwitch:            step.AllowCrossMerchantSwitch,
+			RequireParentConfirmationAboveMinor: step.RequireParentConfirmationAboveMinor,
+		},
+		ExpectedOutput: step.ExpectedOutput, Validator: step.Validator,
 	}
 	if err := request.ValidateAt(m.now()); err != nil {
 		return contract.AcquireCapabilityRequest{}, "", "", err
@@ -827,7 +902,7 @@ func nextReadyStep(definition workflow.WorkflowDefinition, steps []*workflow.Wor
 	}
 	for _, stepID := range order {
 		step, ok := findStepRun(steps, stepID)
-		if !ok || step.State != workflow.StepPending {
+		if !ok || (step.State != workflow.StepPending && step.State != workflow.StepReady) || step.ChildEpisodeID != "" {
 			continue
 		}
 		definitionStep, _ := findStep(definition, stepID)

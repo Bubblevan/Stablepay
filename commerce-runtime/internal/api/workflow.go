@@ -44,6 +44,10 @@ func (s *Server) workflowDefinitionRoute(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return
 	}
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_workflow_identifier", "workflow paths cannot contain a query string")
+		return
+	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1/workflows/"), "/"), "/")
 	if len(parts) != 2 || r.Method != http.MethodGet {
 		writeError(w, http.StatusNotFound, "not_found", "workflow definition route not found")
@@ -57,6 +61,14 @@ func (s *Server) workflowDefinitionRoute(w http.ResponseWriter, r *http.Request)
 	version, err := url.PathUnescape(parts[1])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_workflow_version", err.Error())
+		return
+	}
+	if err := workflow.ValidateIdentifier(id); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	if err := workflow.ValidateIdentifier(version); err != nil {
+		writeDomainError(w, err)
 		return
 	}
 	value, err := s.workflow.GetDefinition(r.Context(), id, version)
@@ -121,12 +133,20 @@ func (s *Server) workflowRunRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return
 	}
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_workflow_identifier", "workflow paths cannot contain a query string")
+		return
+	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1/workflow-runs/"), "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
 		writeError(w, http.StatusNotFound, "not_found", "workflow run id is required")
 		return
 	}
 	runID := parts[0]
+	if err := workflow.ValidateIdentifier(runID); err != nil {
+		writeDomainError(w, err)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "artifact" {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")

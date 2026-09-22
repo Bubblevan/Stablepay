@@ -261,13 +261,13 @@ func AllowedTransitions(from State) []State {
 		StateAccepted:           {StateDiscovering, StateAborted, StateExpired},
 		StateDiscovering:        {StateInvoking, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateInvoking:           {StateNegotiating, StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
-		StateNegotiating:        {StatePaying, StateRecovering, StateBlocked, StateFailed, StateAborted, StateExpired},
+		StateNegotiating:        {StatePaying, StateRecovering, StateAwaitingParent, StateBlocked, StateFailed, StateAborted, StateExpired},
 		StatePaying:             {StateClaiming, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateClaiming:           {StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateInvokingDelivery:   {StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
 		StateValidatingDelivery: {StateFulfilled, StateRecovering, StateFailed, StateExpired},
 		StateRecovering:         {StateDiscovering, StateInvoking, StateInvokingDelivery, StateAwaitingParent, StateFailed, StateAborted, StateExpired},
-		StateAwaitingParent:     {StateRecovering, StateFailed, StateAborted, StateExpired},
+		StateAwaitingParent:     {StateNegotiating, StateRecovering, StateFailed, StateAborted, StateExpired},
 	}
 	return append([]State(nil), transitions[from]...)
 }
@@ -349,7 +349,7 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 	case trace.ActionRediscover:
 		return StateDiscovering, from == StateRecovering
 	case trace.ActionAskParent:
-		return StateAwaitingParent, from == StateRecovering
+		return StateAwaitingParent, from == StateRecovering || from == StateNegotiating
 	case trace.ActionStop:
 		return StateFailed, from == StateRecovering || from == StateAwaitingParent || from == StateDiscovering || from == StateInvoking || from == StateNegotiating
 	}

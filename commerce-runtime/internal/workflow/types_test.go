@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -51,5 +52,61 @@ func TestDefinitionRejectsContentMismatch(t *testing.T) {
 	definition.Steps[1].Capability.RequiredInputContentType = "application/json"
 	if err := definition.Validate(); err == nil {
 		t.Fatal("expected content mismatch rejection")
+	}
+}
+
+func TestDefinitionHasExactlyOneTypedSinkAndOutputStep(t *testing.T) {
+	definition := validDefinition()
+	output, err := OutputStep(definition)
+	if err != nil || output.StepID != "step-b" {
+		t.Fatalf("expected step-b as the sole output step, got=%#v err=%v", output, err)
+	}
+
+	definition.Steps[0].DependsOn = nil
+	definition.Steps[0].InputBinding = WorkflowInputBinding{Source: WorkflowRootInput, ContentType: "text/plain"}
+	definition.Steps[0].Capability.TaskType = "independent"
+	definition.Steps[0].ExpectedOutput = contract.ExpectedOutput{Schema: "schema://output", ContentType: "text/plain"}
+	if err := definition.Validate(); err == nil {
+		t.Fatal("expected multiple sinks to be rejected")
+	}
+
+	definition = validDefinition()
+	definition.Steps[0].ExpectedOutput.Schema = "schema://wrong"
+	if err := definition.Validate(); err == nil {
+		t.Fatal("expected sink output schema mismatch to be rejected")
+	}
+}
+
+func TestStableIdentifiersAndArtifactURI(t *testing.T) {
+	for _, value := range []string{"step-a", "Step.A", "step:a", "v1:blue"} {
+		if err := ValidateIdentifier(value); err != nil {
+			t.Fatalf("valid identifier %q rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{" step-a", "step-a ", "step/a", "step?x", "step#x", "step..x", "", "a\n"} {
+		if err := ValidateIdentifier(value); !errors.Is(err, ErrInvalidIdentifier) {
+			t.Fatalf("unsafe identifier %q was accepted: %v", value, err)
+		}
+	}
+	ref := ArtifactRef{WorkflowRunID: "wr:Case.1", StepID: "step:a"}
+	if ref.URI() != "workflow-artifact://wr:Case.1/step:a" {
+		t.Fatalf("artifact URI changed identity: %s", ref.URI())
+	}
+}
+
+func TestStepSafetyFieldsAndFulfilledProjectionRequirements(t *testing.T) {
+	definition := validDefinition()
+	definition.Steps[1].AllowCrossMerchantSwitch = true
+	definition.Steps[1].RequireParentConfirmationAboveMinor = definition.MaxBudgetMinor + 1
+	if err := definition.Validate(); err != nil {
+		t.Fatalf("threshold may exceed workflow budget: %v", err)
+	}
+	definition.Steps[1].RequireParentConfirmationAboveMinor = -1
+	if err := definition.Validate(); err == nil {
+		t.Fatal("negative parent threshold was accepted")
+	}
+	step := WorkflowStepRun{WorkflowRunID: "wr:test", StepID: "step-b", State: StepFulfilled, Version: 1}
+	if err := step.Validate(); err == nil {
+		t.Fatal("fulfilled step without durable output bindings was accepted")
 	}
 }

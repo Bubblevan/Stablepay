@@ -18,14 +18,15 @@ import (
 const MaxPayloadBytes = invocation.MaxStoredPayloadBytes
 
 var (
-	ErrInvalidRef          = errors.New("invalid workflow artifact reference")
-	ErrUnknownScheme       = errors.New("unknown workflow artifact reference scheme")
-	ErrRunMismatch         = errors.New("workflow artifact is outside the requested workflow run")
-	ErrStepNotFulfilled    = errors.New("workflow artifact step is not fulfilled")
-	ErrHashMismatch        = errors.New("workflow artifact payload hash mismatch")
-	ErrContentTypeMismatch = errors.New("workflow artifact content type mismatch")
-	ErrPayloadTooLarge     = errors.New("workflow artifact payload exceeds the bounded limit")
-	ErrArtifactNotFound    = errors.New("workflow delivery artifact was not found")
+	ErrInvalidRef                 = errors.New("invalid workflow artifact reference")
+	ErrUnknownScheme              = errors.New("unknown workflow artifact reference scheme")
+	ErrRunMismatch                = errors.New("workflow artifact is outside the requested workflow run")
+	ErrStepNotFulfilled           = errors.New("workflow artifact step is not fulfilled")
+	ErrHashMismatch               = errors.New("workflow artifact payload hash mismatch")
+	ErrContentTypeMismatch        = errors.New("workflow artifact content type mismatch")
+	ErrPayloadTooLarge            = errors.New("workflow artifact payload exceeds the bounded limit")
+	ErrArtifactNotFound           = errors.New("workflow delivery artifact was not found")
+	ErrArtifactProvenanceMismatch = errors.New("workflow artifact provenance mismatch")
 )
 
 type DeliveryArtifactStore interface {
@@ -69,6 +70,9 @@ func ParseRef(value string) (workflow.ArtifactRef, error) {
 	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.Contains(parts[0], "?") || strings.Contains(parts[1], "?") {
 		return workflow.ArtifactRef{}, ErrInvalidRef
 	}
+	if workflow.ValidateIdentifier(parts[0]) != nil || workflow.ValidateIdentifier(parts[1]) != nil {
+		return workflow.ArtifactRef{}, ErrInvalidRef
+	}
 	return workflow.ArtifactRef{WorkflowRunID: parts[0], StepID: parts[1]}, nil
 }
 
@@ -95,12 +99,15 @@ func (r *Resolver) Resolve(ctx context.Context, ref workflow.ArtifactRef, expect
 	if step.WorkflowRunID != run.WorkflowRunID || step.OutputRef != ref.URI() {
 		return nil, ErrRunMismatch
 	}
-	if step.State != workflow.StepFulfilled || step.DeliveryID == "" {
+	if step.State != workflow.StepFulfilled || step.ChildEpisodeID == "" || step.DeliveryID == "" || step.OutputRef == "" || step.OutputHash == "" || step.ContentType == "" {
 		return nil, ErrStepNotFulfilled
 	}
 	artifact, err := r.Artifacts.GetDeliveryArtifact(ctx, step.DeliveryID)
 	if err != nil || artifact == nil {
 		return nil, ErrArtifactNotFound
+	}
+	if artifact.DeliveryID != step.DeliveryID || artifact.EpisodeID != step.ChildEpisodeID {
+		return nil, ErrArtifactProvenanceMismatch
 	}
 	if artifact.EpisodeID == "" || int64(len(artifact.Body)) > r.maxBytes() {
 		if int64(len(artifact.Body)) > r.maxBytes() {

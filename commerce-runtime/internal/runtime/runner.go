@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
@@ -32,6 +34,13 @@ const (
 	defaultRetryMax           = 30 * time.Second
 	initialCandidateSetPrefix = "cs:"
 )
+
+type workerContextKey struct{}
+
+func isWorkerContext(ctx context.Context) bool {
+	value, _ := ctx.Value(workerContextKey{}).(bool)
+	return value
+}
 
 type Runner struct {
 	service     *application.Service
@@ -141,7 +150,7 @@ func (r *Runner) StartSupervisor(ctx context.Context) error {
 	if ctx == nil {
 		ctx = r.rootCtx
 	}
-	workerCtx, cancel := context.WithCancel(ctx)
+	workerCtx, cancel := context.WithCancel(context.WithValue(ctx, workerContextKey{}, true))
 	r.stopMu.Lock()
 	r.stop = cancel
 	r.stopMu.Unlock()
@@ -262,6 +271,11 @@ func (r *Runner) run(ctx context.Context, episodeID string) (Result, error) {
 	if episode.IsTerminal(current.State) {
 		_ = r.markCompleted(ctx, episodeID)
 		return Result{Episode: current}, nil
+	}
+	if isWorkerContext(ctx) {
+		if persisted, statusErr := r.getExecutionStatus(ctx, episodeID); statusErr == nil && persisted != nil && persisted.NextRetryAt != nil && persisted.NextRetryAt.After(r.now()) {
+			return Result{Episode: current}, nil
+		}
 	}
 	if !r.now().Before(current.DeadlineAt) {
 		return r.expire(ctx, current)
@@ -510,6 +524,14 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 	case episode.StateNegotiating:
 		quote, err := r.currentQuote(ctx, current)
 		if err != nil {
+			return err
+		}
+		var acquire contract.AcquireCapabilityRequest
+		if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
+			return fmt.Errorf("decode episode contract snapshot: %w", err)
+		}
+		if threshold := acquire.Constraints.RequireParentConfirmationAboveMinor; threshold > 0 && quote.AmountMinor > threshold && current.RecoveryID == "" {
+			_, err = r.service.RequestParentConfirmation(ctx, application.ParentConfirmationRequest{EpisodeID: current.EpisodeID, TraceID: traceID + ":parent-threshold"})
 			return err
 		}
 		_, err = r.service.ReservePaymentIntentForEpisode(ctx, application.ReservePaymentIntentForEpisodeRequest{EpisodeID: current.EpisodeID, Quote: quote, IdempotencyKey: "payment:" + current.EpisodeID + ":" + quote.QuoteHash, Actor: "runtime", TraceID: traceID + ":reserve"})
