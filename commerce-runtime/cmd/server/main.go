@@ -45,7 +45,7 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	log.Printf("commerce-runtime S10 listening on %s (version=%s)", cfg.HTTPAddr, cfg.RuntimeVersion)
+	log.Printf("commerce-runtime listening on %s (version=%s)", cfg.HTTPAddr, cfg.RuntimeVersion)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("commerce-runtime HTTP server failed: %v", err)
 	}

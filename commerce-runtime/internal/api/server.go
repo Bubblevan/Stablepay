@@ -347,7 +347,11 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	result := mcpResult{JSONRPC: "2.0", ID: request.ID}
 	switch request.Method {
 	case "initialize":
-		result.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stablepay-commerce-runtime", "version": "s10.1"}}
+		version := s.variant.RuntimeVersion
+		if strings.TrimSpace(version) == "" {
+			version = "commerce-runtime"
+		}
+		result.Result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "stablepay-commerce-runtime", "version": version}}
 	case "notifications/initialized":
 		result.Result = map[string]any{}
 	case "tools/list":
