@@ -127,6 +127,23 @@ func (s *Server) workflowRunRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID := parts[0]
+	if len(parts) == 2 && parts[1] == "artifact" {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")
+			return
+		}
+		value, err := s.workflow.GetFinalArtifact(r.Context(), runID)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"artifact": struct {
+			Body        []byte `json:"body"`
+			ContentType string `json:"content_type"`
+			PayloadHash string `json:"payload_hash"`
+		}{Body: value.Body, ContentType: value.ContentType, PayloadHash: value.PayloadHash}})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "events" {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")

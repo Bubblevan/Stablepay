@@ -125,11 +125,15 @@ func (s *Service) InvokeSelectedMerchant(ctx context.Context, request InvokeSele
 	if err != nil {
 		return MerchantInvocationResult{}, err
 	}
+	payload, payloadContentType, payloadHash, err := s.resolveInputPayload(ctx, input)
+	if err != nil {
+		return MerchantInvocationResult{}, err
+	}
 	traceID := strings.TrimSpace(request.TraceID)
 	if traceID == "" {
 		traceID = current.EpisodeID + ":initial-invoke"
 	}
-	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, Attempt: 1, Phase: invocation.PhaseInitial, TraceID: traceID, IdempotencyKey: "invoke:initial:" + current.EpisodeID + ":" + current.SelectedMerchantDID, Endpoint: capability.InvokeEndpoint, PaymentSignature: request.PaymentSignature}
+	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, InputPayload: payload, InputContentType: payloadContentType, InputPayloadHash: payloadHash, Attempt: 1, Phase: invocation.PhaseInitial, TraceID: traceID, IdempotencyKey: "invoke:initial:" + current.EpisodeID + ":" + current.SelectedMerchantDID, Endpoint: capability.InvokeEndpoint, PaymentSignature: request.PaymentSignature}
 	if _, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey); errors.Is(findErr, repository.ErrFactNotFound) && current.State != episode.StateInvoking {
 		return MerchantInvocationResult{}, decision.ErrActionNotAllowed
 	} else if findErr != nil && !errors.Is(findErr, repository.ErrFactNotFound) {
@@ -286,7 +290,11 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
-	capability, _, err := s.selectedCapabilityAndInput(ctx, current)
+	capability, input, err := s.selectedCapabilityAndInput(ctx, current)
+	if err != nil {
+		return DeliveryInvocationResult{}, err
+	}
+	payload, payloadContentType, payloadHash, err := s.resolveInputPayload(ctx, input)
 	if err != nil {
 		return DeliveryInvocationResult{}, err
 	}
@@ -309,7 +317,7 @@ func (s *Service) InvokeDelivery(ctx context.Context, request InvokeDeliveryRequ
 	if len(current.EntitlementRefs) > 0 {
 		entitlementRef = current.EntitlementRefs[len(current.EntitlementRefs)-1]
 	}
-	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, Attempt: attempt, Phase: invocation.PhaseDelivery, TraceID: traceID, IdempotencyKey: fmt.Sprintf("invoke:delivery:%s:%d", current.EpisodeID, attempt), Endpoint: capability.InvokeEndpoint, EntitlementRef: entitlementRef, PaymentIntentID: intent.IntentID, PaymentSignature: request.PaymentSignature}
+	operation := adapters.MerchantInvokeRequest{EpisodeID: current.EpisodeID, RequesterDID: current.RequesterDID, MerchantDID: current.SelectedMerchantDID, CapabilityID: current.SelectedCapabilityID, CatalogVersion: current.SelectedCatalogVersion, CatalogSnapshotHash: current.SelectedCatalogSnapshotHash, CatalogSnapshotRef: current.SelectedCatalogSnapshotRef, InputRef: inputRef(input), InputHash: input.SHA256, InputPayload: payload, InputContentType: payloadContentType, InputPayloadHash: payloadHash, Attempt: attempt, Phase: invocation.PhaseDelivery, TraceID: traceID, IdempotencyKey: fmt.Sprintf("invoke:delivery:%s:%d", current.EpisodeID, attempt), Endpoint: capability.InvokeEndpoint, EntitlementRef: entitlementRef, PaymentIntentID: intent.IntentID, PaymentSignature: request.PaymentSignature}
 	existingInvocation, findInvocationErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, operation.IdempotencyKey)
 	completedInvocation := findInvocationErr == nil && !existingInvocation.CompletedAt.IsZero() && existingInvocation.ResponseStatus != 0
 	if findInvocationErr != nil && !errors.Is(findInvocationErr, repository.ErrFactNotFound) {
@@ -871,6 +879,17 @@ func inputRef(input contract.Input) string {
 	}
 	return input.URI
 }
+
+func (s *Service) resolveInputPayload(ctx context.Context, input contract.Input) ([]byte, string, []byte, error) {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(input.Ref)), "workflow-artifact://") {
+		return nil, "", nil, nil
+	}
+	if s.inputPayloadResolver == nil {
+		return nil, "", nil, ErrInputPayloadResolverUnavailable
+	}
+	return s.inputPayloadResolver.ResolveInput(ctx, input)
+}
+
 func appendUnique(values []string, value string) []string {
 	for _, item := range values {
 		if item == value {

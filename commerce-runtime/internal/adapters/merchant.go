@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,6 +22,7 @@ import (
 var (
 	ErrMerchantAdapterNotConfigured = errors.New("merchant adapter is not configured")
 	ErrMerchantResponseTooLarge     = errors.New("merchant response exceeds the bounded payload limit")
+	ErrMerchantInputPayloadTooLarge = errors.New("merchant input payload exceeds the bounded payload limit")
 	ErrMerchantEndpointUnavailable  = errors.New("merchant endpoint is not an HTTP URL")
 )
 
@@ -39,6 +41,9 @@ type MerchantInvokeRequest struct {
 	CatalogSnapshotRef  string
 	InputRef            string
 	InputHash           string
+	InputPayload        []byte
+	InputContentType    string
+	InputPayloadHash    []byte
 	EntitlementRef      string
 	PaymentIntentID     string
 	PaymentSignature    string
@@ -66,6 +71,9 @@ func (r MerchantInvokeRequest) Validate() error {
 		(r.Phase != invocation.PhaseInitial && r.Phase != invocation.PhaseDelivery) {
 		return errors.New("invalid merchant invoke request")
 	}
+	if len(r.InputPayload) > invocation.MaxStoredPayloadBytes {
+		return ErrMerchantInputPayloadTooLarge
+	}
 	return nil
 }
 
@@ -85,13 +93,15 @@ func RequestHash(r MerchantInvokeRequest) (string, error) {
 		CatalogSnapshotRef  string              `json:"catalog_snapshot_ref"`
 		InputRef            string              `json:"input_ref,omitempty"`
 		InputHash           string              `json:"input_hash,omitempty"`
+		InputContentType    string              `json:"input_content_type,omitempty"`
+		InputPayloadHash    []byte              `json:"input_payload_hash,omitempty"`
 		EntitlementRef      string              `json:"entitlement_ref,omitempty"`
 		PaymentIntentID     string              `json:"payment_intent_id,omitempty"`
 		Attempt             int                 `json:"attempt"`
 		Phase               invocation.Phase    `json:"phase"`
 		Endpoint            catalog.EndpointRef `json:"endpoint"`
 		IdempotencyKey      string              `json:"idempotency_key"`
-	}{r.EpisodeID, r.RequesterDID, r.MerchantDID, r.CapabilityID, r.CatalogVersion, r.CatalogSnapshotHash, r.CatalogSnapshotRef, r.InputRef, r.InputHash,
+	}{r.EpisodeID, r.RequesterDID, r.MerchantDID, r.CapabilityID, r.CatalogVersion, r.CatalogSnapshotHash, r.CatalogSnapshotRef, r.InputRef, r.InputHash, r.InputContentType, r.InputPayloadHash,
 		r.EntitlementRef, r.PaymentIntentID, r.Attempt, r.Phase, r.Endpoint.Normalize(), r.IdempotencyKey}
 	payload, err := json.Marshal(canonical)
 	if err != nil {
@@ -155,11 +165,22 @@ func (a *HTTPMerchantAdapter) Invoke(ctx context.Context, request MerchantInvoke
 		callCtx, cancel = context.WithTimeout(callCtx, a.Timeout)
 		defer cancel()
 	}
-	req, err := http.NewRequestWithContext(callCtx, method, u.String(), nil)
+	var requestBody io.Reader
+	if len(request.InputPayload) > 0 {
+		requestBody = bytes.NewReader(request.InputPayload)
+	}
+	req, err := http.NewRequestWithContext(callCtx, method, u.String(), requestBody)
 	if err != nil {
 		return MerchantInvokeResult{}, err
 	}
 	req.Header.Set("Accept", "application/json, text/plain, */*")
+	if request.InputContentType != "" {
+		req.Header.Set("Content-Type", request.InputContentType)
+		req.Header.Set("X-StablePay-Input-Content-Type", request.InputContentType)
+	}
+	if len(request.InputPayloadHash) > 0 {
+		req.Header.Set("X-StablePay-Input-Payload-Hash", "sha256:"+hex.EncodeToString(request.InputPayloadHash))
+	}
 	if a.UserAgent != "" {
 		req.Header.Set("User-Agent", a.UserAgent)
 	}

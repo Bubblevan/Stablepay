@@ -26,6 +26,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
+	workflowartifact "github.com/stablepay/commerce-runtime/internal/workflow/artifact"
 	"github.com/stablepay/commerce-runtime/internal/workflowruntime"
 
 	kitexpaymentservice "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service/paymentservice"
@@ -120,6 +121,7 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 		application.WithPersistentEvidenceStore(store),
 		application.WithValidatorRegistry(validatorRegistry),
 		application.WithRuleRecoveryFallback(recoveryProvider == "rule"),
+		application.WithInputPayloadResolver(workflowartifact.NewResolver(store, store)),
 	}
 	if deepseek != nil {
 		serviceOptions = append(serviceOptions, application.WithLLMDecisionProvider(deepseek))

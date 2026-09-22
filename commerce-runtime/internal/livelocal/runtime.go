@@ -29,6 +29,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/repository"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
+	workflowartifact "github.com/stablepay/commerce-runtime/internal/workflow/artifact"
 	"github.com/stablepay/commerce-runtime/internal/workflowruntime"
 )
 
@@ -73,6 +74,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		application.WithValidatorRegistry(validator.NewBuiltinRegistry()),
 		application.WithPaymentAdapters(application.PaymentDependencies{DID: localDID{}, Payment: localPayment{}, Status: localPayment{}, Entitlement: localEntitlement{}}),
 		application.WithRuleRecoveryFallback(true),
+		application.WithInputPayloadResolver(workflowartifact.NewResolver(store, store)),
 	}
 	if memoryMode == "on" {
 		serviceOptions = append(serviceOptions, application.WithMemoryStore(store))
@@ -296,9 +298,9 @@ func (m *localMerchant) Invoke(_ context.Context, request adapters.MerchantInvok
 		return localChallenge(request, now), nil
 	}
 	if request.Phase == "DELIVERY" && request.Attempt == 1 && m.fault.Observe("delivery_invalid", true) {
-		return localDelivery(true, now), nil
+		return localDelivery(request, true, now), nil
 	}
-	return localDelivery(false, now), nil
+	return localDelivery(request, false, now), nil
 }
 
 func localChallenge(request adapters.MerchantInvokeRequest, now time.Time) adapters.MerchantInvokeResult {
@@ -307,8 +309,14 @@ func localChallenge(request adapters.MerchantInvokeRequest, now time.Time) adapt
 	return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, Headers: map[string]string{"PAYMENT-REQUIRED": encoded}, ContentType: "application/json", Body: body, OccurredAt: now, PayloadHash: "sha256:" + hashHex(body), PayloadRef: "merchant-response://" + hashHex(body)}
 }
 
-func localDelivery(invalid bool, now time.Time) adapters.MerchantInvokeResult {
+func localDelivery(request adapters.MerchantInvokeRequest, invalid bool, now time.Time) adapters.MerchantInvokeResult {
 	body := []byte("stablepay live-local artifact")
+	switch request.CapabilityID {
+	case "s8-source":
+		body = []byte("hello")
+	case "s8-transform":
+		body = []byte(strings.ToUpper(string(request.InputPayload)))
+	}
 	if invalid {
 		body = nil
 	}

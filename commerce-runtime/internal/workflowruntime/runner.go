@@ -190,17 +190,24 @@ func (m *Manager) GetStatus(ctx context.Context, runID string) (*workflow.Workfl
 	}
 	status := &workflow.WorkflowStatus{WorkflowRun: run, Definition: definition, Budget: run.Budget, Steps: steps}
 	// The durable WorkflowRun stores only artifact references and hashes. The
-	// public status projection may resolve the final validated artifact from
-	// the existing Episode fact store without copying its body into workflow
-	// state.
-	if m.facts != nil && m.episodes != nil {
+	// public status projection exposes final-artifact metadata, never its body.
+	if run.State == workflow.WorkflowFulfilled && m.facts != nil && m.episodes != nil {
 		if order, orderErr := workflow.TopologicalOrder(*definition); orderErr == nil {
 			for index := len(order) - 1; index >= 0; index-- {
 				step, found := findStepRun(steps, order[index])
 				if !found || step.State != workflow.StepFulfilled || step.ChildEpisodeID == "" || step.DeliveryID == "" {
 					continue
 				}
-				status.FinalArtifact, _ = m.facts.GetDeliveryArtifact(ctx, step.DeliveryID)
+				if artifact, artifactErr := m.facts.GetDeliveryArtifact(ctx, step.DeliveryID); artifactErr == nil && artifact != nil {
+					status.FinalArtifact = &workflow.WorkflowFinalArtifactRef{
+						DeliveryID:      artifact.DeliveryID,
+						PayloadHash:     artifact.PayloadHash,
+						ContentType:     artifact.ContentType,
+						PaymentIntentID: artifact.PaymentIntentID,
+						EntitlementRef:  artifact.EntitlementRef,
+						Size:            int64(len(artifact.Body)),
+					}
+				}
 				if child, childErr := m.episodes.GetEpisode(ctx, step.ChildEpisodeID); childErr == nil && len(child.ValidationEvidenceRefs) > 0 {
 					status.FinalValidation, _ = m.facts.GetValidationEvidence(ctx, child.ValidationEvidenceRefs[len(child.ValidationEvidenceRefs)-1])
 				}
@@ -209,6 +216,64 @@ func (m *Manager) GetStatus(ctx context.Context, runID string) (*workflow.Workfl
 		}
 	}
 	return status, nil
+}
+
+// GetFinalArtifact is the explicit workflow data-plane endpoint. It verifies
+// the run state, step projection, stored payload hash, and content type before
+// returning a body. Any integrity failure returns no artifact body.
+func (m *Manager) GetFinalArtifact(ctx context.Context, runID string) (*invocation.DeliveryArtifact, error) {
+	if m == nil || m.store == nil || m.facts == nil {
+		return nil, workflow.ErrWorkflowArtifactNotFound
+	}
+	run, err := m.store.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if run.State != workflow.WorkflowFulfilled {
+		return nil, workflow.ErrWorkflowArtifactNotFulfilled
+	}
+	status, err := m.GetStatus(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if status.FinalArtifact == nil || strings.TrimSpace(status.FinalArtifact.DeliveryID) == "" {
+		return nil, workflow.ErrWorkflowArtifactNotFound
+	}
+	var terminalStep *workflow.WorkflowStepRun
+	for _, step := range status.Steps {
+		if step != nil && step.State == workflow.StepFulfilled && step.DeliveryID == status.FinalArtifact.DeliveryID {
+			terminalStep = step
+			break
+		}
+	}
+	if terminalStep == nil {
+		return nil, workflow.ErrWorkflowArtifactNotFound
+	}
+	if strings.TrimSpace(terminalStep.OutputHash) != strings.TrimSpace(status.FinalArtifact.PayloadHash) {
+		return nil, workflow.ErrWorkflowArtifactHashMismatch
+	}
+	if strings.ToLower(strings.TrimSpace(terminalStep.ContentType)) != strings.ToLower(strings.TrimSpace(status.FinalArtifact.ContentType)) {
+		return nil, workflow.ErrWorkflowArtifactContentTypeMismatch
+	}
+	artifact, err := m.facts.GetDeliveryArtifact(ctx, status.FinalArtifact.DeliveryID)
+	if err != nil || artifact == nil {
+		return nil, workflow.ErrWorkflowArtifactNotFound
+	}
+	if len(artifact.Body) > invocation.MaxStoredPayloadBytes {
+		return nil, workflow.ErrWorkflowArtifactTooLarge
+	}
+	if strings.TrimSpace(artifact.DeliveryID) != status.FinalArtifact.DeliveryID ||
+		strings.TrimSpace(artifact.PayloadHash) != strings.TrimSpace(status.FinalArtifact.PayloadHash) ||
+		invocation.PayloadHash(artifact.Body) != strings.TrimSpace(status.FinalArtifact.PayloadHash) {
+		return nil, workflow.ErrWorkflowArtifactHashMismatch
+	}
+	if strings.ToLower(strings.TrimSpace(artifact.ContentType)) != strings.ToLower(strings.TrimSpace(status.FinalArtifact.ContentType)) {
+		return nil, workflow.ErrWorkflowArtifactContentTypeMismatch
+	}
+	if status.Definition == nil || strings.ToLower(strings.TrimSpace(artifact.ContentType)) != strings.ToLower(strings.TrimSpace(status.Definition.Output.ContentType)) {
+		return nil, workflow.ErrWorkflowArtifactContentTypeMismatch
+	}
+	return artifact.Clone(), nil
 }
 
 func (m *Manager) GetObservability(ctx context.Context, runID string) (*workflow.WorkflowObservability, error) {

@@ -3,6 +3,7 @@ package workflowruntime_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,8 +14,11 @@ import (
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/api"
+	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/contract"
+	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/livelocal"
+	"github.com/stablepay/commerce-runtime/internal/repository"
 	"github.com/stablepay/commerce-runtime/internal/workflow"
 	workflowruntime "github.com/stablepay/commerce-runtime/internal/workflowruntime"
 )
@@ -84,8 +88,27 @@ func TestExternalTwoStepWorkflowLocalE2E(t *testing.T) {
 	if status.Budget.SettledMinor != 200 || status.Budget.ConsumedMinor != 200 || status.Budget.AvailableMinor != 4999800 {
 		t.Fatalf("unexpected workflow budget: %#v", status.Budget)
 	}
-	if status.FinalArtifact == nil || string(status.FinalArtifact.Body) != "stablepay live-local artifact" || status.FinalValidation == nil || !status.FinalValidation.Valid {
-		t.Fatalf("final validated artifact was not returned by workflow status: artifact=%#v validation=%#v", status.FinalArtifact, status.FinalValidation)
+	if status.FinalArtifact == nil || status.FinalArtifact.ContentType != "text/plain" || status.FinalArtifact.Size != int64(len("HELLO")) || status.FinalValidation == nil || !status.FinalValidation.Valid {
+		t.Fatalf("final validated artifact metadata was not returned by workflow status: artifact=%#v validation=%#v", status.FinalArtifact, status.FinalValidation)
+	}
+	if strings.Contains(response.Body, `"body"`) {
+		t.Fatalf("workflow status leaked artifact body: %s", response.Body)
+	}
+	artifactResponse := getJSON(t, server.URL+"/v1/workflow-runs/"+created.Run.WorkflowRunID+"/artifact")
+	if artifactResponse.StatusCode != http.StatusOK {
+		t.Fatalf("artifact endpoint status=%d body=%s", artifactResponse.StatusCode, artifactResponse.Body)
+	}
+	var artifactEnvelope struct {
+		Artifact struct {
+			Body        string `json:"body"`
+			ContentType string `json:"content_type"`
+			PayloadHash string `json:"payload_hash"`
+		} `json:"artifact"`
+	}
+	decodeBody(t, artifactResponse.Body, &artifactEnvelope)
+	body, err := base64.StdEncoding.DecodeString(artifactEnvelope.Artifact.Body)
+	if err != nil || string(body) != "HELLO" || artifactEnvelope.Artifact.ContentType != status.FinalArtifact.ContentType || artifactEnvelope.Artifact.PayloadHash != status.FinalArtifact.PayloadHash || artifactEnvelope.Artifact.PayloadHash != invocation.PayloadHash(body) {
+		t.Fatalf("artifact data plane response was not verified: %#v body=%q err=%v", artifactEnvelope.Artifact, body, err)
 	}
 
 	events := getJSON(t, server.URL+"/v1/workflow-runs/"+created.Run.WorkflowRunID+"/events")
@@ -176,18 +199,64 @@ func TestExternalMCPWorkflowSurfaceAndAuth(t *testing.T) {
 	if runEnvelope.Result.StructuredContent.Run.WorkflowRunID == "" {
 		t.Fatalf("MCP did not return workflow run: %s", runResponse.Body)
 	}
+	fulfilled := false
+	lastStatusResponse := httpResult{}
 	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); {
 		statusCall := mustJSON(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "stablepay.workflow_status", "arguments": map[string]string{"workflow_run_id": runEnvelope.Result.StructuredContent.Run.WorkflowRunID}}})
 		statusResponse := postAuthenticated(t, secure.URL+"/mcp", "s8-workflow-token", statusCall)
+		lastStatusResponse = statusResponse
 		if statusResponse.StatusCode != http.StatusOK {
 			t.Fatalf("MCP workflow status HTTP %d: %s", statusResponse.StatusCode, statusResponse.Body)
 		}
-		if strings.Contains(statusResponse.Body, `"state":"FULFILLED"`) {
-			return
+		var statusEnvelope struct {
+			Result struct {
+				StructuredContent workflow.WorkflowStatus `json:"structuredContent"`
+			} `json:"result"`
+		}
+		decodeBody(t, statusResponse.Body, &statusEnvelope)
+		if statusEnvelope.Result.StructuredContent.WorkflowRun != nil && statusEnvelope.Result.StructuredContent.WorkflowRun.State == workflow.WorkflowFulfilled {
+			fulfilled = true
+			break
 		}
 		time.Sleep(40 * time.Millisecond)
 	}
-	t.Fatal("MCP workflow did not reach FULFILLED")
+	if !fulfilled {
+		t.Fatalf("MCP workflow did not reach FULFILLED: %s", lastStatusResponse.Body)
+	}
+	unauthorizedArtifact := getJSON(t, secure.URL+"/v1/workflow-runs/"+runEnvelope.Result.StructuredContent.Run.WorkflowRunID+"/artifact")
+	if unauthorizedArtifact.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("artifact endpoint bypassed auth: status=%d body=%s", unauthorizedArtifact.StatusCode, unauthorizedArtifact.Body)
+	}
+	authorizedArtifact := getAuthenticated(t, secure.URL+"/v1/workflow-runs/"+runEnvelope.Result.StructuredContent.Run.WorkflowRunID+"/artifact", "s8-workflow-token")
+	if authorizedArtifact.StatusCode != http.StatusOK || !strings.Contains(authorizedArtifact.Body, `"payload_hash"`) {
+		t.Fatalf("authenticated artifact endpoint failed: status=%d body=%s", authorizedArtifact.StatusCode, authorizedArtifact.Body)
+	}
+}
+
+func TestWorkflowArtifactEndpointRejectsNonFulfilledRun(t *testing.T) {
+	ctx := context.Background()
+	store := repository.NewInMemoryStore()
+	service := application.NewService(store)
+	manager := workflowruntime.NewManager(store, service, store, nil, workflowruntime.Config{RootContext: ctx})
+	definition := localDefinition()
+	definition.WorkflowID = "artifact-boundary-workflow"
+	if _, err := manager.RegisterDefinition(ctx, definition); err != nil {
+		t.Fatal(err)
+	}
+	created, err := manager.CreateRun(ctx, workflow.WorkflowRunRequest{RequestID: "artifact-boundary-run", WorkflowID: definition.WorkflowID, WorkflowVersion: definition.Version, RequesterDID: "did:stablepay:boundary-agent", Input: contract.Input{URI: "object://boundary", ContentType: "text/plain"}, BudgetLimitMinor: 5000000, Currency: "USDC", DeadlineAt: time.Now().UTC().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(api.NewServerWithWorkflow(service, store, nil, manager, api.AuthConfig{Token: "boundary-token"}, func(context.Context) error { return nil }))
+	defer server.Close()
+	unauthorized := getJSON(t, server.URL+"/v1/workflow-runs/"+created.Run.WorkflowRunID+"/artifact")
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unfulfilled artifact endpoint did not enforce auth: status=%d body=%s", unauthorized.StatusCode, unauthorized.Body)
+	}
+	authorized := getAuthenticated(t, server.URL+"/v1/workflow-runs/"+created.Run.WorkflowRunID+"/artifact", "boundary-token")
+	if authorized.StatusCode != http.StatusConflict || !strings.Contains(authorized.Body, "workflow_not_fulfilled") {
+		t.Fatalf("unfulfilled artifact endpoint returned wrong result: status=%d body=%s", authorized.StatusCode, authorized.Body)
+	}
 }
 
 func TestWorkflowRunIdempotencyBudgetAndUpstreamFailure(t *testing.T) {
@@ -313,6 +382,22 @@ func postAuthenticated(t *testing.T, endpoint, token string, body []byte) httpRe
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(response.Body)
+	return httpResult{StatusCode: response.StatusCode, Body: string(data)}
+}
+
+func getAuthenticated(t *testing.T, endpoint, token string) httpResult {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

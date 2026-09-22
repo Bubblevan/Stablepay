@@ -30,6 +30,8 @@ import (
 const DefaultRuntimeVersion = "commerce-runtime-mvp.1"
 const DefaultCandidateSetTTL = 5 * time.Minute
 
+var ErrInputPayloadResolverUnavailable = errors.New("workflow artifact input resolver is not configured")
+
 type Service struct {
 	store                 repository.TransitionStore
 	clock                 func() time.Time
@@ -49,6 +51,14 @@ type Service struct {
 	memoryProjector       *memory.Projector
 	memoryRetrievalPolicy memory.MemoryRetrievalPolicy
 	memoryUseTraceStore   memory.MemoryUseTraceStore
+	inputPayloadResolver  InputPayloadResolver
+}
+
+// InputPayloadResolver materializes a validated workflow artifact only at the
+// existing merchant adapter boundary. It is optional so legacy URI/ref input
+// flows remain backward compatible.
+type InputPayloadResolver interface {
+	ResolveInput(context.Context, contract.Input) ([]byte, string, []byte, error)
 }
 
 // SettlementPolicy binds merchant challenges to the configured payment
@@ -97,6 +107,10 @@ func WithCandidateSetTTL(ttl time.Duration) Option {
 
 func WithMerchantAdapter(adapter adapters.MerchantAdapter) Option {
 	return func(s *Service) { s.merchantAdapter = adapter }
+}
+
+func WithInputPayloadResolver(resolver InputPayloadResolver) Option {
+	return func(s *Service) { s.inputPayloadResolver = resolver }
 }
 
 func WithValidatorRegistry(registry *validator.Registry) Option {

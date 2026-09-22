@@ -50,17 +50,22 @@ const (
 )
 
 var (
-	ErrInvalidDefinition       = errors.New("invalid workflow definition")
-	ErrDefinitionConflict      = errors.New("workflow definition conflicts with an immutable version")
-	ErrInvalidWorkflowRun      = errors.New("invalid workflow run")
-	ErrWorkflowRequestConflict = errors.New("workflow request_id conflicts with an existing run")
-	ErrWorkflowVersionConflict = errors.New("workflow run version conflict")
-	ErrWorkflowEventConflict   = errors.New("workflow event conflict")
-	ErrWorkflowTerminal        = errors.New("workflow run is terminal")
-	ErrWorkflowBudget          = errors.New("workflow budget is insufficient")
-	ErrWorkflowArtifact        = errors.New("workflow artifact binding is invalid")
-	ErrWorkflowDeadline        = errors.New("workflow deadline has expired")
-	ErrWorkflowNotReady        = errors.New("workflow step is not ready")
+	ErrInvalidDefinition                   = errors.New("invalid workflow definition")
+	ErrDefinitionConflict                  = errors.New("workflow definition conflicts with an immutable version")
+	ErrInvalidWorkflowRun                  = errors.New("invalid workflow run")
+	ErrWorkflowRequestConflict             = errors.New("workflow request_id conflicts with an existing run")
+	ErrWorkflowVersionConflict             = errors.New("workflow run version conflict")
+	ErrWorkflowEventConflict               = errors.New("workflow event conflict")
+	ErrWorkflowTerminal                    = errors.New("workflow run is terminal")
+	ErrWorkflowBudget                      = errors.New("workflow budget is insufficient")
+	ErrWorkflowArtifact                    = errors.New("workflow artifact binding is invalid")
+	ErrWorkflowArtifactNotFound            = errors.New("workflow artifact is not available")
+	ErrWorkflowArtifactNotFulfilled        = errors.New("workflow artifact requires a fulfilled workflow")
+	ErrWorkflowArtifactHashMismatch        = errors.New("workflow artifact hash mismatch")
+	ErrWorkflowArtifactContentTypeMismatch = errors.New("workflow artifact content type mismatch")
+	ErrWorkflowArtifactTooLarge            = errors.New("workflow artifact exceeds the bounded payload limit")
+	ErrWorkflowDeadline                    = errors.New("workflow deadline has expired")
+	ErrWorkflowNotReady                    = errors.New("workflow step is not ready")
 )
 
 type WorkflowInputSpec struct {
@@ -417,6 +422,18 @@ type WorkflowRun struct {
 	UpdatedAt           time.Time              `json:"updated_at"`
 }
 
+// ArtifactRef identifies a validated output inside one WorkflowRun. The URI
+// is an internal reference; merchants receive materialized payload bytes
+// through the existing adapter boundary instead.
+type ArtifactRef struct {
+	WorkflowRunID string
+	StepID        string
+}
+
+func (r ArtifactRef) URI() string {
+	return "workflow-artifact://" + strings.TrimSpace(r.WorkflowRunID) + "/" + strings.TrimSpace(r.StepID)
+}
+
 func (r WorkflowRun) Clone() *WorkflowRun { copy := r; return &copy }
 
 func IsTerminalRun(state string) bool {
@@ -520,8 +537,19 @@ type WorkflowStatus struct {
 	Definition      *WorkflowDefinition            `json:"definition"`
 	Budget          WorkflowBudgetSnapshot         `json:"budget"`
 	Steps           []*WorkflowStepRun             `json:"steps"`
-	FinalArtifact   *invocation.DeliveryArtifact   `json:"artifact,omitempty"`
+	FinalArtifact   *WorkflowFinalArtifactRef      `json:"final_artifact,omitempty"`
 	FinalValidation *invocation.ValidationEvidence `json:"validation,omitempty"`
+}
+
+// WorkflowFinalArtifactRef is safe for the default public status projection:
+// it contains metadata and integrity material, never the artifact body.
+type WorkflowFinalArtifactRef struct {
+	DeliveryID      string `json:"delivery_id"`
+	PayloadHash     string `json:"payload_hash"`
+	ContentType     string `json:"content_type"`
+	PaymentIntentID string `json:"payment_intent_id,omitempty"`
+	EntitlementRef  string `json:"entitlement_ref,omitempty"`
+	Size            int64  `json:"size"`
 }
 
 type WorkflowObservability struct {
