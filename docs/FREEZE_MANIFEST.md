@@ -3,7 +3,8 @@
 ## Canonical identity
 
 - Audit base: `ac2dc5144ea2b78f4dd832017f4d4f70a2e1622c`
-- Final freeze commit: the commit containing this manifest and the F0 documentation gate; report its full SHA in the handoff.
+- Frozen code/architecture commit: `ae67ae5e48a76848b5c0dfc4a68f79eef00a5705`.
+- Resume/interview delivery package: the docs-only commit reported in the final handoff.
 - Product identity: Agent Commerce Runtime for controlled paid-capability execution.
 
 ## Frozen modules
@@ -25,9 +26,9 @@ Memory is advisory. Payment/entitlement/catalog/validation/approval authorities 
 
 ```text
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-final.ps1
-go test ./... -count=1
-go test ./... -count=3
-go vet ./...
+Push-Location .\commerce-runtime; go test ./... -count=1; Pop-Location
+Push-Location .\commerce-runtime; go test ./... -count=3; Pop-Location
+Push-Location .\commerce-runtime; go vet ./...; Pop-Location
 git diff --check
 ```
 
@@ -40,3 +41,13 @@ F0 records: MySQL workflow/repository integration `RUN`; isolated live-local sui
 ## Known limitations
 
 See [LIMITATIONS.md](LIMITATIONS.md). Future ideas such as parallel workflow, dynamic planning, additional payment networks, RL/GRPO, and self-evolution are not current requirements.
+
+## Delivery package
+
+- [RESUME_EVIDENCE.md](RESUME_EVIDENCE.md): claim inventory with evidence class, source, commit, limitation, and follow-up.
+- [RESUME_VARIANTS.md](RESUME_VARIANTS.md): recommended title, one-line description, and backend/Agent/algorithm variants.
+- [INTERVIEW_PITCH.md](INTERVIEW_PITCH.md): 30-second, 90-second, 3-minute, and 5-minute versions.
+- [ENGINEERING_STORIES.md](ENGINEERING_STORIES.md): five engineering stories plus eval-integrity story.
+- [CODE_WALK.md](CODE_WALK.md): source walk from `cmd/server/main.go` to payment, recovery, memory, workflow, and eval.
+- [TECHNOLOGY_INVENTORY.md](TECHNOLOGY_INVENTORY.md): concise inventory of technologies evidenced by the repository.
+- `scripts/summarize-resume-evidence.py`: read-only summary of existing `.local-run/s11-live-local` evidence; it fails when the source artifacts are absent.
