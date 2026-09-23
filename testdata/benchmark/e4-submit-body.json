@@ -1,0 +1,33 @@
+{
+  "request_id": "e4-submit-template",
+  "parent_session_id": "e4-chaos",
+  "requester_did": "did:agent:e4-benchmark",
+  "acquisition_goal": {
+    "task_type": "local-eval",
+    "description": "E4 deterministic crash-recovery task"
+  },
+  "input": {
+    "uri": "local://e4",
+    "content_type": "text/plain"
+  },
+  "constraints": {
+    "budget_limit_minor": 10000000,
+    "currency": "USDC",
+    "deadline_at": "2035-01-01T00:00:00Z",
+    "supported_protocol_versions": ["x402-v1"],
+    "max_total_attempts": 20,
+    "max_payment_attempts": 3,
+    "max_delivery_attempts": 3,
+    "allow_cross_merchant_switch": false,
+    "require_parent_confirmation_above_minor": 0
+  },
+  "expected_output": {
+    "schema": "text",
+    "content_type": "text/plain"
+  },
+  "validator": {
+    "kind": "builtin",
+    "name": "non-empty",
+    "version": "v1"
+  }
+}
