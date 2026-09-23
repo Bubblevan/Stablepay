@@ -112,7 +112,12 @@ function Invoke-RunAndAudit([string]$Name, [string]$WindowList, [int]$Trials, [s
   Set-JsonProperty $metrics 'stuck_episodes' $summary.stuck_episodes
   Set-JsonProperty $metrics 'audit' 'audit-summary.json'
   $metrics | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 -LiteralPath $metricsPath
-  @('', '## MySQL correctness audit', '', 'Status: **PASS**', '', "Trials audited by episode_id: $($summary.passed)/$($summary.trials)", "Duplicate PaymentIntent query rows: $($summary.duplicate_payment_intent_rows)", "Duplicate PAYMENT_SETTLED query rows: $($summary.duplicate_payment_settled_rows)", "PaymentIntent count mismatches: $($summary.payment_intent_count_mismatch)", "PAYMENT_SETTLED count mismatches: $($summary.payment_settled_count_mismatch)", "Budget projection drift: $($summary.budget_drift)", "Orphaned episodes: $($summary.orphaned_episodes)", "Stuck/non-terminal episodes: $($summary.stuck_episodes)", '', 'Budget audit recomputed expected_consumed, expected_available, and expected_sunk_cost from ledger facts and matched each persisted episode projection.') | Add-Content -Encoding UTF8 -LiteralPath (Join-Path $RunOutput 'report.md')
+  $reportPath = Join-Path $RunOutput 'report.md'
+  $reportText = Get-Content -Raw -LiteralPath $reportPath
+  $reportText = $reportText.Replace('Status: **COMPLETE_WITH_AUDIT_PENDING**', 'Status: **COMPLETE**')
+  $reportText = $reportText.Replace('Result: Claim withheld until the full audit passes.', "Result: $($summary.passed)/$($summary.trials) episodes recovered; MySQL audit PASS.")
+  Set-Content -Encoding UTF8 -LiteralPath $reportPath -Value $reportText
+  @('', '## MySQL correctness audit', '', 'Status: **PASS**', '', "Trials audited by episode_id: $($summary.passed)/$($summary.trials)", "Duplicate PaymentIntent query rows: $($summary.duplicate_payment_intent_rows)", "Duplicate PAYMENT_SETTLED query rows: $($summary.duplicate_payment_settled_rows)", "PaymentIntent count mismatches: $($summary.payment_intent_count_mismatch)", "PAYMENT_SETTLED count mismatches: $($summary.payment_settled_count_mismatch)", "Budget projection drift: $($summary.budget_drift)", "Orphaned episodes: $($summary.orphaned_episodes)", "Stuck/non-terminal episodes: $($summary.stuck_episodes)", '', 'Budget audit recomputed expected_consumed, expected_available, and expected_sunk_cost from ledger facts and matched each persisted episode projection.') | Add-Content -Encoding UTF8 -LiteralPath $reportPath
   Write-Host "[$Name] MySQL audit passed: $($summary.passed)/$($summary.trials); duplicates PI=$($summary.duplicate_payment_intent_rows), settlements=$($summary.duplicate_payment_settled_rows); budget drift=$($summary.budget_drift); orphan=$($summary.orphaned_episodes); stuck=$($summary.stuck_episodes)"
 }
 
