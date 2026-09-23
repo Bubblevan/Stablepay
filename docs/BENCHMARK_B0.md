@@ -48,44 +48,33 @@ an explicit chaos command, or economic side-effect audit evidence is missing.
 
 ## E4 concrete setup
 
-E4 is an external-process experiment against a Runtime with durable MySQL
-state. `s11-live-local` is useful for HTTP/recovery demonstrations, but it uses
-an in-memory repository and therefore cannot prove restart recovery. Build or
-run the production composition (`commerce-runtime/cmd/server`) with a
-deterministic local merchant/payment/verification path and point the harness at
-that executable.
+E4 uses `scripts/run-e4-local.ps1`, which builds the benchmark-only
+`commerce-runtime/cmd/e4-local-runtime` executable. It retains the real
+application service, Runtime runner, API, and MySQL repositories, while using
+local deterministic merchant, payment, authorization, and verification
+adapters. The mock payment idempotency record is durable in MySQL so a Runtime
+kill after mock acceptance but before Runtime commit can be reconciled after
+restart. No Payment Service client or blockchain client is constructed.
 
-The checked-in body template is
-`testdata/benchmark/e4-submit-body.json`. It is an `AcquireCapabilityRequest`
-for `POST /v1/episodes`; the harness rewrites `request_id`, session, and input
-URI for every trial and sends a matching `Idempotency-Key`. The Runtime must
-have a catalog capability matching `acquisition_goal.task_type` and a local
-payment path for the requested `USDC` budget.
+The runner creates a fresh `stablepay_e4_*` schema, leaves the existing
+Runtime/database alone, runs one `PAYING`-window smoke trial and audits it,
+then runs the episode-state crash-window matrix (20 trials/window by default).
+The workflow-only `child_episode_created` state is excluded because this
+fixture submits an Episode, not a workflow run. The body budget is 1,000 USDC
+minor units. E4 records `FROZEN_RUNTIME_CHANGED=NO`; only E4 tooling and its
+fixture body are changed.
 
-Example configuration:
-
-```powershell
-$env:RUNTIME_EXECUTABLE = 'D:\path\to\commerce-runtime.exe'
-$env:RUNTIME_ARGUMENTS = ''
-$env:RUNTIME_WORKDIR = 'D:\path\to\Stablepay\commerce-runtime'
-$env:BASE_URL = 'http://127.0.0.1:8090'
-$env:SUBMIT_BODY_PATH = 'D:\path\to\Stablepay\testdata\benchmark\e4-submit-body.json'
-$env:API_TOKEN = $env:COMMERCE_RUNTIME_API_TOKEN
-.\scripts\benchmark-e4-chaos.ps1
-```
-
-The production server reads its listen address from
-`COMMERCE_RUNTIME_HTTP_ADDR`; it does not take an `-addr` command-line flag.
-The executable can be built with:
+Run from the repository root:
 
 ```powershell
-.\scripts\build-e4-runtime.ps1
-$env:RUNTIME_EXECUTABLE = (Resolve-Path .\commerce-runtime\commerce-runtime.exe).Path
+.\scripts\run-e4-local.ps1
 ```
 
-The process must expose `/readyz`, `/v1/episodes`, and
-`/v1/episodes/{id}`. A terminal state after restart is only the operational
-part of E4. Duplicate settlement, duplicate PaymentIntent, duplicate merchant
-invocation, orphan/stuck episodes, budget drift, and artifact provenance still
-require a post-trial audit from the durable stores; without that audit the
-report remains `NO_RESUME_CLAIM_UNTIL_AUDIT`.
+The script reads the MySQL DSN and API token from `.env`, uses an isolated HTTP
+port, and writes the schema name, raw `trials.jsonl`, and per-episode audit
+artifacts under `.local-run/resume-benchmark/e4-local-*`. It stops before the
+full matrix if the smoke trial or its SQL audit fails. After the matrix it runs
+the same audit against every `episode_id` from `trials.jsonl`: duplicate
+PaymentIntent and `PAYMENT_SETTLED` queries, ledger-derived consumed/available/
+sunk-cost projections, and terminal/orphan/stuck state checks. The schema is
+retained for inspection; no production schema is modified or dropped.

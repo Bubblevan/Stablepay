@@ -11,7 +11,7 @@
     "content_type": "text/plain"
   },
   "constraints": {
-    "budget_limit_minor": 10000000,
+    "budget_limit_minor": 1000,
     "currency": "USDC",
     "deadline_at": "2035-01-01T00:00:00Z",
     "supported_protocol_versions": ["x402-v1"],
