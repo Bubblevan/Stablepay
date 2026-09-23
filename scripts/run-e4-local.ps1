@@ -7,7 +7,8 @@ param(
   [int]$TrialsPerWindow = 20,
   [int]$PollMilliseconds = 5,
   [string]$DockerMySQLImage = 'mysql:8.0',
-  [int]$MySQLHostPort = 13308
+  [int]$MySQLHostPort = 13308,
+  [string]$ReuseMySQLContainerName = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,7 +132,7 @@ New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $portInUse = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq 18091 }
 if ($portInUse) { throw 'E4 isolated HTTP port 18091 is already in use; refusing to attach to an unrelated Runtime' }
 $mysqlPortInUse = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq $MySQLHostPort }
-if ($mysqlPortInUse) { throw "E4 isolated MySQL host port $MySQLHostPort is already in use; refusing to attach to an unrelated database" }
+if ($mysqlPortInUse -and -not $ReuseMySQLContainerName) { throw "E4 isolated MySQL host port $MySQLHostPort is already in use; refusing to attach to an unrelated database" }
 
 $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
 if ($dockerCommand) {
@@ -147,24 +148,51 @@ $repoDigests = @($repoDigestsJson | ConvertFrom-Json)
 $imageDigest = if ($repoDigests.Count -gt 0) { [string]$repoDigests[0] } else { $imageId }
 $stamp = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss')
 $schemaSuffix = Get-Random -Minimum 1000 -Maximum 9999
-$schema = 'stablepay_e4_' + $stamp + '_' + $schemaSuffix
-$containerName = 'stablepay-e4-mysql-' + $stamp + '-' + $schemaSuffix
-$volumeName = 'stablepay-e4-data-' + $stamp + '-' + $schemaSuffix
-$appUser = 'e4bench'
-$appPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
-$rootPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
-$dockerRunArguments = @(
-  'run', '--detach', '--pull=never', '--name', $containerName,
-  '--publish', "127.0.0.1:${MySQLHostPort}:3306",
-  '--volume', "${volumeName}:/var/lib/mysql",
-  '--env', "MYSQL_DATABASE=$schema",
-  '--env', "MYSQL_USER=$appUser",
-  '--env', "MYSQL_PASSWORD=$appPassword",
-  '--env', "MYSQL_ROOT_PASSWORD=$rootPassword",
-  $DockerMySQLImage
-)
-$null = Invoke-Docker $dockerRunArguments
-$newDsn = "$($appUser):$($appPassword)@tcp(127.0.0.1:$MySQLHostPort)/$schema?parseTime=true&loc=UTC"
+if ($ReuseMySQLContainerName) {
+  $containerJson = (Invoke-Docker @('inspect', '--format', '{{json .}}', $ReuseMySQLContainerName) | Out-String).Trim()
+  $container = ConvertFrom-Json -InputObject $containerJson
+  if ($container.State.Status -ne 'running' -or $container.Config.Image -ne $DockerMySQLImage) {
+    throw 'Requested E4 MySQL container is not running the expected image tag'
+  }
+  $containerEnv = @{}
+  foreach ($entry in $container.Config.Env) {
+    $pair = $entry -split '=', 2
+    if ($pair.Count -eq 2) { $containerEnv[$pair[0]] = $pair[1] }
+  }
+  $schema = $containerEnv.MYSQL_DATABASE
+  $appUser = $containerEnv.MYSQL_USER
+  $appPassword = $containerEnv.MYSQL_PASSWORD
+  if ($schema -notmatch '^stablepay_e4_[a-z0-9_]{1,48}$' -or -not $appUser -or -not $appPassword) {
+    throw 'Requested container does not contain a valid isolated E4 schema and app account'
+  }
+  $publishedPorts = @($container.NetworkSettings.Ports.'3306/tcp')
+  if ($publishedPorts.Count -ne 1 -or $publishedPorts[0].HostIp -ne '127.0.0.1' -or [int]$publishedPorts[0].HostPort -ne $MySQLHostPort) {
+    throw 'Requested MySQL container is not bound exclusively to the expected loopback port'
+  }
+  $containerName = $container.Name.TrimStart('/')
+  $volumeMount = @($container.Mounts | Where-Object { $_.Destination -eq '/var/lib/mysql' }) | Select-Object -First 1
+  if (-not $volumeMount -or $volumeMount.Type -ne 'volume') { throw 'Requested E4 MySQL container does not have its expected named data volume' }
+  $volumeName = $volumeMount.Name
+} else {
+  $schema = 'stablepay_e4_' + $stamp + '_' + $schemaSuffix
+  $containerName = 'stablepay-e4-mysql-' + $stamp + '-' + $schemaSuffix
+  $volumeName = 'stablepay-e4-data-' + $stamp + '-' + $schemaSuffix
+  $appUser = 'e4bench'
+  $appPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+  $rootPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+  $dockerRunArguments = @(
+    'run', '--detach', '--pull=never', '--name', $containerName,
+    '--publish', "127.0.0.1:${MySQLHostPort}:3306",
+    '--volume', "${volumeName}:/var/lib/mysql",
+    '--env', "MYSQL_DATABASE=$schema",
+    '--env', "MYSQL_USER=$appUser",
+    '--env', "MYSQL_PASSWORD=$appPassword",
+    '--env', "MYSQL_ROOT_PASSWORD=$rootPassword",
+    $DockerMySQLImage
+  )
+  $null = Invoke-Docker $dockerRunArguments
+}
+$newDsn = "${appUser}:$($appPassword)@tcp(127.0.0.1:$MySQLHostPort)/${schema}?parseTime=true&loc=UTC"
 $env:E4_MYSQL_SCHEMA = $schema
 $env:E4_MYSQL_CONTAINER_NAME = $containerName
 $env:E4_MYSQL_IMAGE = $DockerMySQLImage
