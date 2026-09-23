@@ -66,12 +66,14 @@ type budgetAudit struct {
 }
 
 type stateAudit struct {
-	Exists         bool   `json:"exists"`
-	EpisodeState   string `json:"episode_state,omitempty"`
-	ExecutionState string `json:"execution_state,omitempty"`
-	Terminal       bool   `json:"terminal"`
-	Orphan         bool   `json:"orphan"`
-	Stuck          bool   `json:"stuck"`
+	Exists                bool   `json:"exists"`
+	EpisodeState          string `json:"episode_state,omitempty"`
+	ExecutionState        string `json:"execution_state,omitempty"`
+	ExecutionErrorCode    string `json:"execution_error_code,omitempty"`
+	ExecutionErrorMessage string `json:"execution_error_message,omitempty"`
+	Terminal              bool   `json:"terminal"`
+	Orphan                bool   `json:"orphan"`
+	Stuck                 bool   `json:"stuck"`
 }
 
 type windowSummary struct {
@@ -485,8 +487,8 @@ func auditBudget(ctx context.Context, db *sql.DB, episodeID string, result *budg
 }
 
 func auditState(ctx context.Context, db *sql.DB, episodeID string, result *stateAudit) error {
-	var execution sql.NullString
-	err := db.QueryRowContext(ctx, `SELECT e.state, x.status FROM commerce_episodes AS e LEFT JOIN episode_execution_status AS x ON x.episode_id = e.episode_id WHERE e.episode_id = ?`, episodeID).Scan(&result.EpisodeState, &execution)
+	var execution, errorCode, errorMessage sql.NullString
+	err := db.QueryRowContext(ctx, `SELECT e.state, x.status, x.last_error_code, x.last_error_message FROM commerce_episodes AS e LEFT JOIN episode_execution_status AS x ON x.episode_id = e.episode_id WHERE e.episode_id = ?`, episodeID).Scan(&result.EpisodeState, &execution, &errorCode, &errorMessage)
 	if errors.Is(err, sql.ErrNoRows) {
 		result.Orphan = true
 		result.Stuck = true
@@ -498,6 +500,12 @@ func auditState(ctx context.Context, db *sql.DB, episodeID string, result *state
 	result.Exists = true
 	if execution.Valid {
 		result.ExecutionState = execution.String
+	}
+	if errorCode.Valid {
+		result.ExecutionErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		result.ExecutionErrorMessage = errorMessage.String
 	}
 	switch result.EpisodeState {
 	case "FULFILLED", "FAILED", "BLOCKED", "ABORTED", "EXPIRED", "DISPUTED":
