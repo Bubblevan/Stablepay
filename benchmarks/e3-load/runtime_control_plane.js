@@ -19,6 +19,36 @@ export const collectionErrors = new Counter('collection_errors');
 export const casConflicts = new Counter('cas_conflicts');
 export const orphanedEpisodes = new Counter('orphaned_episodes');
 export const duplicateSettlements = new Counter('duplicate_settlement_count');
+export const createStatusCounts = new Counter('create_status_count');
+export const statusPollStatusCounts = new Counter('status_poll_status_count');
+const createStatusMetrics = {
+  200: new Counter('create_status_200'),
+  201: new Counter('create_status_201'),
+  202: new Counter('create_status_202'),
+  400: new Counter('create_status_400'),
+  401: new Counter('create_status_401'),
+  404: new Counter('create_status_404'),
+  409: new Counter('create_status_409'),
+  422: new Counter('create_status_422'),
+  500: new Counter('create_status_500'),
+  502: new Counter('create_status_502'),
+  503: new Counter('create_status_503'),
+  504: new Counter('create_status_504'),
+};
+export const createStatusOther = new Counter('create_status_other');
+const statusPollMetrics = {
+  200: new Counter('status_poll_status_200'),
+  400: new Counter('status_poll_status_400'),
+  401: new Counter('status_poll_status_401'),
+  404: new Counter('status_poll_status_404'),
+  409: new Counter('status_poll_status_409'),
+  422: new Counter('status_poll_status_422'),
+  500: new Counter('status_poll_status_500'),
+  502: new Counter('status_poll_status_502'),
+  503: new Counter('status_poll_status_503'),
+  504: new Counter('status_poll_status_504'),
+};
+export const statusPollStatusOther = new Counter('status_poll_status_other');
 export const errorRate = new Rate('business_error_rate');
 
 export const options = {
@@ -81,6 +111,9 @@ export default function () {
   group('episode_create', () => {
     created = http.post(`${baseUrl}/v1/episodes`, requestBody(requestId), { ...headers(), tags: { operation: 'episode_create' } });
     createLatency.add(created.timings.duration);
+    createStatusCounts.add(1, { status: String(created.status) });
+    if (createStatusMetrics[created.status]) createStatusMetrics[created.status].add(1);
+    else createStatusOther.add(1);
     check(created, { 'create accepted': (response) => [200, 201, 202].includes(response.status) });
   });
   const id = created ? episodeId(created.body) : '';
@@ -93,6 +126,9 @@ export default function () {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const polled = http.get(statusPath(id), { ...headers(), tags: { operation: 'status_poll' } });
     statusLatency.add(polled.timings.duration);
+    statusPollStatusCounts.add(1, { status: String(polled.status) });
+    if (statusPollMetrics[polled.status]) statusPollMetrics[polled.status].add(1);
+    else statusPollStatusOther.add(1);
     if (polled.status >= 500) collectionErrors.add(1);
     if (polled.status === 409) casConflicts.add(1);
     try {
