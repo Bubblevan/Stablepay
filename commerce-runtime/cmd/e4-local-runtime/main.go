@@ -279,7 +279,7 @@ func (m *localAdapters) Invoke(ctx context.Context, request adapters.MerchantInv
 		return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, Headers: map[string]string{"PAYMENT-REQUIRED": base64.StdEncoding.EncodeToString(body)}, ContentType: "application/json", Body: body, OccurredAt: now, PayloadHash: hash(body), PayloadRef: "e4-local://merchant/quote/" + hash(body)}, nil
 	}
 	body := []byte("E4 deterministic local artifact")
-	if request.Attempt == 1 {
+	if request.Attempt == 1 && strings.EqualFold(strings.TrimSpace(os.Getenv("E4_CRASH_WINDOW")), string(episode.StateRecovering)) {
 		body = nil // deterministic delivery fault exercises RECOVERING and retry
 	}
 	return adapters.MerchantInvokeResult{HTTPStatus: http.StatusOK, ContentType: "text/plain", Body: body, OccurredAt: now, PayloadHash: hash(body), PayloadRef: "e4-local://merchant/delivery/" + hash(body)}, nil
