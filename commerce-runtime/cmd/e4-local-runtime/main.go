@@ -43,6 +43,8 @@ const (
 	localMerchantDID  = "did:merchant:e4-local"
 	localPayeeDID     = "did:payee:e4-local"
 	localCapabilityID = "e4-local-eval"
+	localPriceMinor   = int64(1000)
+	localUSDCAtomic   = "10000000" // 1,000 cents is 10 USDC at six atomic decimals.
 )
 
 type mockPaymentModel struct {
@@ -158,7 +160,7 @@ func run() error {
 }
 
 func seedCatalog(ctx context.Context, store *mysql.Store) error {
-	price := int64(1000)
+	price := localPriceMinor
 	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 	value := catalog.MerchantCapability{
@@ -203,7 +205,7 @@ func (m *localAdapters) Invoke(ctx context.Context, request adapters.MerchantInv
 	now := time.Now().UTC()
 	if request.Phase == "INITIAL" {
 		payload := map[string]any{"x402Version": 1, "accepts": []any{map[string]any{
-			"scheme": "exact", "network": localNetwork, "maxAmountRequired": "1000", "asset": localAsset,
+			"scheme": "exact", "network": localNetwork, "maxAmountRequired": localUSDCAtomic, "asset": localAsset,
 			"payTo": localPayeeDID, "resource": request.Endpoint.Endpoint, "maxTimeoutSeconds": 300,
 			"extra": map[string]any{"currency": "USDC", "productId": "e4-local-product"},
 		}}}
