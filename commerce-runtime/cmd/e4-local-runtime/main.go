@@ -265,7 +265,7 @@ func (m *localAdapters) Verify(ctx context.Context, query adapters.EntitlementQu
 	if err := m.wait(ctx); err != nil {
 		return adapters.EntitlementResult{}, err
 	}
-	return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: query.IntentID, TxID: query.TxID, TxHash: query.TxID, EvidenceRef: "e4-local://verification/" + query.IntentID}, nil
+	return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: query.IntentID, TxID: query.TxID, EvidenceRef: "e4-local://verification/" + query.IntentID}, nil
 }
 
 func hash(value []byte) string {
