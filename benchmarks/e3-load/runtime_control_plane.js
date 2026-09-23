@@ -50,6 +50,25 @@ const statusPollMetrics = {
 };
 export const statusPollStatusOther = new Counter('status_poll_status_other');
 export const errorRate = new Rate('business_error_rate');
+export const measurementIterations = new Counter('measurement_iterations');
+export const measurementHttpRequests = new Counter('measurement_http_requests');
+export const measurementCompletedEpisodes = new Counter('measurement_completed_episodes');
+export const measurementBusinessErrors = new Counter('measurement_business_errors');
+export const measurementCollectionErrors = new Counter('measurement_collection_errors');
+export const measurementOrphanedEpisodes = new Counter('measurement_orphaned_episodes');
+export const measurementCreateLatency = new Trend('measurement_create_latency', true);
+export const measurementStatusLatency = new Trend('measurement_status_latency', true);
+export const measurementHttpRequestLatency = new Trend('measurement_http_request_latency', true);
+export const measurementEpisodeLatency = new Trend('measurement_episode_e2e_latency', true);
+const measurementStatusCodes = [200, 201, 202, 400, 401, 404, 409, 422, 500, 502, 503, 504];
+const measurementCreateStatusMetrics = {};
+const measurementPollStatusMetrics = {};
+for (const status of measurementStatusCodes) {
+  measurementCreateStatusMetrics[status] = new Counter(`measurement_create_status_${status}`);
+  measurementPollStatusMetrics[status] = new Counter(`measurement_status_poll_status_${status}`);
+}
+export const measurementCreateStatusOther = new Counter('measurement_create_status_other');
+export const measurementPollStatusOther = new Counter('measurement_status_poll_status_other');
 
 export const options = {
   scenarios: {
@@ -66,15 +85,43 @@ export const options = {
   },
   thresholds: {
     http_req_failed: ['rate<0.05'],
+    'http_req_failed{phase:measurement}': ['rate<0.05'],
+    'http_reqs{phase:measurement}': ['count>0'],
     business_error_rate: ['rate<0.05'],
+    'business_error_rate{phase:measurement}': ['rate<0.05'],
+    measurement_iterations: ['count>0'],
+    measurement_completed_episodes: ['count>0'],
   },
   summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max'],
 };
 
-function headers() {
+function durationMilliseconds(value) {
+  const match = /^(\d+)(ms|s|m|h)$/.exec(value.trim());
+  if (!match) throw new Error(`unsupported duration: ${value}`);
+  const amount = Number(match[1]);
+  const unitMs = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]];
+  return amount * unitMs;
+}
+
+export function setup() {
+  const startedAt = Date.now();
+  return {
+    measurementStartAt: startedAt + durationMilliseconds(warmup),
+    measurementEndAt: startedAt + durationMilliseconds(warmup) + durationMilliseconds(duration),
+  };
+}
+
+function phaseAt(run) {
+  const now = Date.now();
+  if (now < run.measurementStartAt) return 'warmup';
+  if (now < run.measurementEndAt) return 'measurement';
+  return 'rampdown';
+}
+
+function headers(phase) {
   const value = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (token) value.Authorization = `Bearer ${token}`;
-  return { headers: value, timeout: '90s' };
+  return { headers: value, timeout: '90s', tags: { phase } };
 }
 
 function requestBody(id) {
@@ -104,34 +151,58 @@ function episodeId(body) {
 
 function statusPath(id) { return `${baseUrl}/v1/episodes/${encodeURIComponent(id)}`; }
 
-export default function () {
+export default function (run) {
+  const episodePhase = phaseAt(run);
+  const measuredEpisode = episodePhase === 'measurement';
+  if (measuredEpisode) measurementIterations.add(1);
   const requestId = `e3-${__VU}-${__ITER}-${Date.now()}`;
   const started = Date.now();
   let created;
+  const createPhase = phaseAt(run);
   group('episode_create', () => {
-    created = http.post(`${baseUrl}/v1/episodes`, requestBody(requestId), { ...headers(), tags: { operation: 'episode_create' } });
-    createLatency.add(created.timings.duration);
-    createStatusCounts.add(1, { status: String(created.status) });
-    if (createStatusMetrics[created.status]) createStatusMetrics[created.status].add(1);
-    else createStatusOther.add(1);
+    created = http.post(`${baseUrl}/v1/episodes`, requestBody(requestId), { ...headers(createPhase), tags: { operation: 'episode_create', phase: createPhase } });
+    createLatency.add(created.timings.duration, { phase: createPhase });
+    createStatusCounts.add(1, { phase: createPhase, status: String(created.status) });
+    if (createStatusMetrics[created.status]) createStatusMetrics[created.status].add(1, { phase: createPhase });
+    else createStatusOther.add(1, { phase: createPhase });
+    if (createPhase === 'measurement') {
+      measurementHttpRequests.add(1);
+      measurementCreateLatency.add(created.timings.duration);
+      measurementHttpRequestLatency.add(created.timings.duration);
+      if (measurementCreateStatusMetrics[created.status]) measurementCreateStatusMetrics[created.status].add(1);
+      else measurementCreateStatusOther.add(1);
+    }
     check(created, { 'create accepted': (response) => [200, 201, 202].includes(response.status) });
   });
   const id = created ? episodeId(created.body) : '';
   if (!id) {
-    errorRate.add(true);
-    collectionErrors.add(1);
+    errorRate.add(true, { phase: episodePhase });
+    collectionErrors.add(1, { phase: episodePhase });
+    if (measuredEpisode) {
+      measurementBusinessErrors.add(1);
+      measurementCollectionErrors.add(1);
+    }
     return;
   }
   let terminal = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const polled = http.get(statusPath(id), { ...headers(), tags: { operation: 'status_poll' } });
-    statusLatency.add(polled.timings.duration);
-    statusPollStatusCounts.add(1, { status: String(polled.status) });
-    if (statusPollMetrics[polled.status]) statusPollMetrics[polled.status].add(1);
-    else statusPollStatusOther.add(1);
-    if (polled.status === 409) casConflicts.add(1);
+    const pollPhase = phaseAt(run);
+    const polled = http.get(statusPath(id), { ...headers(pollPhase), tags: { operation: 'status_poll', phase: pollPhase } });
+    statusLatency.add(polled.timings.duration, { phase: pollPhase });
+    statusPollStatusCounts.add(1, { phase: pollPhase, status: String(polled.status) });
+    if (statusPollMetrics[polled.status]) statusPollMetrics[polled.status].add(1, { phase: pollPhase });
+    else statusPollStatusOther.add(1, { phase: pollPhase });
+    if (pollPhase === 'measurement') {
+      measurementHttpRequests.add(1);
+      measurementStatusLatency.add(polled.timings.duration);
+      measurementHttpRequestLatency.add(polled.timings.duration);
+      if (measurementPollStatusMetrics[polled.status]) measurementPollStatusMetrics[polled.status].add(1);
+      else measurementPollStatusOther.add(1);
+    }
+    if (polled.status === 409) casConflicts.add(1, { phase: episodePhase });
     if (polled.status !== 200) {
-      collectionErrors.add(1);
+      collectionErrors.add(1, { phase: episodePhase });
+      if (measuredEpisode) measurementCollectionErrors.add(1);
       break;
     }
     try {
@@ -139,15 +210,22 @@ export default function () {
       const state = value.episode && value.episode.state;
       terminal = ['FULFILLED', 'FAILED', 'BLOCKED', 'ABORTED', 'EXPIRED', 'DISPUTED'].includes(state);
     } catch (_) {
-      collectionErrors.add(1);
+      collectionErrors.add(1, { phase: episodePhase });
+      if (measuredEpisode) measurementCollectionErrors.add(1);
       break;
     }
     if (terminal) break;
     sleep(pollEvery / 1000);
   }
   const elapsed = Date.now() - started;
-  episodeLatency.add(elapsed);
-  businessEpisodes.add(terminal ? 1 : 0);
-  orphanedEpisodes.add(terminal ? 0 : 1);
-  errorRate.add(!terminal);
+  episodeLatency.add(elapsed, { phase: episodePhase });
+  businessEpisodes.add(terminal ? 1 : 0, { phase: episodePhase });
+  orphanedEpisodes.add(terminal ? 0 : 1, { phase: episodePhase });
+  errorRate.add(!terminal, { phase: episodePhase });
+  if (measuredEpisode) {
+    measurementEpisodeLatency.add(elapsed);
+    measurementCompletedEpisodes.add(terminal ? 1 : 0);
+    measurementOrphanedEpisodes.add(terminal ? 0 : 1);
+    if (!terminal) measurementBusinessErrors.add(1);
+  }
 }

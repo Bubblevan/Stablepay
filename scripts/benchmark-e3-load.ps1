@@ -72,6 +72,25 @@ function Get-ImageDigest([string]$DockerPath, [string]$Image) {
   } catch { return '' }
 }
 
+function Get-SummaryMetricValue([object]$Summary, [string]$MetricName, [string]$Field, [double]$Default = 0) {
+  $metricProperty = $Summary.metrics.PSObject.Properties[$MetricName]
+  if (-not $metricProperty) { return $Default }
+  $fieldProperty = $metricProperty.Value.PSObject.Properties[$Field]
+  if (-not $fieldProperty -or $null -eq $fieldProperty.Value) { return $Default }
+  try { return [double]$fieldProperty.Value } catch { return $Default }
+}
+
+function ConvertTo-DurationSeconds([string]$Value) {
+  if ($Value -notmatch '^(?<amount>\d+)(?<unit>ms|s|m|h)$') { throw "unsupported duration format: $Value" }
+  $amount = [double]$matches.amount
+  switch ($matches.unit) {
+    'ms' { return $amount / 1000 }
+    's' { return $amount }
+    'm' { return $amount * 60 }
+    'h' { return $amount * 3600 }
+  }
+}
+
 function Write-NotRun([System.Collections.IDictionary]$Manifest, [string]$Reason) {
   $Manifest.status = 'NOT RUN'
   $Manifest.finished_at = [DateTime]::UtcNow.ToString('o')
@@ -189,7 +208,47 @@ foreach ($concurrency in ($ConcurrencyMatrix -split ',' | ForEach-Object { [int]
   if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
     $runFailures += "concurrency $concurrency produced no summary.json"
   }
-  $rows += [ordered]@{ concurrency = $concurrency; warmup = $Warmup; duration = $Duration; exit_code = $k6ExitCode; thresholds_failed = $thresholdsFailed; summary = "k6/concurrency-$concurrency/summary.json" }
+  $measurement = $null
+  if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
+    try {
+      $summaryData = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+      $measurementSeconds = ConvertTo-DurationSeconds $Duration
+      $measuredIterations = Get-SummaryMetricValue $summaryData 'measurement_iterations' 'count'
+      $measuredHTTPRequests = Get-SummaryMetricValue $summaryData 'measurement_http_requests' 'count'
+      $measuredCompletedEpisodes = Get-SummaryMetricValue $summaryData 'measurement_completed_episodes' 'count'
+      $measuredCreateStatuses = [ordered]@{}
+      $measuredPollStatuses = [ordered]@{}
+      foreach ($statusCode in @(200, 201, 202, 400, 401, 404, 409, 422, 500, 502, 503, 504)) {
+        $measuredCreateStatuses[[string]$statusCode] = Get-SummaryMetricValue $summaryData "measurement_create_status_$statusCode" 'count'
+        $measuredPollStatuses[[string]$statusCode] = Get-SummaryMetricValue $summaryData "measurement_status_poll_status_$statusCode" 'count'
+      }
+      $measuredCreateStatuses.other = Get-SummaryMetricValue $summaryData 'measurement_create_status_other' 'count'
+      $measuredPollStatuses.other = Get-SummaryMetricValue $summaryData 'measurement_status_poll_status_other' 'count'
+      $measurement = [ordered]@{
+        window_seconds = $measurementSeconds
+        iterations = $measuredIterations
+        iterations_per_second = [Math]::Round($measuredIterations / $measurementSeconds, 3)
+        http_requests = $measuredHTTPRequests
+        http_requests_per_second = [Math]::Round($measuredHTTPRequests / $measurementSeconds, 3)
+        completed_episodes = $measuredCompletedEpisodes
+        completed_episodes_per_second = [Math]::Round($measuredCompletedEpisodes / $measurementSeconds, 3)
+        business_errors = Get-SummaryMetricValue $summaryData 'measurement_business_errors' 'count'
+        business_error_rate = Get-SummaryMetricValue $summaryData 'business_error_rate{phase:measurement}' 'value'
+        collection_errors = Get-SummaryMetricValue $summaryData 'measurement_collection_errors' 'count'
+        orphaned_episodes = Get-SummaryMetricValue $summaryData 'measurement_orphaned_episodes' 'count'
+        http_req_failed_rate = Get-SummaryMetricValue $summaryData 'http_req_failed{phase:measurement}' 'value'
+        create_latency_p95_ms = Get-SummaryMetricValue $summaryData 'measurement_create_latency' 'p(95)'
+        status_latency_p95_ms = Get-SummaryMetricValue $summaryData 'measurement_status_latency' 'p(95)'
+        http_req_duration_p95_ms = Get-SummaryMetricValue $summaryData 'measurement_http_request_latency' 'p(95)'
+        episode_e2e_latency_p95_ms = Get-SummaryMetricValue $summaryData 'measurement_episode_e2e_latency' 'p(95)'
+        create_status_counts = $measuredCreateStatuses
+        status_poll_status_counts = $measuredPollStatuses
+      }
+    } catch {
+      $runFailures += "concurrency $concurrency could not extract measurement metrics: $($_.Exception.Message)"
+    }
+  }
+  $rows += [ordered]@{ concurrency = $concurrency; warmup = $Warmup; duration = $Duration; exit_code = $k6ExitCode; thresholds_failed = $thresholdsFailed; measurement = $measurement; summary = "k6/concurrency-$concurrency/summary.json" }
   $manifest.status = 'RUNNING'
   $manifest.matrix = $rows
   $manifest.notes = @($baseNotes) + @($runFailures)
@@ -209,5 +268,26 @@ $metrics = [ordered]@{
   limitations = @('deterministic local dependencies', 'E3B CloudWeGo target is not claimed by E3A')
 }
 $metrics | ConvertTo-Json -Depth 14 | Set-Content -Encoding UTF8 (Join-Path $OutputRoot 'metrics.json')
-@('# E3 Runtime / CloudWeGo Load Benchmark', '', "Status: **$($manifest.status)**", '', "Docker image: $K6Image", "Digest: $($manifest.k6_image_digest)", "Network mode: $DockerNetworkMode", '', 'HTTP API throughput and business episode completion throughput are reported separately. Review each k6 summary under `k6/` before making a resume claim.', '', 'A non-zero k6 exit records threshold failure for that tier but does not prevent the remaining matrix tiers from running.', '', 'E3A uses the real Runtime HTTP boundary and deterministic local dependencies. Duplicate settlement and orphaned episode counts require the post-run ledger/status audit and are not inferred from request QPS.') |
-  Set-Content -Encoding UTF8 (Join-Path $OutputRoot 'report.md')
+$reportLines = @(
+  '# E3 Runtime / CloudWeGo Load Benchmark', '',
+  "Status: **$($manifest.status)**", '',
+  "Runtime source SHA: $($manifest.runtime_source_sha)",
+  "Docker image: $K6Image", "Digest: $($manifest.k6_image_digest)",
+  "Network mode: $DockerNetworkMode", '',
+  "Steady-state metrics below cover only the $Duration measurement window after the $Warmup warmup.", '',
+  '| VUs | HTTP req/s | Completed episodes/s | HTTP p95 (ms) | Episode p95 (ms) | HTTP errors | Business errors |',
+  '|---:|---:|---:|---:|---:|---:|---:|'
+)
+foreach ($row in $rows) {
+  if ($null -eq $row.measurement) { continue }
+  $httpErrorPct = [Math]::Round([double]$row.measurement.http_req_failed_rate * 100, 2)
+  $businessErrorPct = [Math]::Round([double]$row.measurement.business_error_rate * 100, 2)
+  $reportLines += "| $($row.concurrency) | $($row.measurement.http_requests_per_second) | $($row.measurement.completed_episodes_per_second) | $($row.measurement.http_req_duration_p95_ms) | $($row.measurement.episode_e2e_latency_p95_ms) | $httpErrorPct% | $businessErrorPct% |"
+}
+$reportLines += @(
+  '',
+  'HTTP API throughput and completed business episode throughput are reported separately. Each raw k6 summary is under `k6/`.', '',
+  'A non-zero k6 exit records a threshold failure for that tier but does not prevent remaining matrix tiers from running.', '',
+  'E3A uses the real Runtime HTTP boundary with deterministic local dependencies. Duplicate settlement still requires a post-run ledger audit.'
+)
+$reportLines | Set-Content -Encoding UTF8 (Join-Path $OutputRoot 'report.md')

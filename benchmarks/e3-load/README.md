@@ -39,4 +39,7 @@ status polls (non-200 or invalid JSON). A failed status poll ends polling for
 that episode rather than retrying an unusable response up to 100 times.
 `orphaned_episodes` counts accepted episodes not observed in a terminal state
 within the polling window; it is a benchmark-window measure, not a database
-orphan audit.
+orphan audit. Every request and episode is tagged as warmup, measurement, or
+rampdown. Measurement-only thresholds cover the steady window, and the runner
+records its exact 60-second HTTP and completed-episode rates, status counts,
+and p95 latency in `metrics.json` and `report.md`.
