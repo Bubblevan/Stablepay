@@ -20,9 +20,15 @@ $ErrorActionPreference = 'Stop'
 function Import-BenchmarkDotEnv([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return }
   foreach ($line in Get-Content -LiteralPath $Path) {
-    if ($line -match '^\s*(API_TOKEN|COMMERCE_RUNTIME_API_TOKEN)\s*=\s*(.*)\s*$') {
+    if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
+      $name = $matches[1]
       $value = $matches[2].Trim().Trim('"').Trim("'")
-      if ([string]::IsNullOrWhiteSpace($env:API_TOKEN) -and -not [string]::IsNullOrWhiteSpace($value)) { $env:API_TOKEN = $value }
+      if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name)) -and -not [string]::IsNullOrWhiteSpace($value)) {
+        [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+      }
+      if ($name -eq 'COMMERCE_RUNTIME_API_TOKEN' -and [string]::IsNullOrWhiteSpace($env:API_TOKEN) -and -not [string]::IsNullOrWhiteSpace($value)) {
+        $env:API_TOKEN = $value
+      }
     }
   }
 }
