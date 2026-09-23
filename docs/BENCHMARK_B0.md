@@ -55,6 +55,10 @@ local deterministic merchant, payment, authorization, and verification
 adapters. The mock payment idempotency record is durable in MySQL so a Runtime
 kill after mock acceptance but before Runtime commit can be reconciled after
 restart. No Payment Service client or blockchain client is constructed.
+The E4-only MySQL store decorator adds a controlled 150 ms dwell to the short
+`DISCOVERING`, `NEGOTIATING`, `VALIDATING_DELIVERY`, and `RECOVERING` windows;
+the merchant/payment/verification mocks provide the dwell for adapter-backed
+states. No production Runtime package is changed.
 
 The runner creates a dedicated Docker `mysql:8.0` container with its own named
 data volume and fresh `stablepay_e4_*` schema. It binds MySQL only to

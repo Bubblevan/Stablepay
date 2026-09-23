@@ -28,9 +28,12 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/api"
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/infrastructure/mysql"
+	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/observability"
 	"github.com/stablepay/commerce-runtime/internal/payment"
+	"github.com/stablepay/commerce-runtime/internal/recovery"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
 	workflowartifact "github.com/stablepay/commerce-runtime/internal/workflow/artifact"
@@ -62,6 +65,65 @@ func (mockPaymentModel) TableName() string { return "e4_mock_payments" }
 type localAdapters struct {
 	db    *gorm.DB
 	delay time.Duration
+}
+
+// e4BenchmarkStore adds controlled, benchmark-only dwell time to otherwise
+// very short state windows. It embeds the production MySQL store and changes
+// no production package or persistence semantics.
+type e4BenchmarkStore struct {
+	*mysql.Store
+	adapters *localAdapters
+}
+
+func (s *e4BenchmarkStore) waitAtState(ctx context.Context, episodeID string, target episode.State) error {
+	current, err := s.Store.Get(ctx, episodeID)
+	if err != nil {
+		return err
+	}
+	if current.State == target {
+		return s.adapters.wait(ctx)
+	}
+	return nil
+}
+
+func (s *e4BenchmarkStore) GetCandidateSet(ctx context.Context, candidateSetID string) (*catalog.CandidateSet, error) {
+	if strings.HasPrefix(candidateSetID, "cs:") {
+		episodeID := strings.TrimPrefix(candidateSetID, "cs:")
+		if separator := strings.IndexByte(episodeID, ':'); separator >= 0 {
+			episodeID = episodeID[:separator]
+		}
+		if episodeID != "" {
+			if err := s.waitAtState(ctx, episodeID, episode.StateDiscovering); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.Store.GetCandidateSet(ctx, candidateSetID)
+}
+
+func (s *e4BenchmarkStore) FindPaymentRequirementByInvocation(ctx context.Context, episodeID, invocationID string) (*invocation.PaymentRequirementFact, error) {
+	if err := s.waitAtState(ctx, episodeID, episode.StateNegotiating); err != nil {
+		return nil, err
+	}
+	return s.Store.FindPaymentRequirementByInvocation(ctx, episodeID, invocationID)
+}
+
+func (s *e4BenchmarkStore) GetDeliveryArtifact(ctx context.Context, deliveryID string) (*invocation.DeliveryArtifact, error) {
+	artifact, err := s.Store.GetDeliveryArtifact(ctx, deliveryID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.waitAtState(ctx, artifact.EpisodeID, episode.StateValidatingDelivery); err != nil {
+		return nil, err
+	}
+	return artifact, nil
+}
+
+func (s *e4BenchmarkStore) GetRecoveryContextByEpisode(ctx context.Context, episodeID string) (*recovery.RecoveryContext, error) {
+	if err := s.waitAtState(ctx, episodeID, episode.StateRecovering); err != nil {
+		return nil, err
+	}
+	return s.Store.GetRecoveryContextByEpisode(ctx, episodeID)
 }
 
 func main() {
@@ -109,11 +171,12 @@ func run() error {
 	if err := db.WithContext(ctx).AutoMigrate(&mockPaymentModel{}); err != nil {
 		return fmt.Errorf("migrate E4 mock payment ledger: %w", err)
 	}
-	store := mysql.NewStore(db)
-	if err := seedCatalog(ctx, store); err != nil {
+	baseStore := mysql.NewStore(db)
+	if err := seedCatalog(ctx, baseStore); err != nil {
 		return fmt.Errorf("seed deterministic E4 capability: %w", err)
 	}
 	mocks := &localAdapters{db: db, delay: delay}
+	store := &e4BenchmarkStore{Store: baseStore, adapters: mocks}
 	service := application.NewService(store,
 		application.WithRuntimeVersion("e4-local-mysql"),
 		application.WithMerchantAdapter(mocks),
