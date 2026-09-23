@@ -212,6 +212,7 @@ func run() error {
 	if err := runner.StartSupervisor(ctx); err != nil {
 		return err
 	}
+	startE4TerminalExecutionReconciler(ctx, db, runner)
 	if err := workflowRunner.StartSupervisor(ctx); err != nil {
 		runner.StopSupervisor()
 		return err
@@ -316,6 +317,46 @@ func withExecutionStatusProbe(next http.Handler, store *e4BenchmarkStore, token 
 			log.Printf("E4 execution-status probe response failed: %v", err)
 		}
 	})
+}
+
+// startE4TerminalExecutionReconciler handles the narrow crash gap where an
+// episode's terminal business state is committed but its separate operations
+// marker remains RUNNING. Production startup scans are intentionally not
+// modified; the E4-only composition invokes the existing Runner terminal
+// completion path for those rows and records that this fixture is enabled.
+func startE4TerminalExecutionReconciler(ctx context.Context, db *gorm.DB, runner *runtime.Runner) {
+	go func() {
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		terminalStates := []string{
+			string(episode.StateFulfilled), string(episode.StateFailed), string(episode.StateBlocked),
+			string(episode.StateAborted), string(episode.StateExpired), string(episode.StateDisputed),
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			var episodeIDs []string
+			err := db.WithContext(ctx).
+				Table("commerce_episodes AS e").
+				Joins("JOIN episode_execution_status AS x ON x.episode_id = e.episode_id").
+				Where("e.state IN ? AND x.status = ?", terminalStates, repository.ExecutionRunning).
+				Pluck("e.episode_id", &episodeIDs).Error
+			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					log.Printf("E4 terminal execution reconciliation query failed: %v", err)
+				}
+				continue
+			}
+			for _, episodeID := range episodeIDs {
+				if _, err := runner.ResumeEpisode(ctx, episodeID); err != nil && !errors.Is(err, context.Canceled) {
+					log.Printf("E4 terminal execution reconciliation failed for %s: %v", episodeID, err)
+				}
+			}
+		}
+	}()
 }
 
 func seedCatalog(ctx context.Context, store *mysql.Store) error {

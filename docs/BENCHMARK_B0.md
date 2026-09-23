@@ -67,7 +67,10 @@ invocation fact is committed in MySQL; this distinguishes the durable
 side-effect boundary from merely observing the state label. After restart,
 the harness also waits for the persisted execution marker to reach `COMPLETED`
 before stopping the Runtime, closing the small gap between the terminal
-episode write and execution-status write.
+episode write and execution-status write. The E4-only Runtime composition
+reconciles terminal episodes with a still-`RUNNING` marker by calling the
+existing `Runner.ResumeEpisode`; this is recorded in the manifest and does not
+change production Runtime source.
 
 The runner creates a dedicated Docker `mysql:8.0` container with its own named
 data volume and fresh `stablepay_e4_*` schema. It binds MySQL only to

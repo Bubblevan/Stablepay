@@ -230,6 +230,7 @@ $setup = [ordered]@{
   payment_adapter = 'MySQL-backed idempotent mock; no chain client'
   state_window_delay_ms = 150
   state_delay_adapter = 'benchmark-only MySQL store decorator for DISCOVERING, INVOKING after persisted 402 response, NEGOTIATING, VALIDATING_DELIVERY, RECOVERING'
+  terminal_execution_reconciler = 'benchmark-only loop calls the existing Runner.ResumeEpisode for terminal episodes with RUNNING execution markers; production Runtime code unchanged'
   delivery_fault_injection_window = 'RECOVERING only'
   runtime_executable = 'commerce-runtime-e4-local.exe'
   runtime_http_addr = '127.0.0.1:18091'
