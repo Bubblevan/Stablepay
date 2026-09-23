@@ -101,12 +101,14 @@ type auditSummary struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal(errors.New("usage: e4-mysql-audit create-schema -name stablepay_e4_... | audit -trials trials.jsonl -out audit.jsonl"))
+		fatal(errors.New("usage: e4-mysql-audit create-schema -name stablepay_e4_... | check-schema -name stablepay_e4_... | audit -trials trials.jsonl -out audit.jsonl"))
 	}
 	var err error
 	switch os.Args[1] {
 	case "create-schema":
 		err = createSchema(os.Args[2:])
+	case "check-schema":
+		err = checkSchema(os.Args[2:])
 	case "audit":
 		err = auditTrials(os.Args[2:])
 	default:
@@ -115,6 +117,47 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+}
+
+func checkSchema(args []string) error {
+	flags := flag.NewFlagSet("check-schema", flag.ContinueOnError)
+	name := flags.String("name", "", "expected isolated schema name")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if !regexp.MustCompile(`^stablepay_e4_[a-z0-9_]{1,48}$`).MatchString(*name) {
+		return errors.New("schema name must match stablepay_e4_<lowercase letters, digits or underscores>")
+	}
+	dsn := strings.TrimSpace(os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN"))
+	if dsn == "" {
+		return errors.New("COMMERCE_RUNTIME_MYSQL_DSN is required")
+	}
+	cfg, err := mysqlDriver.ParseDSN(dsn)
+	if err != nil {
+		return fmt.Errorf("parse MySQL DSN: %w", err)
+	}
+	if cfg.DBName != *name {
+		return fmt.Errorf("configured MySQL schema %q does not match expected isolated schema %q", cfg.DBName, *name)
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("connect to isolated MySQL schema %s: %w", *name, err)
+	}
+	var active string
+	if err := db.QueryRowContext(ctx, `SELECT DATABASE()`).Scan(&active); err != nil {
+		return err
+	}
+	if active != *name {
+		return fmt.Errorf("connected database %q does not match expected isolated schema %q", active, *name)
+	}
+	fmt.Printf("isolated MySQL schema ready: %s\n", active)
+	return nil
 }
 
 func createSchema(args []string) error {

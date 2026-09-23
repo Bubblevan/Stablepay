@@ -5,7 +5,9 @@ param(
   [string]$CrashWindows = 'DISCOVERING,INVOKING,NEGOTIATING,PAYING,CLAIMING,INVOKING_DELIVERY,VALIDATING_DELIVERY,RECOVERING',
   [string]$SmokeWindow = 'PAYING',
   [int]$TrialsPerWindow = 20,
-  [int]$PollMilliseconds = 5
+  [int]$PollMilliseconds = 5,
+  [string]$DockerMySQLImage = 'mysql:8.0',
+  [int]$MySQLHostPort = 13308
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +21,7 @@ $bodyPath = Join-Path $RepoRoot 'testdata\benchmark\e4-submit-body.json'
 
 function Import-BenchmarkDotEnv([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Missing dotenv file: $Path" }
-  $allowed = @('COMMERCE_RUNTIME_MYSQL_DSN', 'COMMERCE_RUNTIME_API_TOKEN')
+  $allowed = @('COMMERCE_RUNTIME_API_TOKEN')
   foreach ($line in Get-Content -LiteralPath $Path) {
     if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
       $name = $matches[1]
@@ -32,12 +34,18 @@ function Import-BenchmarkDotEnv([string]$Path) {
   }
 }
 
-function Invoke-Go([string[]]$Arguments) {
+function Invoke-Go([string[]]$Arguments, [switch]$Quiet) {
   Push-Location $runtimeRoot
   try {
-    & go @Arguments
+    if ($Quiet) { & go @Arguments *> $null } else { & go @Arguments }
     if ($LASTEXITCODE -ne 0) { throw "go $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
   } finally { Pop-Location }
+}
+
+function Invoke-Docker([string[]]$Arguments, [switch]$Quiet) {
+  if ($Quiet) { $result = & $dockerPath @Arguments *> $null } else { $result = & $dockerPath @Arguments }
+  if ($LASTEXITCODE -ne 0) { throw "docker $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
+  return $result
 }
 
 $env:GOCACHE = Join-Path $RepoRoot '.local-run\gocache-e4'
@@ -108,8 +116,8 @@ function Invoke-RunAndAudit([string]$Name, [string]$WindowList, [int]$Trials, [s
 }
 
 Import-BenchmarkDotEnv $dotenv
-if ([string]::IsNullOrWhiteSpace($env:COMMERCE_RUNTIME_MYSQL_DSN) -or [string]::IsNullOrWhiteSpace($env:COMMERCE_RUNTIME_API_TOKEN)) {
-  throw '.env must define COMMERCE_RUNTIME_MYSQL_DSN and COMMERCE_RUNTIME_API_TOKEN'
+if ([string]::IsNullOrWhiteSpace($env:COMMERCE_RUNTIME_API_TOKEN)) {
+  throw '.env must define COMMERCE_RUNTIME_API_TOKEN'
 }
 if (-not (Test-Path -LiteralPath $bodyPath)) { throw "Missing E4 submit body: $bodyPath" }
 
@@ -122,15 +130,59 @@ New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 
 $portInUse = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq 18091 }
 if ($portInUse) { throw 'E4 isolated HTTP port 18091 is already in use; refusing to attach to an unrelated Runtime' }
+$mysqlPortInUse = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq $MySQLHostPort }
+if ($mysqlPortInUse) { throw "E4 isolated MySQL host port $MySQLHostPort is already in use; refusing to attach to an unrelated database" }
 
-$baseDsn = $env:COMMERCE_RUNTIME_MYSQL_DSN
-$dsnMatch = [regex]::Match($baseDsn, '^(?<prefix>.*@tcp\([^)]*\)/)(?<database>[^?]*)(?<query>\?.*)?$')
-if (-not $dsnMatch.Success) { throw 'MySQL DSN must use go-sql-driver/mysql tcp(host:port)/database form' }
+$dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+if ($dockerCommand) {
+  $dockerPath = $dockerCommand.Source
+} else {
+  $dockerPath = Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'
+}
+if (-not (Test-Path -LiteralPath $dockerPath)) { throw 'Docker CLI is unavailable; cannot start the E4-only MySQL container' }
+$dockerVersion = (Invoke-Docker @('version', '--format', '{{.Server.Version}}')).Trim()
+$imageId = (Invoke-Docker @('image', 'inspect', $DockerMySQLImage, '--format', '{{.Id}}')).Trim()
+$repoDigestsJson = (Invoke-Docker @('image', 'inspect', $DockerMySQLImage, '--format', '{{json .RepoDigests}}')).Trim()
+$repoDigests = @($repoDigestsJson | ConvertFrom-Json)
+$imageDigest = if ($repoDigests.Count -gt 0) { [string]$repoDigests[0] } else { $imageId }
+$stamp = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss')
 $schemaSuffix = Get-Random -Minimum 1000 -Maximum 9999
-$schema = 'stablepay_e4_' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + '_' + $schemaSuffix
-$newDsn = $dsnMatch.Groups['prefix'].Value + $schema + $dsnMatch.Groups['query'].Value
+$schema = 'stablepay_e4_' + $stamp + '_' + $schemaSuffix
+$containerName = 'stablepay-e4-mysql-' + $stamp + '-' + $schemaSuffix
+$volumeName = 'stablepay-e4-data-' + $stamp + '-' + $schemaSuffix
+$appUser = 'e4bench'
+$appPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+$rootPassword = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+$dockerRunArguments = @(
+  'run', '--detach', '--pull=never', '--name', $containerName,
+  '--publish', "127.0.0.1:${MySQLHostPort}:3306",
+  '--volume', "${volumeName}:/var/lib/mysql",
+  '--env', "MYSQL_DATABASE=$schema",
+  '--env', "MYSQL_USER=$appUser",
+  '--env', "MYSQL_PASSWORD=$appPassword",
+  '--env', "MYSQL_ROOT_PASSWORD=$rootPassword",
+  $DockerMySQLImage
+)
+$null = Invoke-Docker $dockerRunArguments
+$newDsn = "$($appUser):$($appPassword)@tcp(127.0.0.1:$MySQLHostPort)/$schema?parseTime=true&loc=UTC"
 $env:E4_MYSQL_SCHEMA = $schema
-Invoke-Go @('run', './cmd/e4-mysql-audit', 'create-schema', '-name', $schema)
+$env:E4_MYSQL_CONTAINER_NAME = $containerName
+$env:E4_MYSQL_IMAGE = $DockerMySQLImage
+$env:E4_MYSQL_IMAGE_DIGEST = $imageDigest
+$env:E4_DOCKER_SERVER_VERSION = $dockerVersion
+$env:COMMERCE_RUNTIME_MYSQL_DSN = $newDsn
+$schemaReady = $false
+for ($attempt = 1; $attempt -le 60; $attempt++) {
+  try {
+    Invoke-Go @('run', './cmd/e4-mysql-audit', 'check-schema', '-name', $schema) -Quiet
+    $schemaReady = $true
+    break
+  } catch {
+    if (($attempt % 10) -eq 0) { Write-Host "Waiting for isolated MySQL readiness ($attempt/60)..." }
+    Start-Sleep -Seconds 2
+  }
+}
+if (-not $schemaReady) { throw "Dedicated MySQL container did not initialize schema $schema within 120 seconds; container $containerName was retained for inspection" }
 
 $runtimeExe = Join-Path $OutputRoot 'commerce-runtime-e4-local.exe'
 Invoke-Go @('build', '-trimpath', '-o', $runtimeExe, './cmd/e4-local-runtime')
@@ -139,7 +191,13 @@ $setup = [ordered]@{
   benchmark = 'E4'
   mode = 'benchmark-only deterministic local adapters'
   mysql_schema = $schema
-  mysql_host = $dsnMatch.Groups['prefix'].Value -replace '^.*@tcp\(', '' -replace '\)/$', ''
+  mysql_backend = 'dedicated Docker container; original MySQL DSN not used'
+  mysql_container = $containerName
+  mysql_volume = $volumeName
+  mysql_host = "127.0.0.1:$MySQLHostPort"
+  mysql_image_tag = $DockerMySQLImage
+  mysql_image_digest = $imageDigest
+  docker_server_version = $dockerVersion
   settlement_network = 'e4-local'
   payment_adapter = 'MySQL-backed idempotent mock; no chain client'
   runtime_executable = 'commerce-runtime-e4-local.exe'

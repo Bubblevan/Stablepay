@@ -56,8 +56,12 @@ adapters. The mock payment idempotency record is durable in MySQL so a Runtime
 kill after mock acceptance but before Runtime commit can be reconciled after
 restart. No Payment Service client or blockchain client is constructed.
 
-The runner creates a fresh `stablepay_e4_*` schema, leaves the existing
-Runtime/database alone, runs one `PAYING`-window smoke trial and audits it,
+The runner creates a dedicated Docker `mysql:8.0` container with its own named
+data volume and fresh `stablepay_e4_*` schema. It binds MySQL only to
+`127.0.0.1:13308`; the `.env` MySQL DSN and existing Runtime/database are not
+used. Docker server version, MySQL image tag/digest, container, volume, and
+schema are recorded in the setup/manifest. The container is retained for audit
+inspection. The runner executes one `PAYING`-window smoke trial and audits it,
 then runs the episode-state crash-window matrix (20 trials/window by default).
 The workflow-only `child_episode_created` state is excluded because this
 fixture submits an Episode, not a workflow run. The body budget is 1,000 USDC
@@ -70,8 +74,8 @@ Run from the repository root:
 .\scripts\run-e4-local.ps1
 ```
 
-The script reads the MySQL DSN and API token from `.env`, uses an isolated HTTP
-port, and writes the schema name, raw `trials.jsonl`, and per-episode audit
+The script reads only the API token from `.env`, uses isolated HTTP and MySQL
+ports, and writes the schema name, raw `trials.jsonl`, and per-episode audit
 artifacts under `.local-run/resume-benchmark/e4-local-*`. It stops before the
 full matrix if the smoke trial or its SQL audit fails. After the matrix it runs
 the same audit against every `episode_id` from `trials.jsonl`: duplicate
