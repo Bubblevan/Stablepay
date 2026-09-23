@@ -34,6 +34,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/observability"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
+	"github.com/stablepay/commerce-runtime/internal/repository"
 	runtime "github.com/stablepay/commerce-runtime/internal/runtime"
 	"github.com/stablepay/commerce-runtime/internal/validator"
 	workflowartifact "github.com/stablepay/commerce-runtime/internal/workflow/artifact"
@@ -221,7 +222,7 @@ func run() error {
 	apiHandler := api.NewServerWithWorkflow(service, store, runner, workflowRunner, api.AuthConfig{Token: token}, func(check context.Context) error {
 		return sqlDB.PingContext(check)
 	}, variant)
-	handler := withDurableInitialInvocationProbe(apiHandler, store, token)
+	handler := withExecutionStatusProbe(withDurableInitialInvocationProbe(apiHandler, store, token), store, token)
 	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -273,6 +274,47 @@ func withDurableInitialInvocationProbe(next http.Handler, store *e4BenchmarkStor
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ready": ready})
+	})
+}
+
+// withExecutionStatusProbe exposes only the persisted E4 execution marker so
+// the harness does not stop a restarted Runtime between a terminal episode
+// write and its corresponding COMPLETED execution-status write.
+func withExecutionStatusProbe(next http.Handler, store *e4BenchmarkStore, token string) http.Handler {
+	const prefix = "/__e4/execution-status/"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, prefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		episodeID := strings.TrimPrefix(r.URL.Path, prefix)
+		if episodeID == "" || strings.Contains(episodeID, "/") {
+			http.Error(w, "episode id is required", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		execution, err := store.GetEpisodeExecutionStatus(r.Context(), episodeID)
+		if errors.Is(err, repository.ErrNotFound) {
+			if err := json.NewEncoder(w).Encode(map[string]string{"status": "MISSING"}); err != nil {
+				http.Error(w, "execution status response failed", http.StatusInternalServerError)
+			}
+			return
+		}
+		if err != nil {
+			http.Error(w, "execution status lookup failed", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": string(execution.Status)}); err != nil {
+			log.Printf("E4 execution-status probe response failed: %v", err)
+		}
 	})
 }
 

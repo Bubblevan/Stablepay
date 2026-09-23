@@ -64,7 +64,10 @@ recovery branches do not contaminate the crash-window measurement. No
 production Runtime package is changed. Before an `INVOKING` crash, the harness
 also requires an authenticated E4-only probe to confirm the initial 402
 invocation fact is committed in MySQL; this distinguishes the durable
-side-effect boundary from merely observing the state label.
+side-effect boundary from merely observing the state label. After restart,
+the harness also waits for the persisted execution marker to reach `COMPLETED`
+before stopping the Runtime, closing the small gap between the terminal
+episode write and execution-status write.
 
 The runner creates a dedicated Docker `mysql:8.0` container with its own named
 data volume and fresh `stablepay_e4_*` schema. It binds MySQL only to
