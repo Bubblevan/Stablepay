@@ -79,7 +79,10 @@ function Wait-Ready([System.Diagnostics.Process]$Process) {
 function Start-Runtime() {
   $argumentList = @()
   if ($RuntimeArguments) { $argumentList = $RuntimeArguments -split ' ' | Where-Object { $_ } }
-  return Start-Process -FilePath $RuntimeExecutable -ArgumentList $argumentList -WorkingDirectory $RuntimeWorkingDirectory -PassThru -WindowStyle Hidden
+  if ($argumentList.Count -gt 0) {
+    return Start-Process -FilePath $RuntimeExecutable -ArgumentList $argumentList -WorkingDirectory $RuntimeWorkingDirectory -PassThru -WindowStyle Hidden
+  }
+  return Start-Process -FilePath $RuntimeExecutable -WorkingDirectory $RuntimeWorkingDirectory -PassThru -WindowStyle Hidden
 }
 
 function Read-EpisodeId($Value) {
