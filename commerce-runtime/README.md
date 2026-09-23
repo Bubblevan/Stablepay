@@ -75,7 +75,7 @@ STABLEPAY_E2E_AGENT_KEYPAIR_PATH
 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL       # required for recovery_provider=llm
 ```
 
-Optional runtime controls include `COMMERCE_RUNTIME_HTTP_ADDR`, `COMMERCE_RUNTIME_MEMORY_MODE`, `COMMERCE_RUNTIME_RECOVERY_PROVIDER`, `COMMERCE_RUNTIME_SUPERVISOR_INTERVAL`, `COMMERCE_RUNTIME_RUNNER_RETRY_MAX`, and the service/gateway addresses. The binary does not print or export secret values.
+Optional runtime controls include `COMMERCE_RUNTIME_HTTP_ADDR`, `COMMERCE_RUNTIME_MEMORY_MODE`, `COMMERCE_RUNTIME_RECOVERY_PROVIDER`, `COMMERCE_RUNTIME_SUPERVISOR_INTERVAL`, `COMMERCE_RUNTIME_RUNNER_RETRY_MAX`, and the service/gateway addresses. MySQL pool defaults are 100 open connections and 80 idle connections, with a 5-minute idle timeout and 30-minute connection lifetime. Tune them with `COMMERCE_RUNTIME_MYSQL_MAX_OPEN_CONNS`, `COMMERCE_RUNTIME_MYSQL_MAX_IDLE_CONNS`, `COMMERCE_RUNTIME_MYSQL_MAX_IDLE_TIME`, and `COMMERCE_RUNTIME_MYSQL_MAX_LIFETIME`; idle connections are capped at the open limit. The binary does not print or export secret values.
 
 `/healthz` is an unauthenticated liveness probe. `/readyz` is an unauthenticated readiness probe that checks the production composition, runner/workflow supervisors, and MySQL connectivity; it does not claim that every downstream service has been probed.
 

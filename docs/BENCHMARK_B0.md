@@ -1,7 +1,7 @@
 # StablePay B0 Resume Benchmark Suite
 
-This suite measures resume-relevant outcomes against the frozen Runtime. It
-does not add Runtime features and it does not edit `docs/RESUME_VARIANTS.md`.
+This suite measures resume-relevant outcomes against the current production
+Runtime source and does not edit `docs/RESUME_VARIANTS.md`.
 
 The required execution order is E2 → E1 → E3 → E4. A false accept or protected
 side-effect escape in E2 stops the sequence. A real DeepSeek treatment is
@@ -12,7 +12,7 @@ optional only because it requires credentials; when unavailable E1 records
 
 Every run writes under `.local-run/resume-benchmark/`:
 
-- `manifest.json` with dataset hash, Git SHA, frozen Runtime SHA, seed, variant,
+- `manifest.json` with dataset hash, Git SHA, Runtime source SHA, seed, variant,
   environment, and timestamps;
 - frozen JSONL dataset and raw result JSONL;
 - aggregate `metrics.json` with numerators/denominators and 95% Wilson CIs;

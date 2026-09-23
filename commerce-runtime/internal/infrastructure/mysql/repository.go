@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -338,7 +340,40 @@ func Open(dsn string) (*gorm.DB, error) {
 	if dsn == "" {
 		return nil, errors.New("mysql dsn is required")
 	}
-	return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	maxOpen := positiveIntEnv("COMMERCE_RUNTIME_MYSQL_MAX_OPEN_CONNS", 100)
+	maxIdle := positiveIntEnv("COMMERCE_RUNTIME_MYSQL_MAX_IDLE_CONNS", 80)
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxIdleTime(positiveDurationEnv("COMMERCE_RUNTIME_MYSQL_MAX_IDLE_TIME", 5*time.Minute))
+	sqlDB.SetConnMaxLifetime(positiveDurationEnv("COMMERCE_RUNTIME_MYSQL_MAX_LIFETIME", 30*time.Minute))
+	return db, nil
+}
+
+func positiveIntEnv(key string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+func positiveDurationEnv(key string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(strings.TrimSpace(os.Getenv(key)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }

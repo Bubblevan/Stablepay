@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -589,7 +590,10 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	case errors.Is(err, repository.ErrRepositoryUnavailable):
 		status, code = http.StatusServiceUnavailable, "repository_unavailable"
 	default:
-		if strings.Contains(strings.ToLower(err.Error()), "not configured") || strings.Contains(strings.ToLower(err.Error()), "unavailable") {
+		var networkErr net.Error
+		if errors.As(err, &networkErr) {
+			status, code = http.StatusServiceUnavailable, "dependency_unavailable"
+		} else if strings.Contains(strings.ToLower(err.Error()), "not configured") || strings.Contains(strings.ToLower(err.Error()), "unavailable") {
 			status, code = http.StatusServiceUnavailable, "dependency_unavailable"
 		}
 	}

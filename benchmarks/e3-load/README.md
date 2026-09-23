@@ -9,6 +9,8 @@ The default matrix is `1,10,25,50,100,200`. Each tier has a warmup (15 seconds
 by default) followed by a 60-second measurement. The run manifest records the
 Docker server version, image tag and resolved RepoDigest, Docker network mode,
 the container-visible base URL, and the exact matrix/durations.
+It also records the Runtime source SHA and MySQL pool settings used by the
+local Runtime process.
 
 On Docker Desktop, a host URL such as `http://127.0.0.1:8090` is translated to
 `http://host.docker.internal:8090` inside the k6 container. Override it with
@@ -31,3 +33,10 @@ dependencies. It does not enable the real DeepSeek provider or Solana Devnet.
 E3B is only reported when an existing safe Hertz/Kitex/Thrift/MySQL/RocketMQ
 path is explicitly configured; the runner never invents a benchmark-only
 CloudWeGo service or spends Devnet assets.
+
+`collection_errors` counts create responses without an episode ID and failed
+status polls (non-200 or invalid JSON). A failed status poll ends polling for
+that episode rather than retrying an unusable response up to 100 times.
+`orphaned_episodes` counts accepted episodes not observed in a terminal state
+within the polling window; it is a benchmark-window measure, not a database
+orphan audit.

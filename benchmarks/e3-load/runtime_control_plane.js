@@ -129,14 +129,18 @@ export default function () {
     statusPollStatusCounts.add(1, { status: String(polled.status) });
     if (statusPollMetrics[polled.status]) statusPollMetrics[polled.status].add(1);
     else statusPollStatusOther.add(1);
-    if (polled.status >= 500) collectionErrors.add(1);
     if (polled.status === 409) casConflicts.add(1);
+    if (polled.status !== 200) {
+      collectionErrors.add(1);
+      break;
+    }
     try {
       const value = JSON.parse(polled.body);
       const state = value.episode && value.episode.state;
       terminal = ['FULFILLED', 'FAILED', 'BLOCKED', 'ABORTED', 'EXPIRED', 'DISPUTED'].includes(state);
     } catch (_) {
       collectionErrors.add(1);
+      break;
     }
     if (terminal) break;
     sleep(pollEvery / 1000);

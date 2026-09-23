@@ -40,7 +40,7 @@ function Get-ToolVersion([string]$Name, [string]$Path) {
 function Import-BenchmarkDotEnv([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return }
   foreach ($line in Get-Content -LiteralPath $Path) {
-    if ($line -match '^\s*(API_TOKEN|COMMERCE_RUNTIME_API_TOKEN|BASE_URL|COMMERCE_RUNTIME_MYSQL_DSN)\s*=\s*(.*)\s*$') {
+    if ($line -match '^\s*(API_TOKEN|COMMERCE_RUNTIME_API_TOKEN|BASE_URL|COMMERCE_RUNTIME_MYSQL_DSN|COMMERCE_RUNTIME_MYSQL_MAX_OPEN_CONNS|COMMERCE_RUNTIME_MYSQL_MAX_IDLE_CONNS|COMMERCE_RUNTIME_MYSQL_MAX_IDLE_TIME|COMMERCE_RUNTIME_MYSQL_MAX_LIFETIME)\s*=\s*(.*)\s*$') {
       $name = $matches[1]
       $value = $matches[2].Trim().Trim('"').Trim("'")
       if (-not [string]::IsNullOrWhiteSpace($value)) {
@@ -48,6 +48,7 @@ function Import-BenchmarkDotEnv([string]$Path) {
         elseif ($name -eq 'API_TOKEN' -and [string]::IsNullOrWhiteSpace($env:API_TOKEN)) { $env:API_TOKEN = $value }
         elseif ($name -eq 'BASE_URL' -and [string]::IsNullOrWhiteSpace($env:BASE_URL)) { $env:BASE_URL = $value }
         elseif ($name -eq 'COMMERCE_RUNTIME_MYSQL_DSN' -and [string]::IsNullOrWhiteSpace($env:COMMERCE_RUNTIME_MYSQL_DSN)) { $env:COMMERCE_RUNTIME_MYSQL_DSN = $value }
+        elseif ($name -like 'COMMERCE_RUNTIME_MYSQL_MAX_*' -and [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { Set-Item -Path ("Env:" + $name) -Value $value }
       }
     }
   }
@@ -98,13 +99,19 @@ $dockerVersion = Get-ToolVersion 'docker' $dockerPath
 $containerBaseUrl = Get-ContainerBaseUrl $BaseUrl
 $manifest = [ordered]@{
   benchmark = 'E3'; version = 'v1'; dataset_hash = ''; git_sha = $gitSha
-  frozen_runtime_sha = 'ae67ae5e48a76848b5c0dfc4a68f79eef00a5705'; seed = 42
+  runtime_source_sha = $gitSha; seed = 42
   runtime_variant = 'real-runtime-deterministic-local-dependencies'; workload_config_hash = "sha256:$configHash"
   k6_image = $K6Image; k6_image_tag = ''; k6_image_digest = ''; docker_network_mode = $DockerNetworkMode
   environment = [ordered]@{
     os = [System.Environment]::OSVersion.VersionString; cpu_count = [Environment]::ProcessorCount
     go_version = $goVersion; docker_version = $dockerVersion
     mysql = $(if ($env:COMMERCE_RUNTIME_MYSQL_DSN) { 'configured' } else { 'not_configured' })
+    mysql_pool = [ordered]@{
+      max_open_connections = $(if ($env:COMMERCE_RUNTIME_MYSQL_MAX_OPEN_CONNS) { $env:COMMERCE_RUNTIME_MYSQL_MAX_OPEN_CONNS } else { '100' })
+      max_idle_connections = $(if ($env:COMMERCE_RUNTIME_MYSQL_MAX_IDLE_CONNS) { $env:COMMERCE_RUNTIME_MYSQL_MAX_IDLE_CONNS } else { '80' })
+      max_idle_time = $(if ($env:COMMERCE_RUNTIME_MYSQL_MAX_IDLE_TIME) { $env:COMMERCE_RUNTIME_MYSQL_MAX_IDLE_TIME } else { '5m' })
+      max_lifetime = $(if ($env:COMMERCE_RUNTIME_MYSQL_MAX_LIFETIME) { $env:COMMERCE_RUNTIME_MYSQL_MAX_LIFETIME } else { '30m' })
+    }
     rocketmq = $(if ($env:STABLEPAY_ROCKETMQ_NAME_SERVER) { $env:STABLEPAY_ROCKETMQ_NAME_SERVER } else { 'not_configured' })
     runtime_process_count = 'recorded_by_operator'; service_process_count = 'recorded_by_operator'
     concurrency = $ConcurrencyMatrix; warmup = $Warmup; duration = $Duration
