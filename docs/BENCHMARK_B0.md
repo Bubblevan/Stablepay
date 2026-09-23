@@ -56,9 +56,9 @@ adapters. The mock payment idempotency record is durable in MySQL so a Runtime
 kill after mock acceptance but before Runtime commit can be reconciled after
 restart. No Payment Service client or blockchain client is constructed.
 The E4-only MySQL store decorator adds a controlled 150 ms dwell to the short
-`DISCOVERING`, `NEGOTIATING`, `VALIDATING_DELIVERY`, and `RECOVERING` windows;
-the merchant/payment/verification mocks provide the dwell for adapter-backed
-states. An empty first delivery is injected only for trials targeting
+`DISCOVERING`, `INVOKING` (after the 402 response is persisted), `NEGOTIATING`,
+`VALIDATING_DELIVERY`, and `RECOVERING` windows; the merchant/payment/
+verification mocks provide the dwell for other adapter-backed states. An empty first delivery is injected only for trials targeting
 `RECOVERING`; all other windows get a valid first delivery so unrelated
 recovery branches do not contaminate the crash-window measurement. No
 production Runtime package is changed.

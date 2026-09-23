@@ -102,8 +102,21 @@ func (s *e4BenchmarkStore) GetCandidateSet(ctx context.Context, candidateSetID s
 }
 
 func (s *e4BenchmarkStore) FindPaymentRequirementByInvocation(ctx context.Context, episodeID, invocationID string) (*invocation.PaymentRequirementFact, error) {
-	if err := s.waitAtState(ctx, episodeID, episode.StateNegotiating); err != nil {
+	current, err := s.Store.Get(ctx, episodeID)
+	if err != nil {
 		return nil, err
+	}
+	if current.State == episode.StateNegotiating {
+		if err := s.adapters.wait(ctx); err != nil {
+			return nil, err
+		}
+	} else if current.State == episode.StateInvoking {
+		fact, findErr := s.Store.GetMerchantInvocation(ctx, invocationID)
+		if findErr == nil && fact.Phase == invocation.PhaseInitial && fact.ResponseStatus == 402 && !fact.CompletedAt.IsZero() {
+			if err := s.adapters.wait(ctx); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return s.Store.FindPaymentRequirementByInvocation(ctx, episodeID, invocationID)
 }
@@ -262,8 +275,11 @@ func (m *localAdapters) wait(ctx context.Context) error {
 }
 
 func (m *localAdapters) Invoke(ctx context.Context, request adapters.MerchantInvokeRequest) (adapters.MerchantInvokeResult, error) {
-	if err := m.wait(ctx); err != nil {
-		return adapters.MerchantInvokeResult{}, err
+	initialInvocationWindow := request.Phase == invocation.PhaseInitial && strings.EqualFold(strings.TrimSpace(os.Getenv("E4_CRASH_WINDOW")), string(episode.StateInvoking))
+	if !initialInvocationWindow {
+		if err := m.wait(ctx); err != nil {
+			return adapters.MerchantInvokeResult{}, err
+		}
 	}
 	now := time.Now().UTC()
 	if request.Phase == "INITIAL" {
