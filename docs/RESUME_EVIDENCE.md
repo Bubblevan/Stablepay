@@ -1,10 +1,10 @@
 # Resume Evidence Inventory
 
-This inventory is the source-backed boundary for resume and interview claims after the StablePay freeze.
+This inventory records evidence-backed resume and interview claims from the current repository and its local run artifacts. The freeze SHA below is a historical baseline, not the current code state.
 
-- Frozen repository HEAD: `ae67ae5e48a76848b5c0dfc4a68f79eef00a5705`
+- Historical frozen repository HEAD: `ae67ae5e48a76848b5c0dfc4a68f79eef00a5705`
 - Audit base: `ac2dc5144ea2b78f4dd832017f4d4f70a2e1622c`
-- Evidence labels: `CODE_AUDITED`, `UNIT_TEST`, `LOCAL_INTEGRATION`, `LIVE_LOCAL`, `REAL_LLM`, `REAL_DEVNET`, `REPLAY`.
+- Evidence labels: `CODE_AUDITED`, `UNIT_TEST`, `LOCAL_INTEGRATION`, `LIVE_LOCAL`, `E3_LOCAL`, `K6`, `MYSQL`, `REAL_LLM`, `REAL_DEVNET`, `REPLAY`.
 - The ignored `.local-run` files are local evidence outputs. They are not treated as committed fixtures.
 
 ## Claim inventory
@@ -19,6 +19,7 @@ This inventory is the source-backed boundary for resume and interview claims aft
 | Memory provenance | Projects event/payment/delivery outcomes into scoped, expiring memory and records use/citation traces without granting payment authority. | memory-on/off and hit/miss task groups are isolated | CODE_AUDITED, UNIT_TEST, LOCAL_INTEGRATION | `internal/memory/projector.go`: `ProjectEpisode`; `internal/memory/use_trace.go`; S7 boundary/MySQL tests | `66ec12c`; freeze `ae67ae5` | No causal accuracy or universal recommendation claim. | What can Memory change, and what can it never authorize? |
 | Workflow artifact data plane | Implements a static sequential workflow whose child Episodes produce hash/type/provenance-checked artifact references. | workflow/local restart and artifact boundary tests | UNIT_TEST, LOCAL_INTEGRATION | `internal/workflowruntime/runner.go`; `internal/workflow/artifact/resolver.go`; workflow E2E tests | `ef6dc0d`, `fcd1954`, `ac2dc51`; freeze `ae67ae5` | No dynamic planner, compensation, or parallel execution. | How does a parent workflow consume a child artifact safely? |
 | Reliability harness | Produced externally shaped JSONL traces and mode-qualified metrics without calling internal `application.Service` directly. | 56 submitted / 56 valid / 0 collection errors | LIVE_LOCAL, REPLAY | `cmd/stablepay-agent-eval`; `cmd/s11-live-local-suite`; `scripts/test-s11-live-local.ps1`; `.local-run/s11-live-local/{episode_results,grade_results,metrics,report}` | `cea47a6`; freeze `ae67ae5` | `live_local` uses deterministic local adapters, not real network latency. | How are configured, triggered, recovered, and operationally retried faults separated? |
+| Runtime load benchmark | Load-tested the authenticated Runtime HTTP boundary at 1/10/25/50/100/200 VUs; at 200 VUs measured 1,319 HTTP req/s and 72.6 completed Episodes/s. | At 200 VUs: HTTP p95 `114.4 ms`, Episode p95 `3.349 s`, `0%` HTTP/business errors in the 60s measurement window; all six tiers passed | E3_LOCAL, K6, MYSQL | `scripts/benchmark-e3-load.ps1`; `.local-run/resume-benchmark/e3-steady-state-final/{report.md,metrics.json,manifest.json}` | `c098568`, `5ea06b5` | One local Windows host; Docker `grafana/k6` bridge network; MySQL and deterministic local dependencies. Not production-scale or Internet/payment-provider latency. | What did the 200-VU test measure, how was warmup excluded, and what limited throughput? |
 | Fault recovery | In 48 actually triggered fault trials, 40 recovered under the deterministic live-local setup. | `40/48 = 83.33%` | LIVE_LOCAL | `.local-run/s11-live-local/metrics.json`; `report.md`; `observability.Compute` | `cea47a6`; freeze `ae67ae5` | This is not a production failure-recovery rate. | Why is the denominator triggered faults rather than configured faults? |
 | Safety observation | Across the evaluated live-local trials, no unauthorized side effect or duplicate settlement was observed. | `0` / `0` across evaluated trials | LIVE_LOCAL | `.local-run/s11-live-local/metrics.json`; `GradeEpisode`; `DecisionOutcomeTrace` | `cea47a6`; freeze `ae67ae5` | Observed result, not a universal safety proof. | How did the harness observe side effects before and after a rejected proposal? |
 | Prior real payment path | Validated a real Solana Devnet settlement/verification path in prior U1 acceptance. | qualitative | REAL_DEVNET | `scripts/test-unified-business-e2e.ps1 -Mode U1`; recorded U1 artifacts | `9086871`, `b62e062`, `1fccccf` | Not rerun by F0; never call it “56 trials on Devnet.” | Which artifact proves the network and transaction identity? |
@@ -26,13 +27,13 @@ This inventory is the source-backed boundary for resume and interview claims aft
 
 ## Quantitative claim policy
 
-The recommended resume headline uses at most two quantitative statements: the observed safety pair (`0` unauthorized side effects / `0` duplicate settlements) and the fault-trial recovery wording (`40/48` in deterministic live-local). The overall `48/56` is deliberately not a headline because the 56 include the expected `guard-rejected` safety-negative group.
+For a performance-focused resume, a safe quantified line is: “Load-tested a stateful commerce Runtime to 200 VUs, sustaining 1,319 HTTP req/s and 72.6 completed Episodes/s at 0% observed HTTP/business errors (60s measurement; local deterministic dependencies).” Keep the local scope adjacent to the numbers. A reliability-focused alternative is the observed safety pair (`0` unauthorized side effects / `0` duplicate settlements) plus `40/48` fault-trial recovery in deterministic live-local. The overall `48/56` is deliberately not a headline because the 56 include the expected `guard-rejected` safety-negative group.
 
 The live-local latency pair `52.25 / 152.62 ms` is appendix-only, rounded from the recorded metrics. It describes deterministic local adapters and is not Solana, Payment Service, DeepSeek, or Internet latency.
 
 ## Claims intentionally excluded
 
-- No millions-of-transactions, QPS, 99.99% availability, production-scale, or zero-failure claim.
+- No millions-of-transactions, unqualified QPS, 99.99% availability, production-scale, or universal zero-failure claim. The E3 figure is a bounded local benchmark only.
 - No claim that every happy path calls DeepSeek; a happy path can complete without `ModelDecisionTrace`.
 - No claim that the live-local suite exercised real Payment Service or Devnet.
 - No claim of RL, GRPO, post-training, self-evolution, dynamic planning, or parallel workflow execution.
