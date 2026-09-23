@@ -61,7 +61,10 @@ The E4-only MySQL store decorator adds a controlled 150 ms dwell to the short
 verification mocks provide the dwell for other adapter-backed states. An empty first delivery is injected only for trials targeting
 `RECOVERING`; all other windows get a valid first delivery so unrelated
 recovery branches do not contaminate the crash-window measurement. No
-production Runtime package is changed.
+production Runtime package is changed. Before an `INVOKING` crash, the harness
+also requires an authenticated E4-only probe to confirm the initial 402
+invocation fact is committed in MySQL; this distinguishes the durable
+side-effect boundary from merely observing the state label.
 
 The runner creates a dedicated Docker `mysql:8.0` container with its own named
 data volume and fresh `stablepay_e4_*` schema. It binds MySQL only to

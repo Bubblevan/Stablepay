@@ -218,9 +218,10 @@ func run() error {
 	defer workflowRunner.StopSupervisor()
 	defer runner.StopSupervisor()
 	variant := observability.RuntimeVariant{RuntimeVersion: "e4-local-mysql", MemoryMode: "off", RecoveryProvider: "rule", LLMProvider: "none", ModelRef: "benchmark-mock"}.WithHash()
-	handler := api.NewServerWithWorkflow(service, store, runner, workflowRunner, api.AuthConfig{Token: token}, func(check context.Context) error {
+	apiHandler := api.NewServerWithWorkflow(service, store, runner, workflowRunner, api.AuthConfig{Token: token}, func(check context.Context) error {
 		return sqlDB.PingContext(check)
 	}, variant)
+	handler := withDurableInitialInvocationProbe(apiHandler, store, token)
 	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -233,6 +234,46 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// withDurableInitialInvocationProbe is deliberately wired only into the E4
+// benchmark executable. It lets the harness distinguish the beginning of
+// INVOKING from the point after the initial merchant 402 fact is committed.
+func withDurableInitialInvocationProbe(next http.Handler, store *e4BenchmarkStore, token string) http.Handler {
+	const prefix = "/__e4/durable-initial-invocation/"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, prefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		episodeID := strings.TrimPrefix(r.URL.Path, prefix)
+		if episodeID == "" || strings.Contains(episodeID, "/") {
+			http.Error(w, "episode id is required", http.StatusBadRequest)
+			return
+		}
+		current, err := store.Get(r.Context(), episodeID)
+		if err != nil {
+			http.Error(w, "episode lookup failed", http.StatusInternalServerError)
+			return
+		}
+		ready := false
+		if current.State == episode.StateInvoking && current.SelectedMerchantDID != "" {
+			key := "invoke:initial:" + episodeID + ":" + current.SelectedMerchantDID
+			fact, findErr := store.FindMerchantInvocationByIdempotencyKey(r.Context(), episodeID, key)
+			ready = findErr == nil && fact.Phase == invocation.PhaseInitial && fact.ResponseStatus == http.StatusPaymentRequired && !fact.CompletedAt.IsZero()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ready": ready})
+	})
 }
 
 func seedCatalog(ctx context.Context, store *mysql.Store) error {
