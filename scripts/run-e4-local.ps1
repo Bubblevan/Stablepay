@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+  [string]$RepoRoot = '',
   [string]$OutputRoot = '',
   [string]$CrashWindows = 'DISCOVERING,INVOKING,NEGOTIATING,PAYING,CLAIMING,INVOKING_DELIVERY,VALIDATING_DELIVERY,RECOVERING',
   [string]$SmokeWindow = 'PAYING',
@@ -9,6 +9,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+  $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+}
 $runtimeRoot = Join-Path $RepoRoot 'commerce-runtime'
 $dotenv = Join-Path $RepoRoot '.env'
 $e4Script = Join-Path $RepoRoot 'scripts\benchmark-e4-chaos.ps1'
