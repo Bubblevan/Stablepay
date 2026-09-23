@@ -1,6 +1,6 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
-  [string]$OutputPath = $(if ($env:E4_RUNTIME_OUTPUT) { $env:E4_RUNTIME_OUTPUT } else { (Join-Path $RepoRoot '.local-run/resume-benchmark/e4-chaos/commerce-runtime.exe') })
+  [string]$OutputPath = $(if ($env:E4_RUNTIME_OUTPUT) { $env:E4_RUNTIME_OUTPUT } else { (Join-Path $RepoRoot 'commerce-runtime/commerce-runtime.exe') })
 )
 
 $ErrorActionPreference = 'Stop'

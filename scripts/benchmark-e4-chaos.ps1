@@ -95,7 +95,7 @@ foreach ($window in $windowList) {
   for ($trial = 1; $trial -le $TrialsPerWindow; $trial++) {
     $trialCount++
     $runtime = $null
-    $record = [ordered]@{ trial_id = "e4-$window-$trial"; crash_window = $window; trial = $trial; started_at = [DateTime]::UtcNow.ToString('o'); kill_at = $null; restarted_at = $null; terminal_at = $null; persisted_target_observed = $false; task_completion_after_restart = $false; resume_success = $null; ttr_seconds = $null; duplicate_settlement_count = $null; duplicate_payment_intent_count = $null; duplicate_merchant_invocation_count = $null; orphaned_episode_count = $null; stuck_non_terminal_episode_count = $null; budget_drift_count = $null; artifact_provenance_error_count = $null; status = 'NOT_RUN'; error = $null }
+    $record = [ordered]@{ trial_id = "e4-$window-$trial"; request_id = $null; task_id = $null; episode_id = $null; crash_window = $window; trial = $trial; started_at = [DateTime]::UtcNow.ToString('o'); kill_at = $null; restarted_at = $null; terminal_at = $null; persisted_target_observed = $false; task_completion_after_restart = $false; resume_success = $null; ttr_seconds = $null; duplicate_settlement_count = $null; duplicate_payment_intent_count = $null; duplicate_merchant_invocation_count = $null; orphaned_episode_count = $null; stuck_non_terminal_episode_count = $null; budget_drift_count = $null; artifact_provenance_error_count = $null; status = 'NOT_RUN'; error = $null }
     try {
       $runtime = Start-Runtime; Wait-Ready $runtime
       $body = Get-Content -Raw -Encoding UTF8 -LiteralPath $SubmitBodyPath | ConvertFrom-Json
@@ -103,12 +103,14 @@ foreach ($window in $windowList) {
       # a fresh logical task so a persistent database cannot turn later trials
       # into idempotent replays of the first trial.
       $trialRequestId = "e4-$window-$trial-$(Get-Date -Format 'yyyyMMddHHmmssfff')"
+      $record.request_id = $trialRequestId
       $body.request_id = $trialRequestId
       if ($body.parent_session_id) { $body.parent_session_id = "$($body.parent_session_id)-$trialRequestId" }
       if ($body.input -and $body.input.uri) { $body.input.uri = "$($body.input.uri.TrimEnd('/'))/$trialRequestId" }
       $submitted = Invoke-JsonRequest 'POST' "$BaseUrl$SubmitPath" $body $trialRequestId
       $taskId = Read-EpisodeId $submitted
       if (-not $taskId) { throw 'submit response did not contain an episode or workflow id' }
+      $record.task_id = $taskId; $record.episode_id = $taskId
       $targetReached = $false
       $deadline = [DateTime]::UtcNow.AddSeconds($TerminalTimeoutSeconds)
       while ([DateTime]::UtcNow -lt $deadline) {

@@ -80,7 +80,7 @@ The executable can be built with:
 
 ```powershell
 .\scripts\build-e4-runtime.ps1
-$env:RUNTIME_EXECUTABLE = (Resolve-Path .local-run\resume-benchmark\e4-chaos\commerce-runtime.exe).Path
+$env:RUNTIME_EXECUTABLE = (Resolve-Path .\commerce-runtime\commerce-runtime.exe).Path
 ```
 
 The process must expose `/readyz`, `/v1/episodes`, and
