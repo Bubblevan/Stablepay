@@ -86,6 +86,7 @@ type DecisionResult struct {
 	ProviderLatencyMS    float64                   `json:"provider_latency_ms"`
 	InputTokens          int                       `json:"input_tokens"`
 	OutputTokens         int                       `json:"output_tokens"`
+	TokenUsageStatus     string                    `json:"token_usage_status"`
 	EstimatedAPICostUSD  *float64                  `json:"estimated_api_cost_usd,omitempty"`
 	Error                string                    `json:"error,omitempty"`
 }
@@ -116,14 +117,14 @@ type ArmMetrics struct {
 	ProviderLatencyMS        common.Distribution `json:"provider_latency_ms"`
 	InputTokens              TokenSummary        `json:"input_tokens"`
 	OutputTokens             TokenSummary        `json:"output_tokens"`
-	AverageTokensPerRecovery float64             `json:"average_tokens_per_recovery"`
+	AverageTokensPerRecovery *float64            `json:"average_tokens_per_recovery,omitempty"`
 	EstimatedAPICostUSD      *float64            `json:"estimated_api_cost_usd,omitempty"`
 }
 
 type TokenSummary struct {
-	Status string  `json:"status"`
-	Total  int     `json:"total"`
-	Mean   float64 `json:"mean"`
+	Status string   `json:"status"`
+	Total  *int     `json:"total,omitempty"`
+	Mean   *float64 `json:"mean,omitempty"`
 }
 
 type Metrics struct {
@@ -256,6 +257,12 @@ func Run(ctx context.Context, options RunOptions) (Metrics, error) {
 		}
 	}
 	metrics := Metrics{Benchmark: "E1", Status: "COMPLETE", DatasetSize: len(scenarios), DatasetHash: datasetHash, DeepSeekTrialsPerCase: options.DeepSeekTrials, Rule: aggregate(ruleResults), DeepSeek: aggregate(deepseekResults), ProviderConfig: providerConfig, Evidence: []string{"scenarios.jsonl", "rule_results.jsonl", "deepseek_results.jsonl", "manifest.json", "metrics.json", "report.md"}}
+	if options.RunDeepSeek {
+		for key, value := range providerConfig {
+			manifest.Environment["llm_"+key] = value
+		}
+		manifest.Environment["llm_token_usage_status"] = metrics.DeepSeek.InputTokens.Status
+	}
 	if deepseekStatus == "NOT RUN" {
 		metrics.DeepSeek.Status = "NOT RUN"
 	}
@@ -386,7 +393,14 @@ func makeCandidateSet(scenario RecoveryScenario, current *episode.CommerceEpisod
 }
 
 func gradeResult(scenario RecoveryScenario, trial int, providerName, modelRef string, proposal decision.DecisionProposal, modelTrace llm.ModelDecisionTrace, decisionContext llm.DecisionContext, knownEvidence map[string]struct{}, now time.Time, providerLatency time.Duration, proposeErr error) DecisionResult {
-	result := DecisionResult{ScenarioID: scenario.ScenarioID, Trial: trial, Provider: providerName, ModelRef: modelRef, ModelDecisionTrace: ModelDecisionTraceSummary{Provider: modelTrace.Provider, ModelRef: modelTrace.ModelRef, Status: string(modelTrace.Status), DecisionTrace: modelTrace.TraceID}, ProviderLatencyMS: float64(providerLatency.Nanoseconds()) / 1e6, InputTokens: modelTrace.InputTokens, OutputTokens: modelTrace.OutputTokens}
+	tokenUsageStatus := "NOT_APPLICABLE"
+	if providerName == "deepseek" {
+		tokenUsageStatus = "TOKEN_METRIC_UNAVAILABLE"
+		if modelTrace.InputTokens > 0 && modelTrace.OutputTokens > 0 {
+			tokenUsageStatus = "AVAILABLE"
+		}
+	}
+	result := DecisionResult{ScenarioID: scenario.ScenarioID, Trial: trial, Provider: providerName, ModelRef: modelRef, ModelDecisionTrace: ModelDecisionTraceSummary{Provider: modelTrace.Provider, ModelRef: modelTrace.ModelRef, Status: string(modelTrace.Status), DecisionTrace: modelTrace.TraceID}, ProviderLatencyMS: float64(providerLatency.Nanoseconds()) / 1e6, InputTokens: modelTrace.InputTokens, OutputTokens: modelTrace.OutputTokens, TokenUsageStatus: tokenUsageStatus}
 	if proposeErr != nil {
 		result.Error = proposeErr.Error()
 		return result
@@ -400,7 +414,7 @@ func gradeResult(scenario RecoveryScenario, trial int, providerName, modelRef st
 	result.RecoverySteps = 1
 	result.RecoveryLatencyMS = result.ProviderLatencyMS
 	result.DecisionOutcomeTrace = DecisionOutcomeSummary{Provider: modelTrace.Provider, ProposalAction: result.ProposalAction, GuardAccepted: result.GuardAccepted, GraderPassed: result.RecoverySuccess}
-	if modelTrace.InputTokens > 0 || modelTrace.OutputTokens > 0 {
+	if tokenUsageStatus == "AVAILABLE" {
 		result.EstimatedAPICostUSD = estimateCost(modelTrace.InputTokens, modelTrace.OutputTokens)
 	}
 	return result
@@ -438,6 +452,7 @@ func aggregate(results []DecisionResult) ArmMetrics {
 	steps := 0.0
 	latency, providerLatency := make([]float64, 0, len(results)), make([]float64, 0, len(results))
 	inputTokens, outputTokens, totalTokens := 0, 0, 0
+	tokenUsageAvailable := true
 	var cost float64
 	costAvailable := false
 	for _, result := range results {
@@ -459,25 +474,31 @@ func aggregate(results []DecisionResult) ArmMetrics {
 		inputTokens += result.InputTokens
 		outputTokens += result.OutputTokens
 		totalTokens += result.InputTokens + result.OutputTokens
+		if result.TokenUsageStatus != "AVAILABLE" {
+			tokenUsageAvailable = false
+		}
 		if result.EstimatedAPICostUSD != nil {
 			costAvailable = true
 			cost += *result.EstimatedAPICostUSD
 		}
 	}
 	tokenStatus := "TOKEN_METRIC_UNAVAILABLE"
-	if inputTokens > 0 || outputTokens > 0 {
+	inputSummary, outputSummary := TokenSummary{Status: tokenStatus}, TokenSummary{Status: tokenStatus}
+	var averageTokens *float64
+	if tokenUsageAvailable && inputTokens > 0 && outputTokens > 0 {
 		tokenStatus = "AVAILABLE"
+		inputMean, outputMean := float64(inputTokens)/float64(len(results)), float64(outputTokens)/float64(len(results))
+		average := float64(totalTokens) / float64(len(results))
+		inputTotal, outputTotal := inputTokens, outputTokens
+		inputSummary = TokenSummary{Status: tokenStatus, Total: &inputTotal, Mean: &inputMean}
+		outputSummary = TokenSummary{Status: tokenStatus, Total: &outputTotal, Mean: &outputMean}
+		averageTokens = &average
 	}
 	var costPtr *float64
 	if costAvailable {
 		costPtr = &cost
 	}
-	return ArmMetrics{Status: "RUN", Trials: len(results), RecoverySuccess: common.Rate(successes, len(results)), ValidProposal: common.Rate(valid, len(results)), GuardAcceptance: common.Rate(guard, len(results)), UnsafeProposal: common.Rate(unsafe, len(results)), AverageRecoverySteps: steps / float64(len(results)), RecoveryLatencyMS: common.Summarize(latency), ProviderLatencyMS: common.Summarize(providerLatency), InputTokens: TokenSummary{Status: tokenStatus, Total: inputTokens, Mean: float64(inputTokens) / float64(len(results))}, OutputTokens: TokenSummary{Status: tokenStatus, Total: outputTokens, Mean: float64(outputTokens) / float64(len(results))}, AverageTokensPerRecovery: func() float64 {
-		if len(results) == 0 {
-			return 0
-		}
-		return float64(totalTokens) / float64(len(results))
-	}(), EstimatedAPICostUSD: costPtr}
+	return ArmMetrics{Status: "RUN", Trials: len(results), RecoverySuccess: common.Rate(successes, len(results)), ValidProposal: common.Rate(valid, len(results)), GuardAcceptance: common.Rate(guard, len(results)), UnsafeProposal: common.Rate(unsafe, len(results)), AverageRecoverySteps: steps / float64(len(results)), RecoveryLatencyMS: common.Summarize(latency), ProviderLatencyMS: common.Summarize(providerLatency), InputTokens: inputSummary, OutputTokens: outputSummary, AverageTokensPerRecovery: averageTokens, EstimatedAPICostUSD: costPtr}
 }
 
 func estimateCost(input, output int) *float64 {
