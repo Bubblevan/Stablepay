@@ -1,0 +1,224 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stablepay-k8s-e2e
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stablepay-e4-mysql-data
+  namespace: stablepay-k8s-e2e
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-e4-mysql
+  namespace: stablepay-k8s-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-e4-mysql
+  template:
+    metadata:
+      labels:
+        app: stablepay-e4-mysql
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: stablepay-e4-runtime
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --default-authentication-plugin=mysql_native_password
+          env:
+            - name: MYSQL_DATABASE
+              value: stablepay_k8s_e2e
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-password
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: mysql-root-password
+          ports:
+            - name: mysql
+              containerPort: 3306
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: stablepay-e4-mysql-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-e4-mysql
+  namespace: stablepay-k8s-e2e
+spec:
+  selector:
+    app: stablepay-e4-mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-e4-runtime
+  namespace: stablepay-k8s-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-e4-runtime
+  template:
+    metadata:
+      labels:
+        app: stablepay-e4-runtime
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: stablepay-e4-mysql
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - until MYSQL_PWD="$E4_DB_PASSWORD" mysqladmin ping -h stablepay-e4-mysql -u"$E4_DB_USER" --silent; do sleep 2; done
+          env:
+            - name: E4_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-user
+            - name: E4_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: runtime
+          image: stablepay/e4-local-runtime:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: E4_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-user
+            - name: E4_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: db-password
+            - name: COMMERCE_RUNTIME_MYSQL_DSN
+              value: "$(E4_DB_USER):$(E4_DB_PASSWORD)@tcp(stablepay-e4-mysql:3306)/stablepay_k8s_e2e?parseTime=true&loc=UTC"
+            - name: COMMERCE_RUNTIME_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-e4-secrets
+                  key: api-token
+            - name: COMMERCE_RUNTIME_HTTP_ADDR
+              value: 0.0.0.0:8090
+            - name: E4_MOCK_DELAY_MS
+              value: "150"
+          ports:
+            - name: http
+              containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-e4-runtime
+  namespace: stablepay-k8s-e2e
+spec:
+  type: ClusterIP
+  selector:
+    app: stablepay-e4-runtime
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

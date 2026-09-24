@@ -1,0 +1,20 @@
+{
+  "benchmark": "Minikube E4 local state-machine load",
+  "status": "PASS",
+  "adapter_mode": "benchmark-only deterministic local Merchant/Payment/Verification mocks; no chain client",
+  "profile": "stablepay-multi",
+  "physical_hosts": 1,
+  "kubernetes_nodes": 3,
+  "request_count": 10,
+  "concurrency": 3,
+  "completed": 10,
+  "failed_or_nonterminal": 0,
+  "elapsed_seconds": 10.351,
+  "completed_episodes_per_second": 0.966,
+  "episode_latency_ms": {
+    "p95": 2010.0,
+    "method": "nearest-rank",
+    "p50": 1856.6
+  },
+  "output": "load-results.json"
+}

@@ -1,0 +1,27 @@
+{
+  "benchmark": "Minikube steady-state Agent payment state-machine audit",
+  "business_invariants_status": "PASS",
+  "crash_recovery_status": "NOT_TESTED",
+  "crash_recovery_note": "No Runtime restart was injected in this steady-state smoke/load run; this is not an E4 crash-recovery claim.",
+  "adapter_mode": "benchmark-only deterministic local Merchant/Payment/Verification mocks; no chain client",
+  "audited_episodes": 10,
+  "payment_intent_rows_per_episode": "exactly 1",
+  "duplicate_payment_intent_query_rows": 0,
+  "payment_intent_count_mismatch": 0,
+  "payment_settled_rows_per_episode": "exactly 1",
+  "duplicate_PAYMENT_SETTLED_query_rows": 0,
+  "payment_settled_count_mismatch": 0,
+  "budget_projection_drift": 0,
+  "budget_totals_minor": {
+    "expected_available": 0,
+    "expected_sunk_cost": 10000,
+    "actual_consumed": 10000,
+    "actual_available": 0,
+    "actual_sunk_cost": 10000,
+    "expected_consumed": 10000
+  },
+  "orphaned_episodes": 0,
+  "stuck_episodes": 0,
+  "episodes_not_fulfilled": 0,
+  "executions_not_completed": 0
+}

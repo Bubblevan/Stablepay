@@ -1,0 +1,118 @@
+{
+  "benchmark": "Minikube E4 local Agent payment state-machine",
+  "created_at_utc": "2026-09-24T18:33:30.5631190Z",
+  "git_source_sha": "c7f425b",
+  "minikube_version": "v1.39.0",
+  "docker_server_version": "29.6.2",
+  "kubernetes_version": "v1.37.0",
+  "profile": "stablepay-multi",
+  "driver": "Docker Desktop docker",
+  "physical_host_count": 1,
+  "node_count": 3,
+  "nodes": [
+    {
+      "name": "stablepay-multi",
+      "ready": "True",
+      "version": "v1.37.0",
+      "container_runtime": "containerd://2.3.4",
+      "kernel": "6.18.33.2-microsoft-standard-WSL2"
+    },
+    {
+      "name": "stablepay-multi-m02",
+      "ready": "True",
+      "version": "v1.37.0",
+      "container_runtime": "containerd://2.3.4",
+      "kernel": "6.18.33.2-microsoft-standard-WSL2"
+    },
+    {
+      "name": "stablepay-multi-m03",
+      "ready": "True",
+      "version": "v1.37.0",
+      "container_runtime": "containerd://2.3.4",
+      "kernel": "6.18.33.2-microsoft-standard-WSL2"
+    }
+  ],
+  "container_network_mode": "Minikube Docker driver node containers; containerd; kindnet CNI; Runtime to MySQL via ClusterIP DNS; host traffic via loopback kubectl port-forward",
+  "namespace": "stablepay-k8s-e2e",
+  "pod_placement": [
+    {
+      "name": "stablepay-e4-mysql-6fcccf8bb4-6jj8g",
+      "phase": "Running",
+      "node": "stablepay-multi-m03",
+      "restarts": 0.0,
+      "images": [
+        "mysql:8.0"
+      ]
+    },
+    {
+      "name": "stablepay-e4-runtime-7b4cfc6b99-jccpz",
+      "phase": "Running",
+      "node": "stablepay-multi-m02",
+      "restarts": 0.0,
+      "images": [
+        "stablepay/e4-local-runtime:local"
+      ]
+    }
+  ],
+  "runtime_image_id": "sha256:1e9f46561520ca38fe2371b86f5cf56a7d5566b6d1826da47180e29b77bff219",
+  "runtime_image_base": "alpine:3.21",
+  "mock_boundary": "benchmark-only deterministic local Merchant/Payment/Verification adapters inside e4-local-runtime; no Payment Service client and no chain client",
+  "body_budget_limit_minor": 1000,
+  "load": {
+    "benchmark": "Minikube E4 local state-machine load",
+    "status": "PASS",
+    "adapter_mode": "benchmark-only deterministic local Merchant/Payment/Verification mocks; no chain client",
+    "profile": "stablepay-multi",
+    "physical_hosts": 1,
+    "kubernetes_nodes": 3,
+    "request_count": 10,
+    "concurrency": 3,
+    "completed": 10,
+    "failed_or_nonterminal": 0,
+    "elapsed_seconds": 10.351,
+    "completed_episodes_per_second": 0.966,
+    "episode_latency_ms": {
+      "p95": 2010.0,
+      "method": "nearest-rank",
+      "p50": 1856.6
+    },
+    "output": "load-results.json"
+  },
+  "state_after_events": [
+    "CLAIMING",
+    "DISCOVERING",
+    "FULFILLED",
+    "INVOKING",
+    "INVOKING_DELIVERY",
+    "NEGOTIATING",
+    "PAYING",
+    "VALIDATING_DELIVERY"
+  ],
+  "audit": {
+    "benchmark": "Minikube steady-state Agent payment state-machine audit",
+    "business_invariants_status": "PASS",
+    "crash_recovery_status": "NOT_TESTED",
+    "crash_recovery_note": "No Runtime restart was injected in this steady-state smoke/load run; this is not an E4 crash-recovery claim.",
+    "adapter_mode": "benchmark-only deterministic local Merchant/Payment/Verification mocks; no chain client",
+    "audited_episodes": 10,
+    "payment_intent_rows_per_episode": "exactly 1",
+    "duplicate_payment_intent_query_rows": 0,
+    "payment_intent_count_mismatch": 0,
+    "payment_settled_rows_per_episode": "exactly 1",
+    "duplicate_PAYMENT_SETTLED_query_rows": 0,
+    "payment_settled_count_mismatch": 0,
+    "budget_projection_drift": 0,
+    "budget_totals_minor": {
+      "expected_available": 0,
+      "expected_sunk_cost": 10000,
+      "actual_consumed": 10000,
+      "actual_available": 0,
+      "actual_sunk_cost": 10000,
+      "expected_consumed": 10000
+    },
+    "orphaned_episodes": 0,
+    "stuck_episodes": 0,
+    "episodes_not_fulfilled": 0,
+    "executions_not_completed": 0
+  }
+}
