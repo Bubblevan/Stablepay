@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-verification-service
+  namespace: stablepay-dev
+spec:
+  template:
+    spec:
+      containers:
+        - name: verification-service
+          env:
+            - name: ROCKETMQ_NAMESERVER
+              value: 10.97.229.231:9876

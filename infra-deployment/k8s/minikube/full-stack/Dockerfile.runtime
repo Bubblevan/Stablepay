@@ -1,0 +1,8 @@
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S app \
+    && adduser -S -D -H -G app app
+WORKDIR /app
+COPY --chown=app:app server /app/server
+USER app
+ENTRYPOINT ["/app/server"]

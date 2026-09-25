@@ -164,6 +164,56 @@ func TestS4CanonicalInnerLoopHasOnePaymentAndTwoDeliveryAttempts(t *testing.T) {
 	}
 }
 
+func TestCommittedCapabilitySnapshotSurvivesCandidateSetExpiry(t *testing.T) {
+	service, _, now := serviceFixture()
+	request := requestFixture(now)
+	request.RequestID = "acr-s4-expired-candidate-set"
+	request.Constraints.SupportedProtocolVersions = []string{"x402-v2"}
+	created, err := service.CreateEpisode(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	price := int64(250)
+	capability := &catalog.MerchantCapability{
+		MerchantDID: "did:merchant:expiry", CapabilityID: "transcription",
+		PayeeDID: "did:solana:11111111111111111111111111111111", Name: "pinned capability",
+		Description: "selection snapshot remains usable after candidate TTL",
+		TaskTypes:   []string{"transcription"}, SemanticTags: []string{"language=en"},
+		InvokeEndpoint: catalog.EndpointRef{Endpoint: "http://merchant.test/api/v1/products/transcription-1/execute", Method: "GET"},
+		InputSchemaRef: "schema:input", OutputSchemaRef: "schema:output",
+		InputContentTypes: []string{"audio/mpeg"}, OutputContentTypes: []string{"text/plain"},
+		SupportedProtocolVersions: []string{"x402-v2"}, SupportedCurrencies: []string{"USDC"},
+		PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC",
+		Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1",
+		Source: "s4-test", ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour),
+		CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute),
+	}
+	if err := service.RegisterCapabilityVersion(context.Background(), capability); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID, CandidateSetID: "cs-s4-expired-candidate-set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := discovered.CandidateSet.Candidates[0]
+	selected, err := service.CommitMerchantSelection(context.Background(), SelectMerchantRequest{
+		Proposal:    decisionProposalForS4(created.Episode.EpisodeID, discovered.Episode.Version-1, discovered.CandidateSet.CandidateSetID, candidate, now),
+		Action:      trace.Action{Type: trace.ActionSelectMerchant, IdempotencyKey: "select-expired-candidate-set"},
+		Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, Actor: "runtime", TraceID: "s4-expired-candidate-set",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.clock = func() time.Time { return discovered.CandidateSet.ExpiresAt.Add(time.Second) }
+	pinned, _, err := service.selectedCapabilityAndInput(context.Background(), selected.Episode)
+	if err != nil {
+		t.Fatalf("committed selection was rejected after candidate TTL: %v", err)
+	}
+	if pinned.CatalogVersion != selected.Episode.SelectedCatalogVersion || pinned.MerchantDID != selected.Episode.SelectedMerchantDID {
+		t.Fatalf("loaded capability differs from the committed selection: %#v", pinned)
+	}
+}
+
 func decisionProposalForS4(episodeID string, sequence uint64, setID string, candidate catalog.Candidate, now time.Time) decision.DecisionProposal {
 	return decision.DecisionProposal{ProposalID: "select-s4-proposal", EpisodeID: episodeID, BasedOnEventSequence: sequence, ProposedAction: trace.ActionSelectMerchant, CandidateSetID: setID, Target: &decision.ProposalTarget{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}, Confidence: 1, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 }

@@ -552,8 +552,18 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 		if err != nil {
 			return err
 		}
-		_, err = r.service.VerifyPaymentEntitlement(ctx, intent.IntentID, traceID+":entitlement")
-		return err
+		result, err := r.service.VerifyPaymentEntitlement(ctx, intent.IntentID, traceID+":entitlement")
+		if err != nil {
+			return err
+		}
+		if result.Event != nil && result.Event.Observation.Type == trace.ObservationEntitlementUnknown {
+			// The payment success event and the verification-plane projection are
+			// delivered asynchronously. Persist the pending observation, then let
+			// the supervisor apply its bounded retry backoff instead of hot-looping
+			// against the Gateway until its rate limit fires.
+			return ErrEntitlementPending
+		}
+		return nil
 	case episode.StateInvokingDelivery:
 		signature, err := r.paymentSignature(ctx, current)
 		if err != nil {

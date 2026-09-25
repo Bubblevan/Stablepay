@@ -26,6 +26,7 @@ const (
 )
 
 var ErrRunnerStepLimit = errors.New("episode runner step limit reached")
+var ErrEntitlementPending = errors.New("purchase entitlement is not yet visible")
 
 var sensitiveErrorPattern = regexp.MustCompile(`(?i)(llm[_ -]?api[_ -]?key|api[_ -]?key|private[_ -]?key|payment[_ -]?signature|signed[_ -]?tx(?:base64)?|authorization)\s*[:=]\s*[^\s,;]+`)
 
@@ -39,7 +40,7 @@ func ClassifyError(err error) ErrorClass {
 	if errors.Is(err, context.Canceled) {
 		return Retryable
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, repository.ErrRepositoryUnavailable) || errors.Is(err, repository.ErrVersionConflict) || errors.Is(err, repository.ErrEventSequenceConflict) || errors.Is(err, payment.ErrIntentStateConflict) || errors.Is(err, invocation.ErrInvocationInFlight) || errors.Is(err, llm.ErrLLMUnavailable) || errors.Is(err, ErrRunnerStepLimit) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, repository.ErrRepositoryUnavailable) || errors.Is(err, repository.ErrVersionConflict) || errors.Is(err, repository.ErrEventSequenceConflict) || errors.Is(err, payment.ErrIntentStateConflict) || errors.Is(err, invocation.ErrInvocationInFlight) || errors.Is(err, llm.ErrLLMUnavailable) || errors.Is(err, ErrRunnerStepLimit) || errors.Is(err, ErrEntitlementPending) {
 		return Retryable
 	}
 	if errors.Is(err, adapters.ErrMerchantAdapterNotConfigured) || strings.Contains(strings.ToLower(err.Error()), "not configured") {
@@ -83,6 +84,9 @@ func ErrorCode(err error) string {
 		}
 		if errors.Is(err, ErrRunnerStepLimit) {
 			return "RUNNER_STEP_LIMIT"
+		}
+		if errors.Is(err, ErrEntitlementPending) {
+			return "ENTITLEMENT_PENDING"
 		}
 		return "DEPENDENCY_UNAVAILABLE"
 	case Paused:

@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-commerce-runtime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-commerce-runtime
+  template:
+    metadata:
+      labels:
+        app: stablepay-commerce-runtime
+        stablepay.io/tier: application
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: commerce-runtime
+          image: stablepay-local/commerce-runtime:minikube-devnet-20260925e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            - name: COMMERCE_RUNTIME_HTTP_ADDR
+              value: "0.0.0.0:8090"
+            - name: COMMERCE_RUNTIME_MYSQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-runtime-secrets
+                  key: mysql-dsn
+            - name: COMMERCE_RUNTIME_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-runtime-secrets
+                  key: api-token
+            - name: COMMERCE_RUNTIME_SETTLEMENT_NETWORK
+              value: devnet
+            - name: COMMERCE_RUNTIME_USDC_MINT
+              value: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+            - name: COMMERCE_RUNTIME_MEMORY_MODE
+              value: "off"
+            - name: COMMERCE_RUNTIME_RECOVERY_PROVIDER
+              value: rule
+            - name: STABLEPAY_E2E_AGENT_KEYPAIR_PATH
+              value: /run/secrets/agent/e2e-agent.json
+            - name: STABLEPAY_DID_SERVICE_ADDR
+              value: stablepay-did-service:8081
+            - name: STABLEPAY_PAYMENT_SERVICE_ADDR
+              value: stablepay-payment-service:8888
+            - name: STABLEPAY_BLOCKCHAIN_ADAPTER_ADDR
+              value: stablepay-blockchain-adapter:8083
+            - name: STABLEPAY_GATEWAY_BASE_URL
+              value: http://stablepay-api-gateway:8080
+            - name: STABLEPAY_API_KEY
+              value: stablepay-dev-key
+          volumeMounts:
+            - name: agent-keypair
+              mountPath: /run/secrets/agent
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
+      volumes:
+        - name: agent-keypair
+          secret:
+            secretName: commerce-runtime-agent
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-commerce-runtime
+spec:
+  selector:
+    app: stablepay-commerce-runtime
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-merchant-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stablepay-merchant-backend
+  template:
+    metadata:
+      labels:
+        app: stablepay-merchant-backend
+        stablepay.io/tier: application
+    spec:
+      containers:
+        - name: merchant-backend
+          image: stablepay-local/merchant:minikube-devnet-20260925b
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8787
+          env:
+            - name: CONFIG_PATH
+              value: /app/config/config.yaml
+            - name: SERVER_HOST
+              value: 0.0.0.0
+            - name: SERVER_PORT
+              value: "8787"
+            - name: SERVER_NAME
+              value: stablepay-merchant-server
+            - name: STABLEPAY_GATEWAY_BASE_URL
+              value: http://stablepay-api-gateway:8080
+            - name: STABLEPAY_API_KEY
+              value: stablepay-dev-key
+            - name: STABLEPAY_FACILITATOR_URL
+              value: http://stablepay-api-gateway:8080
+            - name: DB_DRIVER
+              value: sqlite
+            - name: DB_PATH
+              value: /tmp/minikube-merchant.db
+            - name: DB_AUTO_MIGRATE
+              value: "true"
+            - name: DB_SEED_ENABLED
+              value: "true"
+            - name: MERCHANT_SELLER_ADDRESS
+              value: 2kZGwkLnVdSxjjNueeUQmqBf3tRKMn7y1bbktRZkJWdR
+            - name: MERCHANT_PROOF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stablepay-secrets
+                  key: merchant-proof-secret
+            - name: MERCHANT_PUBLIC_BASE_URL
+              value: http://stablepay-merchant-backend:8787
+            - name: SOLANA_NETWORK
+              value: devnet
+            - name: USDC_MINT
+              value: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+          volumeMounts:
+            - name: merchant-config
+              mountPath: /app/config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: merchant-data
+              mountPath: /app/data/gift_codes.json
+              subPath: gift_codes.json
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+      volumes:
+        - name: merchant-config
+          configMap:
+            name: stablepay-merchant-config
+        - name: merchant-data
+          secret:
+            secretName: stablepay-merchant-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stablepay-merchant-backend
+spec:
+  selector:
+    app: stablepay-merchant-backend
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http

@@ -687,7 +687,11 @@ func (s *Service) selectedCapabilityAndInput(ctx context.Context, current *episo
 	if err != nil {
 		return nil, contract.Input{}, err
 	}
-	if err := set.ValidateAt(s.clock().UTC()); err != nil {
+	// CandidateSet expiry gates discovery/selection, not an already committed
+	// selection. At this point the episode pins the exact candidate and catalog
+	// snapshot; keep validating its payload hash and snapshot binding below, but
+	// do not strand a paid episode merely because its discovery TTL elapsed.
+	if err := set.Validate(); err != nil {
 		return nil, contract.Input{}, err
 	}
 	candidate, ok := set.FindCandidate(current.SelectedMerchantDID, current.SelectedCapabilityID)

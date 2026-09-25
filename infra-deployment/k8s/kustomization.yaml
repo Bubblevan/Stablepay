@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: stablepay-k8s-e2e
+resources:
+  - minikube/full-stack/namespace.yaml
+  - base/configmaps.yaml
+  - base/infra.yaml
+  - base/mysql-init-job.yaml
+  - base/services.yaml
+  - minikube/full-stack/workloads.yaml
+patches:
+  - path: minikube/full-stack/gateway-config-patch.yaml
+  - path: minikube/full-stack/blockchain-command-patch.yaml
+  - path: minikube/full-stack/rocketmq-config-patch.yaml
+  - path: minikube/full-stack/payment-rpc-probe-patch.yaml
+  - path: minikube/full-stack/payment-config-patch.yaml
+  - path: minikube/full-stack/rocketmq-service-patch.yaml
+  - path: minikube/full-stack/verification-nameserver-patch.yaml
+images:
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/did-service
+    newName: stablepay-local/did-service
+    newTag: minikube-devnet-20260925
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/payment-service
+    newName: stablepay-local/payment-service
+    newTag: minikube-devnet-20260925
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/blockchain-adapter
+    newName: stablepay-local/blockchain-adapter
+    newTag: minikube-devnet-20260925
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/verification-service
+    newName: stablepay-local/verification-service
+    newTag: minikube-devnet-20260925
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/query-service
+    newName: stablepay-local/query-service
+    newTag: minikube-devnet-20260925
+  - name: stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/api-gateway
+    newName: stablepay-local/api-gateway
+    newTag: minikube-devnet-20260925

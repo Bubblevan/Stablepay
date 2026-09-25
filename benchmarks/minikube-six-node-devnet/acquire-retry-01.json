@@ -1,0 +1,32 @@
+{
+  "request_id": "minikube-six-devnet-acceptance-20260925-02",
+  "parent_session_id": "minikube-six-devnet-acceptance",
+  "requester_did": "did:solana:CVgVYZGrKfmjFTMyBJFUtQxtSfEEYZ39q7HyJbNoDeh7",
+  "acquisition_goal": {
+    "task_type": "local-eval",
+    "description": "Complete one low-value real Devnet purchase through the six-node StablePay stack"
+  },
+  "input": {
+    "uri": "local://minikube-six-node-devnet/acceptance",
+    "content_type": "text/plain"
+  },
+  "constraints": {
+    "budget_limit_minor": 1,
+    "currency": "USDC",
+    "deadline_at": "2026-09-25T23:59:00Z",
+    "supported_protocol_versions": ["x402-v2"],
+    "max_total_attempts": 4,
+    "max_payment_attempts": 2,
+    "max_delivery_attempts": 3,
+    "allow_cross_merchant_switch": false
+  },
+  "expected_output": {
+    "schema": "merchant-delivery",
+    "content_type": "application/json"
+  },
+  "validator": {
+    "kind": "builtin",
+    "name": "non-empty",
+    "version": "v1"
+  }
+}

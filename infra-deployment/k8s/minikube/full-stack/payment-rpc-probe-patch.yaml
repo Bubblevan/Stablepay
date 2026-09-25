@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-payment-service
+  namespace: stablepay-dev
+spec:
+  template:
+    spec:
+      containers:
+        - name: payment-service
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 20
+            periodSeconds: 10

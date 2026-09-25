@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stablepay-api-gateway
+  namespace: stablepay-dev
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-gateway
+          args:
+            - -config
+            - /app/config/config.yaml
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /app/config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: gateway-config
+          configMap:
+            name: stablepay-api-gateway-config
