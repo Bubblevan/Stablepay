@@ -169,4 +169,5 @@ These drafts keep each number next to its workload and environment. E1 is delibe
 - No claim that the live-local suite exercised real Payment Service or Devnet.
 - No claim that the local Minikube three-node simulation used three physical machines or that its mock adapter path exercised the six production microservices. The repository's `infra-deployment/k8s/ack` manifests and the user's internship ACK deployment are separate evidence and should be described on their own facts.
 - The AgentPay task-evaluation `100/100` figures are limited to eight deterministic synthetic profiles, repeated 25 times; do not present them as model accuracy, broad marketplace quality, or a real-payment success rate.
+- Public references (EComAgentBench, Amazon ESCI, ShoppingBench, WebMall, and IdempotencyBench) are methodology-only; none of their tasks or scores are included in StablePay's reported metrics. The StablePay shopping holdout and independent 300-attempt payment audit remain incomplete.
 - No claim of RL, GRPO, post-training, self-evolution, dynamic planning, or parallel workflow execution.

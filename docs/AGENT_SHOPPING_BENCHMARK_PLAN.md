@@ -128,6 +128,40 @@ mock-settled and `17/500` were mock-declined. No independent `286/300`
 purchase suite was found; none of these are real-provider or Devnet purchase
 results.
 
+## External benchmark references (methodology, not StablePay scores)
+
+Sources below were checked on 2026-10-11. Public tasks and labels may be used
+to calibrate task design and metric implementation, but their scores must stay
+separate from StablePay's own 500-task result. Public prompts/labels are not a
+private blind holdout, and third-party catalog terms do not automatically
+follow the benchmark-code license.
+
+| Reference | Scope and scale | Reuse boundary | StablePay use |
+|---|---|---|---|
+| [EComAgentBench paper](https://arxiv.org/abs/2606.17698), [official repository](https://github.com/Morizeyao/EComAgentBench_), [product DB](https://huggingface.co/datasets/ecomagentbench/EComAgentBenchProductDB) | 662 English tasks, 8 shopping intents, 6,645 constraint rubrics; paper/repo describe a multi-million-product corpus and preference elicitation across user prompts, personas, and clarification turns. | Code is MIT; the Amazon Reviews-derived product corpus has separate research-use/source terms, and task-data redistribution terms must be checked independently before importing it. | Best reference for hidden preferences, clarifying questions, and constraint-completion task design. It does not validate inventory races, checkout, fulfillment, or payment. |
+| [Amazon ESCI official repository](https://github.com/amazon-science/esci-data), [paper](https://arxiv.org/abs/2206.06588) | Human judgments label Exact, Substitute, Complement, or Irrelevant product matches; the repository documents reduced and full query/product-judgment sets. | Repository code is Apache-2.0; comply separately with dataset source and attribution conditions. | Calibrate Recall@K, nDCG, and substitution labels. It is a retrieval benchmark, not a multi-turn commerce or transaction test. |
+| [ShoppingBench official repository](https://github.com/yjwjy/ShoppingBench), [paper](https://arxiv.org/abs/2508.04266) | 3,310 instructions and 2.5M+ product records; includes product discovery, same-store multi-item requests, coupons, and budget constraints. | Repository is Apache-2.0; third-party product-catalog rights are separate and should be checked before redistribution. | Useful for budget, coupon, and multi-product scenario coverage; not live inventory/price concurrency or payment-ledger correctness. |
+| [WebMall official repository](https://github.com/wbsg-uni-mannheim/WebMall), [paper](https://arxiv.org/abs/2508.13024) | Four simulated shops, 4,421 offers, and 91 cross-shop tasks, including vague requests, comparison, alternatives/compatibility, cart, and simulated checkout. | No clear dataset license was visible in the repository root during review; obtain author clarification before copying or redistributing data. | Best reference for cross-shop navigation and checkout-flow cases, but its fixed simulated offers cannot establish dynamic stock, fulfillment, or payment correctness. |
+| [IdempotencyBench official repository](https://github.com/gssanjana4/idempotencybench) | Repository describes 320 deterministic tasks with simulated payment side effects, timeout-after-commit, transport/agent retries, full replay, and an effect ledger. | Repository reports MIT for code and CC BY 4.0 for task/record data; the project is early-stage and its paper/results are not yet mature. Verify current terms before reuse. | Borrow fault categories and independent-effect-ledger design for the StablePay 300-attempt suite. It cannot replace StablePay's own isolated database/provider audit. |
+
+Recommended use: treat ESCI as the retrieval-metric reference, EComAgentBench
+as the clarification/hidden-preference design reference, and ShoppingBench or
+WebMall as budget/multi-shop scenario references (WebMall only after license
+clarification). Keep all public-benchmark results in separate reports. The
+StablePay holdout must have independently authored prompts and labels,
+catalog/task hashes frozen before ranker changes, and explicit feasible,
+infeasible, ambiguous, stale-quote, and stock/price-race strata. Generated
+StablePay fixture results remain labeled synthetic even if public benchmark
+design patterns informed the scenarios.
+
+No reviewed public benchmark validates StablePay's end-to-end payment
+correctness. The 300-attempt claim requires a StablePay-specific isolated
+simulation with predeclared logical orders, injected retry/crash/timeout
+windows, a separate payment-effect ledger, and SQL reconciliation of order,
+payment, amount, currency, and idempotency. Report completed unique settlements
+and duplicate settlement effects independently; never infer a real-provider
+or Devnet result from simulated checkout.
+
 ## Architecture for a safe local experiment
 
 1. Start only the recorded simulated Merchant processes. Check readiness and
