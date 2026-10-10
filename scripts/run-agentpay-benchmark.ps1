@@ -17,8 +17,6 @@ if (Test-Path -LiteralPath $absoluteOutDir) {
     if (Get-ChildItem -LiteralPath $absoluteOutDir -Force | Select-Object -First 1) {
         throw "OutDir is not empty; choose a new output directory: $absoluteOutDir"
     }
-} else {
-    New-Item -ItemType Directory -Force -Path $absoluteOutDir | Out-Null
 }
 
 $binDir = Join-Path $repo '.local-run\bin-agentpay-benchmark'
@@ -35,6 +33,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'failed to build s11-live-local-suite' }
     go build -o $cliExe ./cmd/stablepay-runtime
     if ($LASTEXITCODE -ne 0) { throw 'failed to build stablepay-runtime CLI' }
+    # Capture Go's VCS build metadata before creating a non-ignored output
+    # directory; otherwise the evidence-producing run marks its own source as
+    # modified merely because the destination exists during compilation.
+    if (Test-Path -LiteralPath $absoluteOutDir) {
+        if (Get-ChildItem -LiteralPath $absoluteOutDir -Force | Select-Object -First 1) {
+            throw "OutDir became non-empty while the benchmark was building: $absoluteOutDir"
+        }
+    } else {
+        New-Item -ItemType Directory -Force -Path $absoluteOutDir | Out-Null
+    }
     & $suiteExe --dataset $dataset --out-dir $absoluteOutDir --runtime-cli $cliExe --trials $Trials
     if ($LASTEXITCODE -ne 0) { throw 'AgentPay live-local benchmark failed' }
     Write-Host "AgentPay benchmark artifacts: $absoluteOutDir"
