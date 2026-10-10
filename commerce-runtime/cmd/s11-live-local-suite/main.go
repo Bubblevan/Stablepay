@@ -103,7 +103,7 @@ func run(args []string) error {
 		GeneratedAtUTC:         time.Now().UTC(),
 		GoVersion:              buildGoVersion(),
 		SourceRevision:         buildSetting("vcs.revision"),
-		SourceModified:         buildSetting("vcs.modified"),
+		SourceModified:         sourceModifiedAtBuild(),
 		DatasetFile:            filepath.Base(*dataset),
 		DatasetSHA256:          fmt.Sprintf("sha256:%x", datasetDigest),
 		DistinctTaskProfiles:   taskCount,
@@ -172,6 +172,16 @@ func buildSetting(key string) string {
 		}
 	}
 	return ""
+}
+
+func sourceModifiedAtBuild() string {
+	// The PowerShell runner captures git status before the benchmark output
+	// directory is created. Prefer that source-only snapshot to Go's VCS flag,
+	// which can report modified for a clean linked worktree on some hosts.
+	if value := strings.ToLower(strings.TrimSpace(os.Getenv("STABLEPAY_SOURCE_MODIFIED"))); value == "true" || value == "false" {
+		return value
+	}
+	return buildSetting("vcs.modified")
 }
 
 func buildGoVersion() string {

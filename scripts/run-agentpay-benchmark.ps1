@@ -23,6 +23,16 @@ $binDir = Join-Path $repo '.local-run\bin-agentpay-benchmark'
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 $suiteExe = Join-Path $binDir 's11-live-local-suite.exe'
 $cliExe = Join-Path $binDir 'stablepay-runtime.exe'
+$sourceStatus = @(& git -C $repo status --porcelain --untracked-files=all 2>$null)
+if ($LASTEXITCODE -eq 0) {
+    if ($sourceStatus.Count -gt 0) {
+        $env:STABLEPAY_SOURCE_MODIFIED = 'true'
+    } else {
+        $env:STABLEPAY_SOURCE_MODIFIED = 'false'
+    }
+} else {
+    Remove-Item Env:STABLEPAY_SOURCE_MODIFIED -ErrorAction SilentlyContinue
+}
 $env:GOCACHE = Join-Path $repo '.local-run\gocache-agentpay-benchmark'
 $env:GOMODCACHE = Join-Path $repo '.local-run\gomodcache-l2'
 $env:GOSUMDB = 'off'
