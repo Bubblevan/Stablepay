@@ -665,32 +665,47 @@ type mysqlIntegrationCheckoutResponse struct {
 
 func (api *mysqlIntegrationAPI) do(t *testing.T, method, path string, input any) mysqlIntegrationResponse {
 	t.Helper()
+	response, err := api.doRaw(method, path, input)
+	if err != nil {
+		t.Fatalf("HTTP %s %s: %v", method, path, err)
+	}
+	return response
+}
+
+func (api *mysqlIntegrationAPI) doRaw(method, path string, input any) (mysqlIntegrationResponse, error) {
+	return api.doRawWithHeaders(method, path, input, nil)
+}
+
+func (api *mysqlIntegrationAPI) doRawWithHeaders(method, path string, input any, headers map[string]string) (mysqlIntegrationResponse, error) {
 	var body io.Reader
 	if input != nil {
 		encoded, err := json.Marshal(input)
 		if err != nil {
-			t.Fatal(err)
+			return mysqlIntegrationResponse{}, err
 		}
 		body = bytes.NewReader(encoded)
 	}
 	request, err := http.NewRequest(method, api.server.URL+path, body)
 	if err != nil {
-		t.Fatal(err)
+		return mysqlIntegrationResponse{}, err
 	}
 	request.Header.Set("X-Simulation-API-Key", api.key)
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
 	response, err := api.client.Do(request)
 	if err != nil {
-		t.Fatalf("HTTP %s %s: %v", method, path, err)
+		return mysqlIntegrationResponse{}, err
 	}
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
-		t.Fatal(err)
+		return mysqlIntegrationResponse{}, err
 	}
-	return mysqlIntegrationResponse{status: response.StatusCode, body: responseBody}
+	return mysqlIntegrationResponse{status: response.StatusCode, body: responseBody}, nil
 }
 
 func (api *mysqlIntegrationAPI) parseIntent(t *testing.T, buyerID, key, expectedSKU string) string {

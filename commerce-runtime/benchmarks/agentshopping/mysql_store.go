@@ -871,19 +871,13 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 	var result CheckoutResult
 	var staleBlocked bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var old OrderRecord
-		if err := tx.Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&old).Error; err == nil {
-			if old.ConfirmationID != confirmationID {
-				return ErrIdempotencyConflict
-			}
-			var payment MockPaymentRecord
-			if err := tx.Where("tenant_id = ? AND order_id = ?", s.tenant, old.OrderID).First(&payment).Error; err != nil {
-				return err
-			}
-			result = checkoutFromRecords(old, payment)
-			return nil
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		replay, found, err := checkoutReplayInTx(tx, s.tenant, confirmationID, idempotencyKey, false)
+		if err != nil {
 			return err
+		}
+		if found {
+			result = replay
+			return nil
 		}
 		var confirmation BuyerConfirmationRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id = ? AND confirmation_id = ?", s.tenant, confirmationID).First(&confirmation).Error; err != nil {
@@ -891,6 +885,18 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 		}
 		if !confirmation.Accepted {
 			return ErrConfirmationRequired
+		}
+		// Serialize same-confirmation checkouts, then perform a locking/current
+		// read of the idempotency key. A concurrent request may have missed the
+		// initial lookup before it waited on this row; it must replay that order
+		// before observing the inventory revision changed by the first commit.
+		replay, found, err = checkoutReplayInTx(tx, s.tenant, confirmationID, idempotencyKey, true)
+		if err != nil {
+			return err
+		}
+		if found {
+			result = replay
+			return nil
 		}
 		var quote QuoteRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id = ? AND quote_id = ? AND buyer_id = ?", s.tenant, confirmation.QuoteID, confirmation.BuyerID).First(&quote).Error; err != nil {
@@ -1018,6 +1024,28 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 		return CheckoutResult{}, ErrStaleQuote
 	}
 	return result, err
+}
+
+func checkoutReplayInTx(tx *gorm.DB, tenant, confirmationID, idempotencyKey string, currentRead bool) (CheckoutResult, bool, error) {
+	query := tx
+	if currentRead {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var order OrderRecord
+	if err := query.Where("tenant_id = ? AND idempotency_key = ?", tenant, idempotencyKey).First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return CheckoutResult{}, false, nil
+		}
+		return CheckoutResult{}, false, err
+	}
+	if order.ConfirmationID != confirmationID {
+		return CheckoutResult{}, false, ErrIdempotencyConflict
+	}
+	var payment MockPaymentRecord
+	if err := tx.Where("tenant_id = ? AND order_id = ?", tenant, order.OrderID).First(&payment).Error; err != nil {
+		return CheckoutResult{}, false, err
+	}
+	return checkoutFromRecords(order, payment), true, nil
 }
 
 func simulatedPaymentStatus(idempotencyKey string) string {

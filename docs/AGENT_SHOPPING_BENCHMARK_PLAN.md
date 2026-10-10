@@ -131,9 +131,37 @@ valid snapshot plans `500/500`, against B0 `389/500`—not the example
 `94.2%`, `72.6%`, or `91.8%`. It contains no independent natural-language
 holdout or systematic infeasible/contradictory tasks. The HTTP lifecycle is a
 separate 500-task run: all reached a terminal status, but only `483/500` were
-mock-settled and `17/500` were mock-declined. No independent `286/300`
-purchase suite was found; none of these are real-provider or Devnet purchase
-results.
+mock-settled and `17/500` were mock-declined. A follow-up, fault-injected
+300-logical-purchase replay run is now complete (details below); it reuses
+tasks from the locked generated suite and is not an independent shopping
+holdout. Neither lifecycle run used a real payment provider or Devnet.
+
+## 300 logical purchase replay and response-loss evidence
+
+Run `lifecycle-20261010T175156.403673200Z-purchase-replay-ea6eb1976c16203d`
+completed with `PASS` against the isolated `stablepay_shopping_sim` MySQL
+database. It replayed 300 predeclared logical order keys selected from the
+locked 500-task GPT-6 Luna run; there were no new model calls. The 300 trials
+covered 100 post-commit response losses followed by retry on the same API
+instance, 100 post-commit response losses followed by `httptest` API-server
+recreation in the same Go test process and retry, and 100 concurrent
+duplicate-checkout request pairs (600 checkout HTTP requests total). The API
+recreation reuses the same MySQL-backed store; this is not an OS-process crash
+or full Runtime process restart test.
+
+- **287/300** unique logical orders settled through the deterministic
+  simulation-only payment adapter; **13/300** received its deterministic
+  decline outcome.
+- SQL reconciliation found **300 unique orders** and **300 unique mock
+  payments**, with **0** duplicate idempotency groups, duplicate orders per
+  task, duplicate payments per order, duplicate settlements, or
+  amount/currency mismatches. All lifecycle row-count/state invariants passed.
+- This measures retry/replay correctness against an isolated local mock, not
+  a real payment-provider sandbox, Solana Devnet, or production payment path.
+  “No duplicate settlement observed” is scoped to these 300 injected trials;
+  it is not a universal guarantee. Per-trial traces and SQL audit are retained
+  under
+  `.local-run/agent-shopping/lifecycle-evaluations/lifecycle-20261010T175156.403673200Z-purchase-replay-ea6eb1976c16203d/`.
 
 ## External benchmark references (methodology, not StablePay scores)
 

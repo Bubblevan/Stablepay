@@ -126,6 +126,13 @@ These drafts keep each number next to its workload and environment. E1 is delibe
 - **Action:** Loaded and hash-validated 24,000 catalog products from 12 running local Merchant HTTP fixtures; kept regional inventory, buyer consent, quote/reservation/order state, and audit in an isolated MySQL tenant; replayed the locked GPT-6 Luna intents through the HTTP shopping API, with price/stock mutations, stale-consent rejection, deterministic mock checkout, and idempotency checks.
 - **Result:** **500/500** task flows reached terminal outcomes (**483** simulated settlements, **17** declines); 50 price changes, 50 stock-loss cases, and 100 stale confirmations were handled; the **4,352-request** run had **0 unexpected HTTP failures** and **0 SQL invariant violations**. Sequential per-task P95 was **133.925 ms** at **10.647 tasks/s**. This is a local synthetic integration using a loopback Merchant HTTP source, in-process `httptest` API, isolated MySQL, and mock-only payments; it is not a concurrent load test, fresh LLM evaluation, real fulfillment, or real settlement.
 
+### StablePay Agent purchase idempotency and response-loss replay — Go HTTP API, MySQL
+
+- **Situation:** A successful checkout whose response is lost can be retried, including after API-server recreation or concurrently, and must not create another order or payment effect.
+- **Task:** Exercise 300 predeclared logical purchase keys with post-commit response loss, retry, API recreation, and concurrent duplicate requests against isolated MySQL.
+- **Action:** Replayed 300 tasks from the locked generated suite without new model calls: 100 lost responses retried on the same API, 100 retried after recreating the `httptest` API server in the same Go test process, and 100 concurrent duplicate-checkout pairs (600 checkout HTTP requests total). Fixed a concurrency race by rechecking idempotency after acquiring the confirmation lock and before stale-quote validation; reconciled orders, mock payments, settlements, task states, amounts, currencies, and idempotency keys in SQL.
+- **Result:** **287/300** unique orders settled in the deterministic mock and **13/300** were deterministically declined. The audit found **300** unique orders and mock payments, with **0** duplicate orders, payments, or settlements and **0** amount/currency mismatches. This is a bounded local simulation with isolated MySQL—not an OS-process crash/restart test, real provider sandbox, Devnet payment, or independent shopping holdout.
+
 ### StablePay Agent shopping discovery load — Go, Merchant HTTP, MySQL
 
 - **Situation:** The sequential purchase-lifecycle suite did not quantify API behavior under concurrent catalog discovery.
@@ -169,5 +176,5 @@ These drafts keep each number next to its workload and environment. E1 is delibe
 - No claim that the live-local suite exercised real Payment Service or Devnet.
 - No claim that the local Minikube three-node simulation used three physical machines or that its mock adapter path exercised the six production microservices. The repository's `infra-deployment/k8s/ack` manifests and the user's internship ACK deployment are separate evidence and should be described on their own facts.
 - The AgentPay task-evaluation `100/100` figures are limited to eight deterministic synthetic profiles, repeated 25 times; do not present them as model accuracy, broad marketplace quality, or a real-payment success rate.
-- Public references (EComAgentBench, Amazon ESCI, ShoppingBench, WebMall, and IdempotencyBench) are methodology-only; none of their tasks or scores are included in StablePay's reported metrics. The StablePay shopping holdout and independent 300-attempt payment audit remain incomplete.
+- Public references (EComAgentBench, Amazon ESCI, ShoppingBench, WebMall, and IdempotencyBench) are methodology-only; none of their tasks or scores are included in StablePay's reported metrics. The independent 500-task shopping holdout remains incomplete. The 300-attempt local mock replay audit passed, but it is not a real-provider or Devnet payment result.
 - No claim of RL, GRPO, post-training, self-evolution, dynamic planning, or parallel workflow execution.
