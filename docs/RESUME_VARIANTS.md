@@ -1,6 +1,6 @@
 # StablePay Resume Variants
 
-These variants describe the frozen repository only. They are positioning choices, not new product claims.
+These variants describe the currently committed repository and retained run evidence. They are positioning choices, not new product claims.
 
 ## Candidate project title
 
@@ -29,8 +29,19 @@ Avoid “AI payment platform”, “intelligent payment Agent”, and “LLM pay
 - 围绕 `PaymentIntent`、`Ledger` 与幂等键实现 reserve/submit/reconcile 受控流程，结合 CAS、启动扫描与 exact redelivery 处理 crash/restart 窗口，避免重试被误当成新结算。
 - 将 LLM 限定为带证据的 decision proposal，所有 recovery action 经过 `RuntimeGuard`、`MemoryUseTrace` 与确定性执行层；Memory 只提供 provenance-scoped advisory context，不拥有交易权限。
 - 在 deterministic live-local 环境完成 56 次隔离试验，观察到 0 unauthorized side effects、0 duplicate settlements；48 次实际触发的 fault trials 中恢复 40 次，结果可由 JSONL trace 重算。
+- 在六节点 Minikube 部署 12 个 ready Deployments，完成一次 0.01 USDC Solana Devnet 商户支付、验证与交付；Runtime 重启后重放同一 request 未产生第二笔付款，MySQL 与跨服务记录对账一致。六节点运行于一台物理机，且这是单次验收，不代表生产可用率。
 
 The final bullet is an evidence statement, not a production reliability guarantee. Do not headline `48/56`; the 56 include the expected `guard-rejected` safety-negative group.
+
+## Outcome-led project section
+
+> **StablePay — Agent Commerce Runtime | Go, x402, Solana, MySQL, Redis, RocketMQ, Kubernetes**
+>
+> - 构建面向 Agent 的持久化 Commerce Runtime，以 Episode 状态机串联商户发现、x402 402 challenge、支付、entitlement、交付校验和最终 artifact；Runtime 仅接受受控决策，不把 LLM 输出作为交易 authority。
+> - 在六节点 Minikube 中部署六个 StablePay 服务及 Merchant、Runtime、MySQL、Redis、RocketMQ（共 12 个 ready Deployments），完成一次真实 Solana Devnet `0.01 USDC` 购买；请求经 `402 → payment → verified delivery` 到达 `FULFILLED/COMPLETED`，Runtime 重启后同请求重放未产生第二笔付款，PaymentIntent/settlement 重复查询为 0、预算投影与跨服务交易记录一致。该六节点拓扑运行于单台 Docker Desktop 主机。
+> - 对持久化支付/账本状态机做 160 次本地确定性 crash/restart 试验，160/160 恢复并通过 MySQL 审计；另在 200 VU 本地 Docker k6 测试中测得 1,319 HTTP req/s、72.6 completed Episodes/s、HTTP p95 114 ms、Episode p95 3.349 s，观测 HTTP/业务错误率 0%。后两项使用确定性本地依赖，不代表真实链路或生产容量。
+
+实习期间的 ACK/Kubernetes 部署应写在对应“实习经历”下，与 StablePay 的 Minikube/Devnet 证据分开；避免将个人项目测试拓扑和实习生产/云上部署混为一段。
 
 ## Backend-oriented version
 

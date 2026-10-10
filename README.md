@@ -148,6 +148,8 @@ The final evidence set is maintained in:
 - [docs/RESUME_EVIDENCE.md](docs/RESUME_EVIDENCE.md)
 - [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
 - [docs/FREEZE_MANIFEST.md](docs/FREEZE_MANIFEST.md)
+- [Six-node Minikube + Solana Devnet acceptance report](benchmarks/minikube-six-node-devnet/acceptance-report.md)
+- [Six-node MySQL/cross-service audit SQL](benchmarks/minikube-six-node-devnet/audit-acceptance.sql)
 
 ## Quick start
 
