@@ -1,0 +1,20 @@
+{
+  "schema_version": "agentpay-benchmark.v1",
+  "benchmark": "S11 isolated live-local Agent commerce suite",
+  "generated_at_utc": "2026-10-10T10:56:39.4545113Z",
+  "go_version": "go1.26.5",
+  "source_revision": "2113186bfe26bf88410a8c3a251e3070a198e022",
+  "source_modified": "false",
+  "dataset_file": "scenarios.jsonl",
+  "dataset_sha256": "sha256:447a2d18eb39a7b387f235e6a388859d7ee13fabd21685172b51de3421854a19",
+  "distinct_task_profiles": 8,
+  "independent_trials_each": 25,
+  "expanded_episode_count": 200,
+  "runtime_per_trial": "fresh livelocal Runtime and isolated in-memory repository",
+  "merchant_payment_adapter": "deterministic local mocks; no Payment Service or chain client",
+  "provider_boundary": "local deterministic decision provider only; no external LLM request",
+  "ingress_boundary": "public HTTP/MCP/CLI client boundary over loopback httptest server",
+  "external_network_calls": false,
+  "poll_interval": "50ms",
+  "episode_timeout": "45s"
+}
