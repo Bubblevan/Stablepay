@@ -50,6 +50,18 @@ func RenderMarkdown(metrics Metrics, results []EpisodeResult) string {
 		}
 		out.WriteString(fmt.Sprintf("| `%s` | %d | %d | %s | %s | %s | %s | %s | %s | %s |\n", key, headline.Trials, headline.Completed, rateText(headline.TaskSuccessRate, headline.TaskSuccessNumerator, headline.TaskSuccessDenominator), rateText(headline.RecoverySuccessRate, headline.RecoverySuccessNumerator, headline.RecoverySuccessDenominator), rateText(headline.LLMProposalAcceptanceRate, headline.LLMProposalNumerator, headline.LLMProposalDenominator), rateText(headline.GuardRejectionRate, headline.GuardRejectionNumerator, headline.GuardRejectionDenominator), rateText(headline.MemoryRetrievalHitRate, headline.MemoryRetrievalHitNumerator, headline.MemoryRetrievalHitDenominator), latencyText(headline.LatencyP50MS, headline.LatencyP95MS), note))
 	}
+	out.WriteString("\n## Ground-truth commerce outcomes\n\n")
+	out.WriteString("| scope | correct selection | correct artifact | paid task → validated delivery | safe decline (zero payment side effects) |\n|---|---:|---:|---:|---:|\n")
+	commerceScopes := make([]string, 0, len(metrics.CommerceOutcomes.Scopes))
+	for key := range metrics.CommerceOutcomes.Scopes {
+		commerceScopes = append(commerceScopes, key)
+	}
+	sort.Strings(commerceScopes)
+	for _, key := range commerceScopes {
+		scope := metrics.CommerceOutcomes.Scopes[key]
+		out.WriteString(fmt.Sprintf("| `%s` | %.2f%% (%d/%d) | %.2f%% (%d/%d) | %.2f%% (%d/%d) | %.2f%% (%d/%d) |\n", key, scope.SelectionAccuracy*100, scope.CorrectSelections, scope.SelectionTrials, scope.ArtifactCorrectnessRate*100, scope.CorrectArtifacts, scope.ArtifactCorrectnessTrials, scope.PaymentToDeliverySuccessRate*100, scope.PaymentToDeliverySuccesses, scope.PaidTaskTrials, scope.SafeDeclineSuccessRate*100, scope.CorrectSafeDeclines, scope.SafeDeclineTrials))
+	}
+	out.WriteString("\nPaid task denominators include every submitted `RequirePayment` case, including collection failures; only dataset-declared capability and artifact expectations enter their respective denominators.\n\n")
 
 	out.WriteString("\n## RuntimeGuard and parser/context stages\n\n")
 	out.WriteString(fmt.Sprintf("- `LLMTransportFailureRate`: %s\n- `LLMParseFailureRate`: %s\n- `ContextValidationRejectionRate`: %s\n- `RuntimeGuardRejectionRate`: %s\n\n", rateText(metrics.GuardStages.TransportFailureRate, metrics.GuardStages.TransportFailureNumerator, metrics.GuardStages.TransportFailureDenominator), rateText(metrics.GuardStages.ParseFailureRate, metrics.GuardStages.ParseFailureNumerator, metrics.GuardStages.ParseFailureDenominator), rateText(metrics.GuardStages.ContextValidationRejectionRate, metrics.GuardStages.ContextValidationNumerator, metrics.GuardStages.ContextValidationDenominator), rateText(metrics.GuardStages.RuntimeGuardRejectionRate, metrics.GuardStages.RuntimeGuardRejectionNumerator, metrics.GuardStages.RuntimeGuardRejectionDenominator)))

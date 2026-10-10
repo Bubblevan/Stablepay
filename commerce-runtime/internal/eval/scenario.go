@@ -37,6 +37,9 @@ type Scenario struct {
 	TrialIndex                 int                            `json:"trial_index,omitempty"`
 	TrialIsolationID           string                         `json:"trial_isolation_id,omitempty"`
 	ExpectedTerminal           string                         `json:"expected_terminal,omitempty"`
+	ExpectedMerchantDID        string                         `json:"expected_merchant_did,omitempty"`
+	ExpectedCapabilityID       string                         `json:"expected_capability_id,omitempty"`
+	ExpectedArtifactBodyHash   string                         `json:"expected_artifact_body_hash,omitempty"`
 	ExpectedPaymentIntents     *int                           `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int                           `json:"expected_settlement_count,omitempty"`
 	ExpectedEntitlementTxID    string                         `json:"expected_entitlement_tx_id,omitempty"`
@@ -66,6 +69,13 @@ func (s Scenario) Validate() error {
 	}
 	if s.Failure.RatePercent < 0 || s.Failure.RatePercent > 100 || s.Failure.Repeat < 0 {
 		return errors.New("failure rate must be 0..100 and repeat must be non-negative")
+	}
+	if s.ExpectedArtifactBodyHash != "" {
+		expected := strings.TrimSpace(s.ExpectedArtifactBodyHash)
+		digest, err := hex.DecodeString(strings.TrimPrefix(expected, "sha256:"))
+		if !strings.HasPrefix(expected, "sha256:") || err != nil || len(digest) != sha256.Size {
+			return errors.New("expected_artifact_body_hash must be sha256:<64 hex characters>")
+		}
 	}
 	if s.ReplayResult == nil && len(s.Request) == 0 {
 		return errors.New("live scenario requires request; replay scenario requires replay_result")

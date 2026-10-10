@@ -131,16 +131,21 @@ func seedCatalog(ctx context.Context, store *repository.InMemoryStore) error {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	fixtures := []struct {
 		merchant, capability, taskType, name string
+		priceMinor                           int64
+		semanticTags                         []string
 	}{
-		{"did:merchant:local", "local-capability", "local-eval", "StablePay local capability"},
-		{"did:merchant:local-hit", "local-capability-hit", "local-eval-memory-hit", "StablePay memory-hit capability"},
-		{"did:merchant:local-miss", "local-capability-miss", "local-eval-memory-miss", "StablePay memory-miss capability"},
-		{"did:merchant:s8-source", "s8-source", "s8-source", "StablePay S8 source capability"},
-		{"did:merchant:s8-transform", "s8-transform", "s8-transform", "StablePay S8 transform capability"},
+		{"did:merchant:local", "local-capability", "local-eval", "StablePay local capability", 1000000, []string{"local", "eval"}},
+		{"did:merchant:local-hit", "local-capability-hit", "local-eval-memory-hit", "StablePay memory-hit capability", 1000000, []string{"local", "eval"}},
+		{"did:merchant:local-miss", "local-capability-miss", "local-eval-memory-miss", "StablePay memory-miss capability", 1000000, []string{"local", "eval"}},
+		{"did:merchant:s8-source", "s8-source", "s8-source", "StablePay S8 source capability", 1000000, []string{"local", "eval"}},
+		{"did:merchant:s8-transform", "s8-transform", "s8-transform", "StablePay S8 transform capability", 1000000, []string{"local", "eval"}},
+		{"did:merchant:agentpay-lowcost", "agentpay-lowcost", "agentpay-query", "AgentPay standard local query", 300000, []string{"catalog=agentpay", "region=local", "quality=standard"}},
+		{"did:merchant:agentpay-premium", "agentpay-premium", "agentpay-query", "AgentPay premium local query", 700000, []string{"catalog=agentpay", "region=local", "quality=premium"}},
+		{"did:merchant:agentpay-external", "agentpay-external", "agentpay-query", "AgentPay external query", 100000, []string{"catalog=agentpay", "region=external", "quality=standard"}},
 	}
 	for _, fixture := range fixtures {
-		price := int64(1000000)
-		value := catalog.MerchantCapability{MerchantDID: fixture.merchant, CapabilityID: fixture.capability, PayeeDID: "did:payee:local", Name: fixture.name, Description: "Deterministic live-local capability", TaskTypes: []string{fixture.taskType}, SemanticTags: []string{"local", "eval"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: "http://local.invalid/commerce/" + fixture.capability, Method: "GET"}, InputSchemaRef: "schema://local/input", OutputSchemaRef: "schema://local/output", InputContentTypes: []string{"text/plain"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v1"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1", Source: "s11-live-local", SourceRef: "s11-live-local:" + fixture.capability, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
+		price := fixture.priceMinor
+		value := catalog.MerchantCapability{MerchantDID: fixture.merchant, CapabilityID: fixture.capability, PayeeDID: "did:payee:local", Name: fixture.name, Description: "Deterministic live-local capability", TaskTypes: []string{fixture.taskType}, SemanticTags: fixture.semanticTags, InvokeEndpoint: catalog.EndpointRef{Endpoint: "http://local.invalid/commerce/" + fixture.capability, Method: "GET"}, InputSchemaRef: "schema://local/input", OutputSchemaRef: "schema://local/output", InputContentTypes: []string{"text/plain"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v1"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1", Source: "s11-live-local", SourceRef: "s11-live-local:" + fixture.capability, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
 		hash, err := value.SnapshotHash()
 		if err != nil {
 			return err
@@ -295,7 +300,7 @@ func (m *localMerchant) Invoke(_ context.Context, request adapters.MerchantInvok
 		return adapters.MerchantInvokeResult{HTTPStatus: 599, ContentType: "application/problem+json", Body: []byte(`{"error":"transient local merchant"}`), OccurredAt: now, PayloadHash: "sha256:" + hashHex([]byte("transient")), PayloadRef: "merchant-response://transient"}, errors.New("local merchant temporarily unavailable")
 	}
 	if request.Phase == "INITIAL" {
-		return localChallenge(request, now), nil
+		return localChallenge(request, localPriceMinor(request.CapabilityID), now), nil
 	}
 	if request.Phase == "DELIVERY" && request.Attempt == 1 && m.fault.Observe("delivery_invalid", true) {
 		return localDelivery(request, true, now), nil
@@ -303,8 +308,8 @@ func (m *localMerchant) Invoke(_ context.Context, request adapters.MerchantInvok
 	return localDelivery(request, false, now), nil
 }
 
-func localChallenge(request adapters.MerchantInvokeRequest, now time.Time) adapters.MerchantInvokeResult {
-	body := []byte(fmt.Sprintf(`{"x402Version":1,"accepts":[{"scheme":"exact","network":"devnet","maxAmountRequired":"1000000","asset":"local-usdc-mint","payTo":"did:payee:local","resource":"%s","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"local-product"}}]}`, request.Endpoint.Endpoint))
+func localChallenge(request adapters.MerchantInvokeRequest, amountMinor int64, now time.Time) adapters.MerchantInvokeResult {
+	body := []byte(fmt.Sprintf(`{"x402Version":1,"accepts":[{"scheme":"exact","network":"devnet","maxAmountRequired":"%d","asset":"local-usdc-mint","payTo":"did:payee:local","resource":"%s","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"local-product"}}]}`, amountMinor, request.Endpoint.Endpoint))
 	encoded := base64.StdEncoding.EncodeToString(body)
 	return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, Headers: map[string]string{"PAYMENT-REQUIRED": encoded}, ContentType: "application/json", Body: body, OccurredAt: now, PayloadHash: "sha256:" + hashHex(body), PayloadRef: "merchant-response://" + hashHex(body)}
 }
@@ -312,6 +317,12 @@ func localChallenge(request adapters.MerchantInvokeRequest, now time.Time) adapt
 func localDelivery(request adapters.MerchantInvokeRequest, invalid bool, now time.Time) adapters.MerchantInvokeResult {
 	body := []byte("stablepay live-local artifact")
 	switch request.CapabilityID {
+	case "agentpay-lowcost":
+		body = []byte("agentpay standard query result")
+	case "agentpay-premium":
+		body = []byte("agentpay premium query result")
+	case "agentpay-external":
+		body = []byte("agentpay external query result")
 	case "s8-source":
 		body = []byte("hello")
 	case "s8-transform":
@@ -321,6 +332,19 @@ func localDelivery(request adapters.MerchantInvokeRequest, invalid bool, now tim
 		body = nil
 	}
 	return adapters.MerchantInvokeResult{HTTPStatus: http.StatusOK, ContentType: "text/plain", Body: body, OccurredAt: now, PayloadHash: "sha256:" + hashHex(body), PayloadRef: "merchant-response://" + hashHex(body)}
+}
+
+func localPriceMinor(capabilityID string) int64 {
+	switch capabilityID {
+	case "agentpay-lowcost":
+		return 300000
+	case "agentpay-premium":
+		return 700000
+	case "agentpay-external":
+		return 100000
+	default:
+		return 1000000
+	}
 }
 
 type localDID struct{}

@@ -44,3 +44,15 @@ func TestRequiredAdversarialFixturesCoverProposalBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestExpectedArtifactBodyHashMustBeSHA256(t *testing.T) {
+	valid := Scenario{CaseID: "valid-hash", Seed: 1, Request: []byte(`{}`), ExpectedArtifactBodyHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid artifact body hash rejected: %v", err)
+	}
+	invalid := valid
+	invalid.ExpectedArtifactBodyHash = "sha256:not-a-digest"
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("invalid artifact body hash accepted")
+	}
+}

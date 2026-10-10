@@ -146,6 +146,7 @@ The final evidence set is maintained in:
 - [docs/EVIDENCE_MATRIX.md](docs/EVIDENCE_MATRIX.md)
 - [docs/FINAL_ARCHITECTURE_REVIEW.md](docs/FINAL_ARCHITECTURE_REVIEW.md)
 - [docs/RESUME_EVIDENCE.md](docs/RESUME_EVIDENCE.md)
+- [AgentPay deterministic task benchmark](commerce-runtime/testdata/s11/agentpay-benchmark/README.md), runner: `scripts/run-agentpay-benchmark.ps1`; retained v1 output: `benchmarks/agentpay-live-local-20261010-final/`
 - [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
 - [docs/FREEZE_MANIFEST.md](docs/FREEZE_MANIFEST.md)
 - [Six-node Minikube + Solana Devnet acceptance report](benchmarks/minikube-six-node-devnet/acceptance-report.md)

@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -42,10 +44,16 @@ func run(args []string) error {
 	if strings.TrimSpace(*dataset) == "" {
 		return errors.New("--dataset is required")
 	}
+	datasetBytes, err := os.ReadFile(*dataset)
+	if err != nil {
+		return err
+	}
+	datasetDigest := sha256.Sum256(datasetBytes)
 	scenarios, err := readScenarios(*dataset)
 	if err != nil {
 		return err
 	}
+	taskCount := uniqueTaskCount(scenarios)
 	scenarios, err = eval.ExpandTrials(scenarios, *trials)
 	if err != nil {
 		return err
@@ -89,8 +97,89 @@ func run(args []string) error {
 	if err := writeOutputs(*outDir, results); err != nil {
 		return err
 	}
+	manifest := suiteManifest{
+		SchemaVersion:          "agentpay-benchmark.v1",
+		Benchmark:              "S11 isolated live-local Agent commerce suite",
+		GeneratedAtUTC:         time.Now().UTC(),
+		GoVersion:              buildGoVersion(),
+		SourceRevision:         buildSetting("vcs.revision"),
+		SourceModified:         buildSetting("vcs.modified"),
+		DatasetFile:            filepath.Base(*dataset),
+		DatasetSHA256:          fmt.Sprintf("sha256:%x", datasetDigest),
+		DistinctTaskProfiles:   taskCount,
+		IndependentTrialsEach:  *trials,
+		ExpandedEpisodeCount:   len(scenarios),
+		RuntimePerTrial:        "fresh livelocal Runtime and isolated in-memory repository",
+		MerchantPaymentAdapter: "deterministic local mocks; no Payment Service or chain client",
+		ProviderBoundary:       "local deterministic decision provider only; no external LLM request",
+		IngressBoundary:        "public HTTP/MCP/CLI client boundary over loopback httptest server",
+		ExternalNetworkCalls:   false,
+		PollInterval:           poll.String(),
+		EpisodeTimeout:         timeout.String(),
+	}
+	encodedManifest, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(*outDir, "manifest.json"), append(encodedManifest, '\n'), 0600); err != nil {
+		return err
+	}
 	fmt.Printf("S11 isolated live-local outputs: %s\n", *outDir)
 	return nil
+}
+
+type suiteManifest struct {
+	SchemaVersion          string    `json:"schema_version"`
+	Benchmark              string    `json:"benchmark"`
+	GeneratedAtUTC         time.Time `json:"generated_at_utc"`
+	GoVersion              string    `json:"go_version,omitempty"`
+	SourceRevision         string    `json:"source_revision,omitempty"`
+	SourceModified         string    `json:"source_modified,omitempty"`
+	DatasetFile            string    `json:"dataset_file"`
+	DatasetSHA256          string    `json:"dataset_sha256"`
+	DistinctTaskProfiles   int       `json:"distinct_task_profiles"`
+	IndependentTrialsEach  int       `json:"independent_trials_each"`
+	ExpandedEpisodeCount   int       `json:"expanded_episode_count"`
+	RuntimePerTrial        string    `json:"runtime_per_trial"`
+	MerchantPaymentAdapter string    `json:"merchant_payment_adapter"`
+	ProviderBoundary       string    `json:"provider_boundary"`
+	IngressBoundary        string    `json:"ingress_boundary"`
+	ExternalNetworkCalls   bool      `json:"external_network_calls"`
+	PollInterval           string    `json:"poll_interval"`
+	EpisodeTimeout         string    `json:"episode_timeout"`
+}
+
+func uniqueTaskCount(scenarios []eval.Scenario) int {
+	tasks := make(map[string]struct{}, len(scenarios))
+	for _, scenario := range scenarios {
+		taskID := strings.TrimSpace(scenario.TaskID)
+		if taskID == "" {
+			taskID = scenario.CaseID
+		}
+		tasks[taskID] = struct{}{}
+	}
+	return len(tasks)
+}
+
+func buildSetting(key string) string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == key {
+			return setting.Value
+		}
+	}
+	return ""
+}
+
+func buildGoVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	return info.GoVersion
 }
 
 func llmMode(provider string) string {

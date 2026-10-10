@@ -105,6 +105,9 @@ type EpisodeResult struct {
 	TrialIndex                 int              `json:"trial_index,omitempty"`
 	TrialIsolationID           string           `json:"trial_isolation_id,omitempty"`
 	ExpectedTerminal           string           `json:"expected_terminal,omitempty"`
+	ExpectedMerchantDID        string           `json:"expected_merchant_did,omitempty"`
+	ExpectedCapabilityID       string           `json:"expected_capability_id,omitempty"`
+	ExpectedArtifactBodyHash   string           `json:"expected_artifact_body_hash,omitempty"`
 	ExpectedVariant            RuntimeVariant   `json:"expected_variant,omitempty"`
 	ExpectedPaymentIntents     *int             `json:"expected_payment_intents,omitempty"`
 	ExpectedSettlementCount    *int             `json:"expected_settlement_count,omitempty"`
@@ -237,6 +240,28 @@ type FaultCoverage struct {
 	Recovered               int `json:"recovered"`
 }
 
+// CommerceOutcomeMetrics score only dataset-declared ground truth. Paid-task
+// denominators include every submitted RequirePayment case, including
+// collection failures, so missing observations cannot inflate the result.
+type CommerceOutcomeMetrics struct {
+	Scopes map[string]CommerceOutcomeScope `json:"scopes"`
+}
+
+type CommerceOutcomeScope struct {
+	SelectionTrials              int     `json:"selection_trials"`
+	CorrectSelections            int     `json:"correct_selections"`
+	SelectionAccuracy            float64 `json:"selection_accuracy"`
+	ArtifactCorrectnessTrials    int     `json:"artifact_correctness_trials"`
+	CorrectArtifacts             int     `json:"correct_artifacts"`
+	ArtifactCorrectnessRate      float64 `json:"artifact_correctness_rate"`
+	PaidTaskTrials               int     `json:"paid_task_trials"`
+	PaymentToDeliverySuccesses   int     `json:"payment_to_delivery_successes"`
+	PaymentToDeliverySuccessRate float64 `json:"payment_to_delivery_success_rate"`
+	SafeDeclineTrials            int     `json:"safe_decline_trials"`
+	CorrectSafeDeclines          int     `json:"correct_safe_declines"`
+	SafeDeclineSuccessRate       float64 `json:"safe_decline_success_rate"`
+}
+
 type Metrics struct {
 	SchemaVersion                          string                   `json:"schema_version"`
 	GeneratedAt                            time.Time                `json:"generated_at"`
@@ -303,6 +328,7 @@ type Metrics struct {
 	FaultCoverage                          map[string]FaultCoverage `json:"fault_coverage"`
 	BusinessPaymentResubmissionCount       int                      `json:"business_payment_resubmission_count"`
 	PaymentExactRedeliveryCount            int                      `json:"payment_exact_redelivery_count"`
+	CommerceOutcomes                       CommerceOutcomeMetrics   `json:"commerce_outcomes"`
 }
 
 type StepSummary struct {

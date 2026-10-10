@@ -513,6 +513,9 @@ func enrichResult(result *observability.EpisodeResult, scenario Scenario) {
 	result.TrialIndex = scenario.TrialIndex
 	result.TrialIsolationID = scenario.TrialIsolationID
 	result.ExpectedTerminal = scenario.ExpectedTerminal
+	result.ExpectedMerchantDID = scenario.ExpectedMerchantDID
+	result.ExpectedCapabilityID = scenario.ExpectedCapabilityID
+	result.ExpectedArtifactBodyHash = scenario.ExpectedArtifactBodyHash
 	result.ExpectedVariant = scenario.ExpectedVariant
 	result.ExpectedPaymentIntents = scenario.ExpectedPaymentIntents
 	result.ExpectedSettlementCount = scenario.ExpectedSettlementCount

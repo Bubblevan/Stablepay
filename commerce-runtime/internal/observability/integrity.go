@@ -43,8 +43,96 @@ func Compute(results []EpisodeResult, now time.Time) Metrics {
 		}
 	}
 	metrics.Evidence.CollectionErrorRate = ratio(metrics.Evidence.CollectionErrorCount, metrics.Evidence.SubmittedTrials)
+	metrics.CommerceOutcomes = computeCommerceOutcomes(results)
 	applyIntegrityMetrics(results, &metrics)
 	return metrics
+}
+
+func computeCommerceOutcomes(results []EpisodeResult) CommerceOutcomeMetrics {
+	metrics := CommerceOutcomeMetrics{Scopes: map[string]CommerceOutcomeScope{}}
+	for _, result := range results {
+		grade := result.Grade
+		if len(grade.Assertions) == 0 {
+			grade = GradeEpisode(result)
+		}
+		keys := []string{normalizedKey(result.Mode, "unknown")}
+		if strings.TrimSpace(result.Environment) != "" {
+			keys = append(keys, normalizedKey(result.Mode, "unknown")+"/"+strings.TrimSpace(result.Environment))
+		}
+		for _, key := range keys {
+			scope := metrics.Scopes[key]
+			if result.ExpectedMerchantDID != "" || result.ExpectedCapabilityID != "" {
+				scope.SelectionTrials++
+				if result.CollectionError == "" && expectedSelectionPassed(result, grade) {
+					scope.CorrectSelections++
+				}
+			}
+			if result.ExpectedArtifactBodyHash != "" {
+				scope.ArtifactCorrectnessTrials++
+				if result.CollectionError == "" && gradeAssertionPassed(grade, "expected_artifact_body_hash") {
+					scope.CorrectArtifacts++
+				}
+			}
+			if result.RequirePayment {
+				scope.PaidTaskTrials++
+				if result.CollectionError == "" && grade.Passed && paymentToDeliveryComplete(result) {
+					scope.PaymentToDeliverySuccesses++
+				}
+			}
+			if expectsSafeDecline(result) {
+				scope.SafeDeclineTrials++
+				if result.CollectionError == "" && grade.Passed && safeDeclineComplete(result) {
+					scope.CorrectSafeDeclines++
+				}
+			}
+			metrics.Scopes[key] = scope
+		}
+	}
+	for key, scope := range metrics.Scopes {
+		scope.SelectionAccuracy = rateOrZero(scope.CorrectSelections, scope.SelectionTrials)
+		scope.ArtifactCorrectnessRate = rateOrZero(scope.CorrectArtifacts, scope.ArtifactCorrectnessTrials)
+		scope.PaymentToDeliverySuccessRate = rateOrZero(scope.PaymentToDeliverySuccesses, scope.PaidTaskTrials)
+		scope.SafeDeclineSuccessRate = rateOrZero(scope.CorrectSafeDeclines, scope.SafeDeclineTrials)
+		metrics.Scopes[key] = scope
+	}
+	return metrics
+}
+
+func expectsSafeDecline(result EpisodeResult) bool {
+	return result.ExpectedTerminal == string(episode.StateFailed) && result.ExpectedPaymentIntents != nil && *result.ExpectedPaymentIntents == 0 && result.ExpectedSettlementCount != nil && *result.ExpectedSettlementCount == 0
+}
+
+func safeDeclineComplete(result EpisodeResult) bool {
+	return result.TraceState() == episode.StateFailed && len(result.Trace.PaymentIntents) == 0 && settlementCount(result.Trace.Ledger) == 0
+}
+
+func expectedSelectionPassed(result EpisodeResult, grade GradeResult) bool {
+	if result.ExpectedMerchantDID != "" && !gradeAssertionPassed(grade, "expected_merchant") {
+		return false
+	}
+	if result.ExpectedCapabilityID != "" && !gradeAssertionPassed(grade, "expected_capability") {
+		return false
+	}
+	return true
+}
+
+func gradeAssertionPassed(grade GradeResult, name string) bool {
+	for _, assertion := range grade.Assertions {
+		if assertion.Name == name {
+			return assertion.Passed
+		}
+	}
+	return false
+}
+
+func paymentToDeliveryComplete(result EpisodeResult) bool {
+	if result.TraceState() != episode.StateFulfilled || result.Trace.Artifact == nil || result.Trace.Validation == nil || !result.Trace.Validation.Valid {
+		return false
+	}
+	if confirmedPaymentIntents(result.Trace.PaymentIntents) == 0 || settlementCount(result.Trace.Ledger) != 1 {
+		return false
+	}
+	return strings.TrimSpace(result.Trace.Artifact.PaymentIntentID) != ""
 }
 
 func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {

@@ -210,6 +210,66 @@ func TestRequiredEconomicGradersAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestGroundTruthSelectionAndArtifactGraders(t *testing.T) {
+	const expectedHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	result := EpisodeResult{CaseID: "task-ground-truth", ExpectedMerchantDID: "did:merchant:correct", ExpectedCapabilityID: "text-summary", ExpectedArtifactBodyHash: expectedHash, Trace: EpisodeTrace{
+		Episode:    &episode.CommerceEpisode{EpisodeID: "task-ground-truth", State: episode.StateFulfilled, SelectedMerchantDID: "did:merchant:correct", SelectedCapabilityID: "text-summary"},
+		Artifact:   &ArtifactSnapshot{DeliveryID: "delivery-ground-truth", PayloadHash: "sha256:payload", BodyHash: expectedHash},
+		Validation: &invocation.ValidationEvidence{Valid: true},
+	}}
+	grade := GradeEpisode(result)
+	if !grade.Passed {
+		t.Fatalf("matching ground-truth selection and output did not pass: %#v", grade)
+	}
+
+	result.Trace.Episode.SelectedCapabilityID = "wrong-capability"
+	grade = GradeEpisode(result)
+	if grade.Passed || gradeAssertionPassed(grade, "expected_capability") {
+		t.Fatalf("wrong capability selection passed: %#v", grade)
+	}
+	result.Trace.Episode.SelectedCapabilityID = "text-summary"
+	result.Trace.Artifact.BodyHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	grade = GradeEpisode(result)
+	if grade.Passed || gradeAssertionPassed(grade, "expected_artifact_body_hash") {
+		t.Fatalf("wrong artifact body passed: %#v", grade)
+	}
+}
+
+func TestCommerceOutcomeDenominatorsIncludeCollectionErrorsAndStayModeScoped(t *testing.T) {
+	const expectedHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	good := EpisodeResult{CaseID: "good-commerce-task", Mode: ModeLive, Environment: "live_local", ExpectedMerchantDID: "did:merchant:correct", ExpectedCapabilityID: "text-summary", ExpectedArtifactBodyHash: expectedHash, RequirePayment: true,
+		Grade: GradeResult{Passed: true, Assertions: []GradeAssertion{{Name: "expected_merchant", Passed: true}, {Name: "expected_capability", Passed: true}, {Name: "expected_artifact_body_hash", Passed: true}}},
+		Trace: EpisodeTrace{Episode: &episode.CommerceEpisode{EpisodeID: "good-commerce-task", State: episode.StateFulfilled, SelectedMerchantDID: "did:merchant:correct", SelectedCapabilityID: "text-summary"},
+			Artifact:       &ArtifactSnapshot{DeliveryID: "delivery-1", PaymentIntentID: "pi-1", BodyHash: expectedHash},
+			Validation:     &invocation.ValidationEvidence{Valid: true},
+			PaymentIntents: []*payment.PaymentIntent{{IntentID: "pi-1", Status: payment.IntentConfirmed}},
+			Ledger:         []*ledger.LedgerEntry{{Type: ledger.EntryPaymentSettled, PaymentIntentID: "pi-1"}}}}
+	collectionFailure := EpisodeResult{CaseID: "collection-failure", Mode: ModeLive, Environment: "live_local", ExpectedCapabilityID: "text-summary", ExpectedArtifactBodyHash: expectedHash, RequirePayment: true, CollectionError: "poll timeout"}
+	zero := 0
+	decline := EpisodeResult{CaseID: "expected-safe-decline", Mode: ModeLive, Environment: "live_local", ExpectedTerminal: string(episode.StateFailed), ExpectedPaymentIntents: &zero, ExpectedSettlementCount: &zero,
+		Trace: EpisodeTrace{Episode: &episode.CommerceEpisode{EpisodeID: "expected-safe-decline", State: episode.StateFailed}}}
+	declineCollectionFailure := EpisodeResult{CaseID: "safe-decline-collection-failure", Mode: ModeLive, Environment: "live_local", ExpectedTerminal: string(episode.StateFailed), ExpectedPaymentIntents: &zero, ExpectedSettlementCount: &zero, CollectionError: "poll timeout"}
+	replay := EpisodeResult{CaseID: "replay-only", Mode: ModeReplay, Environment: "replay", ExpectedCapabilityID: "text-summary", CollectionError: ""}
+
+	metrics := Compute([]EpisodeResult{good, collectionFailure, decline, declineCollectionFailure, replay}, time.Now().UTC()).CommerceOutcomes
+	live := metrics.Scopes["live/live_local"]
+	if live.SelectionTrials != 2 || live.CorrectSelections != 1 || live.SelectionAccuracy != 0.5 {
+		t.Fatalf("selection denominator hid a collection failure: %#v", live)
+	}
+	if live.ArtifactCorrectnessTrials != 2 || live.CorrectArtifacts != 1 || live.ArtifactCorrectnessRate != 0.5 {
+		t.Fatalf("artifact denominator hid a collection failure: %#v", live)
+	}
+	if live.PaidTaskTrials != 2 || live.PaymentToDeliverySuccesses != 1 || live.PaymentToDeliverySuccessRate != 0.5 {
+		t.Fatalf("paid-task denominator hid a collection failure: %#v", live)
+	}
+	if live.SafeDeclineTrials != 2 || live.CorrectSafeDeclines != 1 || live.SafeDeclineSuccessRate != 0.5 {
+		t.Fatalf("safe-decline denominator hid a collection failure: %#v", live)
+	}
+	if metrics.Scopes["replay/replay"].SelectionTrials != 1 {
+		t.Fatalf("replay results were not kept in a separate evidence scope: %#v", metrics.Scopes)
+	}
+}
+
 func TestExactRedeliveryMustMatchInitialIdentity(t *testing.T) {
 	result := benchmarkResult("redelivery", ModeReplay)
 	result.Trace.PaymentTransportTraces = []*payment.PaymentTransportTrace{

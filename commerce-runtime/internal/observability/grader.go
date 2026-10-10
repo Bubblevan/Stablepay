@@ -34,6 +34,27 @@ func GradeEpisode(result EpisodeResult) GradeResult {
 	} else if result.Trace.Validation != nil {
 		assertions = append(assertions, GradeAssertion{Name: "validation_valid", Required: false, Passed: result.Trace.Validation.Valid, Expected: "not_applicable_for_non_fulfilled", Observed: validationObserved(result.Trace.Validation)})
 	}
+	if expected := strings.TrimSpace(result.ExpectedMerchantDID); expected != "" {
+		observed := "missing"
+		if result.Trace.Episode != nil {
+			observed = result.Trace.Episode.SelectedMerchantDID
+		}
+		assertions = append(assertions, GradeAssertion{Name: "expected_merchant", Required: true, Passed: observed == expected, Expected: expected, Observed: observed, EvidenceRefs: episodeEvidence(result)})
+	}
+	if expected := strings.TrimSpace(result.ExpectedCapabilityID); expected != "" {
+		observed := "missing"
+		if result.Trace.Episode != nil {
+			observed = result.Trace.Episode.SelectedCapabilityID
+		}
+		assertions = append(assertions, GradeAssertion{Name: "expected_capability", Required: true, Passed: observed == expected, Expected: expected, Observed: observed, EvidenceRefs: episodeEvidence(result)})
+	}
+	if expected := strings.TrimSpace(result.ExpectedArtifactBodyHash); expected != "" {
+		observed := "missing"
+		if result.Trace.Artifact != nil {
+			observed = result.Trace.Artifact.BodyHash
+		}
+		assertions = append(assertions, GradeAssertion{Name: "expected_artifact_body_hash", Required: true, Passed: observed == expected, Expected: expected, Observed: observed, EvidenceRefs: episodeEvidence(result)})
+	}
 
 	duplicate := duplicateSettlements(result.Trace.Ledger)
 	assertions = append(assertions, GradeAssertion{Name: "duplicate_settlement_count", Required: true, Passed: duplicate == 0, Expected: "0", Observed: fmt.Sprint(duplicate)})
