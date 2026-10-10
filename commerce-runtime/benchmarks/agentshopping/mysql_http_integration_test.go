@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -332,6 +333,109 @@ func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
 		t.Fatalf("candidate did not combine Merchant product facts with isolated MySQL inventory: %+v", candidate)
 	}
 	t.Logf("MYSQL_MERCHANT_HTTP_CANDIDATE_PASS tenant=%s products=%d source=%s", tenantID, len(catalog.Products), "merchant_http_snapshot")
+}
+
+func TestMySQLMerchantCatalogCandidateSearchAtScale(t *testing.T) {
+	if os.Getenv("SHOP_SIM_MYSQL_SCALE_INTEGRATION") != "1" {
+		t.Skip("set SHOP_SIM_MYSQL_SCALE_INTEGRATION=1 to exercise candidate search against the full isolated catalog")
+	}
+	password := os.Getenv("SHOP_SIM_DB_PASSWORD")
+	if strings.TrimSpace(password) == "" {
+		t.Fatal("SHOP_SIM_DB_PASSWORD is required when SHOP_SIM_MYSQL_SCALE_INTEGRATION=1")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store, err := OpenLocalMySQLStore(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var merchants []MerchantRecord
+	if err := store.db.WithContext(ctx).Where("tenant_id = ?", SimulationTenantID).Find(&merchants).Error; err != nil {
+		t.Fatal(err)
+	}
+	var rows []ProductRecord
+	if err := store.db.WithContext(ctx).Where("tenant_id = ?", SimulationTenantID).Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(merchants) != 12 || len(rows) != 24000 {
+		t.Fatalf("full-catalog source tenant dimensions merchants=%d products=%d, want 12/24000", len(merchants), len(rows))
+	}
+	catalogProducts := make([]Product, 0, len(rows))
+	productsByKey := make(map[string]Product, len(rows))
+	for _, row := range rows {
+		var tags []string
+		if err := json.Unmarshal(row.TagsJSON, &tags); err != nil {
+			t.Fatalf("decode source tags for %s/%s: %v", row.MerchantID, row.SKUID, err)
+		}
+		product := Product{ID: StableID("product", row.MerchantID, row.SKUID), MerchantID: row.MerchantID, SKUID: row.SKUID,
+			Category: row.Category, Title: row.Title, Description: row.Description, ImageURL: row.ImageURL,
+			Price: FormatMinorUnits(row.BasePrice), PriceMinor: row.BasePrice, Currency: row.Currency,
+			Tags: tags, Status: row.Status, Item: row.Item, Format: row.Format, Style: row.Style}
+		catalogProducts = append(catalogProducts, product)
+		productsByKey[catalogProductKey(row.MerchantID, row.SKUID)] = product
+	}
+
+	type availableInventory struct {
+		MerchantID string `gorm:"column:merchant_id"`
+		SKUID      string `gorm:"column:sku_id"`
+		Region     string `gorm:"column:region"`
+		OnHand     int    `gorm:"column:on_hand"`
+		Eligible   bool   `gorm:"column:eligible"`
+		PriceMinor int64  `gorm:"column:price_minor"`
+	}
+	var available availableInventory
+	err = store.db.WithContext(ctx).Table("sim_inventory AS i").
+		Select("i.merchant_id, i.sku_id, i.region, i.on_hand, i.eligible, i.price_minor").
+		Joins("JOIN sim_products AS p ON p.tenant_id = i.tenant_id AND p.merchant_id = i.merchant_id AND p.sku_id = i.sku_id").
+		Where("i.tenant_id = ? AND p.tenant_id = ? AND p.status = 'active' AND i.eligible = ? AND i.on_hand > i.reserved",
+			SimulationTenantID, SimulationTenantID, true).
+		Order("i.merchant_id, i.sku_id, i.region").Take(&available).Error
+	if err != nil {
+		t.Fatalf("find one in-stock source offer in the full catalog: %v", err)
+	}
+	product, ok := productsByKey[catalogProductKey(available.MerchantID, available.SKUID)]
+	if !ok {
+		t.Fatalf("in-stock offer %s/%s is absent from the product snapshot", available.MerchantID, available.SKUID)
+	}
+	intent := Intent{Category: product.Category, Item: product.Item, RequiredFormat: product.Format,
+		PreferredStyle: product.Style, Region: available.Region, MaxPriceMinor: available.PriceMinor}
+	if _, err := store.FindCandidatesFromMerchantCatalog(ctx, catalogProducts, intent, 20); err != nil {
+		t.Fatalf("warm full-catalog Merchant snapshot search: %v", err)
+	}
+	latencies := make([]time.Duration, 25)
+	var candidateCount int
+	for index := range latencies {
+		started := time.Now()
+		candidates, err := store.FindCandidatesFromMerchantCatalog(ctx, catalogProducts, intent, 20)
+		latencies[index] = time.Since(started)
+		if err != nil {
+			t.Fatalf("full-catalog Merchant snapshot search %d: %v", index+1, err)
+		}
+		if index == 0 {
+			candidateCount = len(candidates)
+		}
+		foundOffer := false
+		for _, candidate := range candidates {
+			if candidate.Product.MerchantID == available.MerchantID && candidate.Product.SKUID == available.SKUID &&
+				candidate.Inventory.Region == available.Region {
+				foundOffer = true
+				break
+			}
+		}
+		if !foundOffer {
+			t.Fatalf("full-catalog search omitted its exact eligible in-stock target %s/%s", available.MerchantID, available.SKUID)
+		}
+	}
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	t.Logf("MYSQL_SEEDED_CATALOG_SEARCH_SCALE_PASS merchants=%d products=%d search_repeats=%d candidates=%d p50_ms=%.3f p95_ms=%.3f",
+		len(merchants), len(rows), len(latencies), candidateCount,
+		float64(latencies[len(latencies)/2].Microseconds())/1000,
+		float64(latencies[int(float64(len(latencies)-1)*0.95)].Microseconds())/1000)
 }
 
 func TestCleanupMySQLIntegrationTenant(t *testing.T) {
