@@ -4,6 +4,19 @@ import "time"
 
 const SimulationTenantID = "stablepay-shopping-sim"
 
+const (
+	TaskStatusIntentPending          = "INTENT_PENDING"
+	TaskStatusIntentParseFailed      = "INTENT_PARSE_FAILED"
+	TaskStatusDiscovered             = "DISCOVERED"
+	TaskStatusNoMatchingCandidates   = "NO_MATCHING_CANDIDATES"
+	TaskStatusQuoted                 = "QUOTED"
+	TaskStatusReconfirmationRequired = "RECONFIRMATION_REQUIRED"
+	TaskStatusBuyerConfirmed         = "BUYER_CONFIRMED"
+	TaskStatusBuyerRejected          = "BUYER_REJECTED"
+	TaskStatusPaid                   = "PAID"
+	TaskStatusPaymentFailed          = "PAYMENT_FAILED"
+)
+
 // These records live only in the dedicated stablepay_shopping_sim database.
 // Every business record is explicitly marked synthetic; none maps to the
 // production Commerce Runtime ledger or payment_intents tables.

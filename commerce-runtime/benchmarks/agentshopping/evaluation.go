@@ -264,12 +264,7 @@ func rankTreatment(products []Product, offers map[string]Inventory, intent Inten
 		if !ok || !offer.Eligible || offer.OnHand-offer.Reserved < 1 || offer.PriceMinor > intent.MaxPriceMinor {
 			continue
 		}
-		score := 0
-		if product.Style == intent.PreferredStyle {
-			score = 2
-		} else if intent.PreferredStyle != "" && strings.Contains(strings.ToLower(strings.Join(product.Tags, " ")), strings.ToLower(intent.PreferredStyle)) {
-			score = 1
-		}
+		score := stylePreferenceScore(product, intent.PreferredStyle)
 		candidates = append(candidates, rankedOffer{product: product, offer: offer, score: score})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
@@ -282,6 +277,16 @@ func rankTreatment(products []Product, offers map[string]Inventory, intent Inten
 		return candidates[i].product.SKUID < candidates[j].product.SKUID
 	})
 	return truncateRanked(candidates, limit)
+}
+
+func stylePreferenceScore(product Product, preferred string) int {
+	if product.Style == preferred {
+		return 2
+	}
+	if preferred != "" && strings.Contains(strings.ToLower(strings.Join(product.Tags, " ")), strings.ToLower(preferred)) {
+		return 1
+	}
+	return 0
 }
 
 func truncateRanked(candidates []rankedOffer, limit int) []rankedOffer {

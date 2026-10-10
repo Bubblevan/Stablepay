@@ -396,8 +396,7 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 		Joins("JOIN sim_inventory AS i ON i.tenant_id = p.tenant_id AND i.merchant_id = p.merchant_id AND i.sku_id = p.sku_id").
 		Where("p.tenant_id = ? AND i.tenant_id = ? AND p.status = 'active' AND p.currency = ? AND p.category = ? AND p.item = ? AND p.format = ? AND i.region = ? AND i.price_minor <= ? AND i.eligible = ? AND i.on_hand > i.reserved",
 			s.tenant, s.tenant, "USDC", intent.Category, intent.Item, intent.RequiredFormat, intent.Region, intent.MaxPriceMinor, true).
-		Order(clause.Expr{SQL: "CASE WHEN p.style = ? THEN 0 ELSE 1 END ASC, i.price_minor ASC, p.sku_id ASC", Vars: []any{intent.PreferredStyle}}).
-		Limit(limit).Scan(&rows).Error
+		Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -415,6 +414,20 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 			Inventory: OverlayEntry{MerchantID: row.MerchantID, SKUID: row.SKUID, Region: row.Region,
 				OnHand: row.OnHand, Eligible: row.Eligible, PriceMinor: row.PriceMinor, Revision: row.Revision},
 		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		leftScore := stylePreferenceScore(result[i].Product, intent.PreferredStyle)
+		rightScore := stylePreferenceScore(result[j].Product, intent.PreferredStyle)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if result[i].Inventory.PriceMinor != result[j].Inventory.PriceMinor {
+			return result[i].Inventory.PriceMinor < result[j].Inventory.PriceMinor
+		}
+		return result[i].Product.SKUID < result[j].Product.SKUID
+	})
+	if len(result) > limit {
+		result = result[:limit]
 	}
 	return result, nil
 }
@@ -486,6 +499,9 @@ func (s *MySQLStore) IssueQuote(ctx context.Context, request PersistentQuoteRequ
 			return err
 		}
 		if err := auditTx(tx, s.tenant, request.TaskID, quoteID, "QUOTE_ISSUED", now); err != nil {
+			return err
+		}
+		if err := updateTaskStatusTx(tx, s.tenant, request.TaskID, TaskStatusQuoted); err != nil {
 			return err
 		}
 		result = quoteFromRecord(row)
@@ -562,6 +578,9 @@ func (s *MySQLStore) ConfirmBuyer(ctx context.Context, request PersistentConfirm
 			if err := auditTx(tx, s.tenant, quote.TaskID, quote.QuoteID, "BUYER_CONFIRMATION_BLOCKED_EXPIRED_QUOTE", now); err != nil {
 				return err
 			}
+			if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, TaskStatusReconfirmationRequired); err != nil {
+				return err
+			}
 			rejected = ErrStaleQuote
 			return nil
 		}
@@ -582,6 +601,9 @@ func (s *MySQLStore) ConfirmBuyer(ctx context.Context, request PersistentConfirm
 					return err
 				}
 				if err := auditTx(tx, s.tenant, quote.TaskID, quote.QuoteID, "BUYER_CONFIRMATION_BLOCKED_STALE_QUOTE", now); err != nil {
+					return err
+				}
+				if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, TaskStatusReconfirmationRequired); err != nil {
 					return err
 				}
 				rejected = ErrStaleQuote
@@ -607,6 +629,13 @@ func (s *MySQLStore) ConfirmBuyer(ctx context.Context, request PersistentConfirm
 			action = "BUYER_CONFIRMED"
 		}
 		if err := auditTx(tx, s.tenant, quote.TaskID, confirmationID, action, now); err != nil {
+			return err
+		}
+		status := TaskStatusBuyerRejected
+		if request.Accepted {
+			status = TaskStatusBuyerConfirmed
+		}
+		if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, status); err != nil {
 			return err
 		}
 		result = confirmationFromRecord(row)
@@ -641,6 +670,7 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 		return CheckoutResult{}, ErrInvalidSimulationData
 	}
 	var result CheckoutResult
+	var staleBlocked bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var old OrderRecord
 		if err := tx.Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&old).Error; err == nil {
@@ -664,12 +694,20 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 			return ErrConfirmationRequired
 		}
 		var quote QuoteRecord
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id = ? AND quote_id = ? AND buyer_id = ? AND version = ? AND snapshot_hash = ?", s.tenant, confirmation.QuoteID, confirmation.BuyerID, confirmation.QuoteVersion, confirmation.QuoteHash).First(&quote).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id = ? AND quote_id = ? AND buyer_id = ?", s.tenant, confirmation.QuoteID, confirmation.BuyerID).First(&quote).Error; err != nil {
 			return ErrStaleQuote
 		}
 		now := s.now()
-		if !quote.ExpiresAt.After(now) || quote.AmountMinor != confirmation.AmountMinor {
-			return ErrStaleQuote
+		if quote.Version != confirmation.QuoteVersion || quote.SnapshotHash != confirmation.QuoteHash ||
+			!quote.ExpiresAt.After(now) || quote.AmountMinor != confirmation.AmountMinor {
+			if err := auditTx(tx, s.tenant, quote.TaskID, quote.QuoteID, "CHECKOUT_BLOCKED_STALE_QUOTE", now); err != nil {
+				return err
+			}
+			if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, TaskStatusReconfirmationRequired); err != nil {
+				return err
+			}
+			staleBlocked = true
+			return nil
 		}
 		var inventory InventoryRecord
 		key := map[string]any{"tenant_id": s.tenant, "merchant_id": quote.MerchantID, "sku_id": quote.SKUID, "region": quote.Region}
@@ -680,7 +718,11 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 			if err := auditTx(tx, s.tenant, quote.TaskID, quote.QuoteID, "CHECKOUT_BLOCKED_STALE_QUOTE", now); err != nil {
 				return err
 			}
-			return ErrStaleQuote
+			if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, TaskStatusReconfirmationRequired); err != nil {
+				return err
+			}
+			staleBlocked = true
+			return nil
 		}
 		orderID := StableID("order", s.tenant, idempotencyKey)
 		reservationID := StableID("reservation", s.tenant, orderID)
@@ -755,6 +797,9 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 		if err := auditTx(tx, s.tenant, quote.TaskID, orderID, order.Status, now); err != nil {
 			return err
 		}
+		if err := updateTaskStatusTx(tx, s.tenant, quote.TaskID, order.Status); err != nil {
+			return err
+		}
 		result = CheckoutResult{Order: Order{ID: order.OrderID, TenantID: order.TenantID, TaskID: order.TaskID,
 			BuyerID: order.BuyerID, QuoteID: order.QuoteID, ConfirmationID: order.ConfirmationID,
 			IdempotencyKey: order.IdempotencyKey, AmountMinor: order.AmountMinor, Currency: order.Currency,
@@ -773,6 +818,9 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 				return checkoutFromRecords(old, payment), nil
 			}
 		}
+	}
+	if err == nil && staleBlocked {
+		return CheckoutResult{}, ErrStaleQuote
 	}
 	return result, err
 }
@@ -824,7 +872,7 @@ func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotenc
 	requestHash := hashValue(buyerID, prompt)
 	row := ShoppingTaskRecord{TaskID: StableID("task", s.tenant, idempotencyKey), TenantID: s.tenant,
 		BuyerID: buyerID, IdempotencyKey: idempotencyKey, Prompt: prompt, IntentJSON: promptBytes,
-		Provider: "pending", Model: "pending", ParseSource: "live", Status: "INTENT_PENDING", CreatedAt: s.now(), DataOrigin: syntheticOrigin}
+		Provider: "pending", Model: "pending", ParseSource: "live", Status: TaskStatusIntentPending, CreatedAt: s.now(), DataOrigin: syntheticOrigin}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			var existing ShoppingTaskRecord
@@ -880,13 +928,13 @@ func (s *MySQLStore) SaveParsedIntent(ctx context.Context, taskID, provider, mod
 			OutputJSON: output, LatencyMS: latency.Milliseconds(),
 			Succeeded: parseErr == nil, CreatedAt: s.now(), DataOrigin: syntheticOrigin}
 		if parseErr != nil {
-			trace.ErrorCode = "INTENT_PARSE_FAILED"
-			task.Status = "INTENT_PARSE_FAILED"
+			trace.ErrorCode = TaskStatusIntentParseFailed
+			task.Status = TaskStatusIntentParseFailed
 		} else {
 			task.IntentJSON = output
 			task.Provider = provider
 			task.Model = model
-			task.Status = "DISCOVERED"
+			task.Status = TaskStatusDiscovered
 		}
 		if err := tx.Save(&task).Error; err != nil {
 			return err
@@ -939,6 +987,11 @@ func (s *MySQLStore) GetQuote(ctx context.Context, quoteID string) (Quote, error
 		return Quote{}, ErrNotFound
 	}
 	return quoteFromRecord(row), nil
+}
+
+func updateTaskStatusTx(tx *gorm.DB, tenant, taskID, status string) error {
+	return tx.Model(&ShoppingTaskRecord{}).Where("tenant_id = ? AND task_id = ?", tenant, taskID).
+		Update("status", status).Error
 }
 
 func auditTx(tx *gorm.DB, tenant, taskID, entityID, action string, at time.Time) error {

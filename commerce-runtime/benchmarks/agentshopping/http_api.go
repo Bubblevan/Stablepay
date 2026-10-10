@@ -43,6 +43,7 @@ func (a *HTTPAPI) routes() {
 	})
 	a.mux.Handle("GET /v1/dataset", a.auth(http.HandlerFunc(a.dataset)))
 	a.mux.Handle("GET /v1/buyers", a.auth(http.HandlerFunc(a.buyers)))
+	a.mux.Handle("GET /v1/tasks/{taskID}", a.auth(http.HandlerFunc(a.getTask)))
 	a.mux.Handle("POST /v1/intents/parse", a.auth(http.HandlerFunc(a.parseIntent)))
 	a.mux.Handle("POST /v1/quotes", a.auth(http.HandlerFunc(a.issueQuote)))
 	a.mux.Handle("GET /v1/quotes/{quoteID}", a.auth(http.HandlerFunc(a.getQuote)))
@@ -69,7 +70,7 @@ func (a *HTTPAPI) dataset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "DATASET_READ_FAILED", "could not read isolated simulation dataset")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant_id": SimulationTenantID, "counts": counts,
+	writeJSON(w, http.StatusOK, map[string]any{"tenant_id": a.store.tenant, "counts": counts,
 		"data_origin": syntheticOrigin, "payment_provider": "simulation-only", "real_settlement": false})
 }
 
@@ -104,7 +105,12 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	if task.Status == "DISCOVERED" {
+	if task.Status != TaskStatusIntentPending {
+		if task.Status == TaskStatusIntentParseFailed {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]string{"code": "INTENT_PARSE_FAILED", "message": "the original intent parse failed"},
+				"task_id": task.TaskID, "task_status": task.Status, "provider": task.Provider, "model": task.Model, "idempotent_replay": true})
+			return
+		}
 		var intent Intent
 		if err := json.Unmarshal(task.IntentJSON, &intent); err != nil {
 			writeError(w, http.StatusInternalServerError, "TASK_STATE_INVALID", "persisted shopping intent could not be read")
@@ -115,7 +121,7 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "CATALOG_READ_FAILED", "could not search the simulated catalog")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "intent": intent,
+		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": task.Status, "intent": intent,
 			"candidates": candidates, "provider": task.Provider, "model": task.Model, "idempotent_replay": true})
 		return
 	}
@@ -152,13 +158,16 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(candidates) == 0 {
-		_ = a.store.SetTaskStatus(r.Context(), task.TaskID, "NO_MATCHING_CANDIDATES")
-		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "intent": intent,
+		if err := a.store.SetTaskStatus(r.Context(), task.TaskID, TaskStatusNoMatchingCandidates); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "TASK_STATE_WRITE_FAILED", "could not persist the no-candidate task status")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusNoMatchingCandidates, "intent": intent,
 			"candidates": []Candidate{}, "provider": a.parser.Provider(), "model": a.parser.Model(),
 			"message": "No in-stock catalog item matches this region and budget; no quote or payment was created."})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "intent": intent, "candidates": candidates,
+	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusDiscovered, "intent": intent, "candidates": candidates,
 		"provider": a.parser.Provider(), "model": a.parser.Model(), "latency_ms": latency.Milliseconds(), "buyer_confirmation_required": true})
 }
 
@@ -231,7 +240,7 @@ func (a *HTTPAPI) checkout(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &request) {
 		return
 	}
-	result, err := a.store.Checkout(r.Context(), SimulationTenantID, request.ConfirmationID, request.IdempotencyKey)
+	result, err := a.store.Checkout(r.Context(), a.store.tenant, request.ConfirmationID, request.IdempotencyKey)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -248,6 +257,16 @@ func (a *HTTPAPI) getOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"order": order, "payment": payment, "simulation_only": true,
 		"real_settlement": false, "chain_transaction": nil})
+}
+
+func (a *HTTPAPI) getTask(w http.ResponseWriter, r *http.Request) {
+	task, err := a.store.GetTask(r.Context(), r.PathValue("taskID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": task.Status,
+		"provider": task.Provider, "model": task.Model, "data_origin": task.DataOrigin})
 }
 
 type inventoryAdjustmentRequest struct {

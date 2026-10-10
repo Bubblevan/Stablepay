@@ -81,6 +81,18 @@ func TestRankCandidatesTreatsStyleAsPreferenceNotHardFilter(t *testing.T) {
 	}
 }
 
+func TestStylePreferenceScoreMatchesExactAndLiteralTagPreference(t *testing.T) {
+	preferred := Product{Style: "花果香"}
+	aliased := Product{Style: "坚果可可", Tags: []string{"风格偏好：花果香"}}
+	other := Product{Style: "坚果可可", Tags: []string{"日常烘焙"}}
+	if stylePreferenceScore(preferred, "花果香") != 2 || stylePreferenceScore(aliased, "花果香") != 1 ||
+		stylePreferenceScore(other, "花果香") != 0 {
+		t.Fatalf("unexpected preference scores: exact=%d alias=%d other=%d",
+			stylePreferenceScore(preferred, "花果香"), stylePreferenceScore(aliased, "花果香"),
+			stylePreferenceScore(other, "花果香"))
+	}
+}
+
 func TestIntentEvaluationPopulatesFieldLevelMetrics(t *testing.T) {
 	intent := Intent{Category: "coffee", Item: "beans", RequiredFormat: "bag", PreferredStyle: "floral",
 		Region: "CN-EAST", MaxPriceMinor: 1000, AllowSubstitution: true, ConfirmationNeeded: true}
