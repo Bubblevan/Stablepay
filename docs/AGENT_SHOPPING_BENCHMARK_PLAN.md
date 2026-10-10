@@ -9,9 +9,10 @@ payment, and SQL audit in an isolated tenant. A separate 8-scenario,
 MySQL-backed safety integration covers budget/region/no-substitution
 refusals, explicit buyer rejection, stale quotes, idempotent confirmation,
 and a durable ambiguity-to-clarification path with a linked follow-up task.
-The remaining evaluation gaps are a human-authored paraphrase holdout and a
-concurrent shopping-API load test. These are still synthetic local results,
-not production marketplace quality or Merchant fulfillment.
+The six-tier concurrent shopping-API load test is now complete; the remaining
+evaluation gap is a human-authored paraphrase holdout. These are still
+synthetic local results, not production marketplace quality or Merchant
+fulfillment.
 
 ## What the existing fixture proves—and does not prove
 
@@ -34,8 +35,31 @@ The catalog importer validates all 240 listing pages (12 Merchants × 20 pages)
 and the final HTTP lifecycle run exercised 24,000 imported products from the
 running Merchant APIs. Startup validated the Merchant snapshot against the
 isolated MySQL seed and recorded equal catalog, overlay, task, and source
-manifest hashes. The shopping API itself was an in-process `httptest` server;
-the tasks ran sequentially, so this does not establish concurrent API capacity.
+manifest hashes. The shopping API itself is an in-process `httptest` server.
+The sequential lifecycle result does not establish concurrent API capacity;
+that is measured separately below.
+
+## Concurrent shopping API load result
+
+Run `lifecycle-20261010T170402.817022300Z-http-concurrent-af6795c4246d80be`
+completed all six closed-loop worker-pool tiers (`1/10/25/50/100/200`). Each
+tier replayed the same 500 locked GPT-6 Luna intents once as warmup and once as
+measurement; this is a bounded request-count test, not a steady-duration k6
+run. At 50 workers it completed 500 searches at **657.95 searches/s** with
+**94.865 ms P95**, zero HTTP/business errors, and zero MySQL pool waits. At 100
+and 200 workers it measured **643.81 / 712.10 searches/s**, with **165.535 /
+348.708 ms P95** and 1,666 / 2,763 MySQL pool waits, respectively. Every tier
+had 500/500 Top-1 gold hits. The isolated tenant audit passed with 6,000
+tasks and 6,000 parse traces, and confirmed zero quote, order, reservation,
+or simulated-payment side effects.
+
+The run used 12 local Merchant HTTP fixtures for an immutable 24,000-product
+snapshot, an in-process `httptest` shopping API, and isolated MySQL 8.0.46 on
+Windows/amd64 (Go 1.26.5, 18 CPUs); the test pool was configured to 96 open and
+96 idle connections. It made no new model calls and did not exercise purchase
+or payment. Exact metrics, manifest, audit, and per-request trials are retained
+locally under
+`.local-run/agent-shopping/lifecycle-evaluations/lifecycle-20261010T170402.817022300Z-http-concurrent-af6795c4246d80be/`.
 
 ## Measured locked intent-and-ranking subset
 
@@ -65,6 +89,44 @@ shopping language. The evaluator checks a deterministic inventory/price/
 region snapshot; its `PRICE_CHANGE` and `STOCK_CHANGE` labels do not inject a
 post-quote mutation. It does not execute buyer confirmation, checkout, payment,
 or Devnet settlement. Those remain separate gates below.
+
+## Interpretation of the requested resume metrics
+
+The OCP comparison that supplied the example numbers explicitly calls them
+illustrative hypothetical metrics, not measured OCP results. Treat them as
+aspirational targets only. Before comparing runs, freeze these definitions:
+
+- **Target-product recall:** for each task, relevant gold SKUs returned in the
+  top K divided by all accepted gold SKUs; report macro task-average and micro
+  SKU-level Recall@K, plus task-level `any accepted SKU in top K / tasks`.
+  Specify K and the inventory/region/price snapshot.
+- **Effective purchase-plan rate:** valid purchase plans divided by the number
+  of tasks labeled purchaseable in the frozen suite. A valid plan satisfies
+  every hard attribute, live stock/region/price and budget constraint, uses a
+  current quote revision, and requires fresh buyer confirmation. Parse errors,
+  missing candidates, and execution errors count as failures. Score correct
+  no-plan/clarification behavior on infeasible tasks separately.
+- **72.6% → 91.8%:** a paired comparison on the same frozen tasks, catalog
+  snapshot, and evaluator, with raw counts, percentage-point delta, and
+  confidence interval. Do not infer this from recall or terminal-state rate.
+- **286/300 sandbox purchases:** 300 unique, predeclared purchase attempts;
+  count a success only when the sandbox settlement and required order outcome
+  are linked to one logical order and pass amount/currency/idempotency audit.
+  Report declines/failures and duplicate successful settlements separately;
+  name whether sandbox means local mock, provider sandbox, or Devnet.
+
+The present suite is a generated fixture-consistency evaluation, not an
+independent 500-task holdout. `GenerateTasks` selects viable targets before
+constructing the prompt and gold labels; the evaluator then verifies gold
+offers against the same eligibility dimensions (format, budget, region, and
+stock). The latest locked run therefore reports B1 Recall@20 `596/596` and
+valid snapshot plans `500/500`, against B0 `389/500`—not the example
+`94.2%`, `72.6%`, or `91.8%`. It contains no independent natural-language
+holdout or systematic infeasible/contradictory tasks. The HTTP lifecycle is a
+separate 500-task run: all reached a terminal status, but only `483/500` were
+mock-settled and `17/500` were mock-declined. No independent `286/300`
+purchase suite was found; none of these are real-provider or Devnet purchase
+results.
 
 ## Architecture for a safe local experiment
 
@@ -179,9 +241,9 @@ counts unestimated.
    refusal, and rejected-consent paths assert zero unauthorized purchase-side
    effects; every per-test tenant is checked empty after cleanup. This is
    deterministic synthetic coverage, not a production authorization claim.
-6. Add a concurrent shopping-API load test with isolated tenant state and
-   deterministic recorded-intent replay; report p50/p95 and completed task
-   rate separately from the existing Runtime k6 benchmark.
+6. **Complete:** the six-tier concurrent shopping-API test uses isolated
+   tenant state and deterministic recorded-intent replay; p50/p95 and
+   completed search rate are reported separately from the Runtime k6 benchmark.
 7. Keep local raw model artifacts
    ignored, and update resume evidence only with achieved numbers and explicit
    scope.
