@@ -25,7 +25,16 @@ type mysqlIntegrationParser struct{}
 
 func (mysqlIntegrationParser) Provider() string { return "integration-test" }
 func (mysqlIntegrationParser) Model() string    { return "deterministic-stub" }
-func (mysqlIntegrationParser) Parse(_ context.Context, _ string, region string, budget int64, _ Taxonomy) (Intent, error) {
+func (mysqlIntegrationParser) Parse(_ context.Context, prompt string, region string, budget int64, _ Taxonomy) (Intent, error) {
+	if prompt == "safety-ambiguous-intent" {
+		return Intent{Category: "coffee", RequiredFormat: "whole-bean", PreferredStyle: "floral",
+			Region: region, MaxPriceMinor: budget, ClarificationRequired: true, ConfirmationNeeded: true}, nil
+	}
+	if prompt == "safety-unavailable-item-no-substitution" {
+		return Intent{Category: "coffee", Item: "not-listed-in-catalog", RequiredFormat: "whole-bean",
+			PreferredStyle: "floral", Region: region, MaxPriceMinor: budget, AllowSubstitution: false,
+			ConfirmationNeeded: true}, nil
+	}
 	return Intent{Category: "coffee", Item: "beans", RequiredFormat: "whole-bean", PreferredStyle: "floral",
 		Region: region, MaxPriceMinor: budget, ConfirmationNeeded: true}, nil
 }
@@ -138,6 +147,22 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 		}
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusQuoted)
 		confirmation := client.confirm(t, secondQuote, true, "fresh-price-confirm", http.StatusCreated).confirmation
+		confirmationReplay := client.confirm(t, secondQuote, true, "fresh-price-confirm", http.StatusCreated).confirmation
+		if confirmationReplay.ID != confirmation.ID {
+			t.Fatalf("idempotent confirmation replay changed identity: first=%+v replay=%+v", confirmation, confirmationReplay)
+		}
+		var confirmationCount, attemptCount int64
+		if err := store.db.WithContext(ctx).Model(&BuyerConfirmationRecord{}).
+			Where("tenant_id = ? AND quote_id = ?", tenantID, secondQuote.ID).Count(&confirmationCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.WithContext(ctx).Model(&BuyerConfirmationAttemptRecord{}).
+			Where("tenant_id = ? AND quote_id = ?", tenantID, secondQuote.ID).Count(&attemptCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if confirmationCount != 1 || attemptCount != 1 {
+			t.Fatalf("confirmation replay wrote duplicate rows: confirmations=%d attempts=%d", confirmationCount, attemptCount)
+		}
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusBuyerConfirmed)
 		checkoutKey := settledCheckoutKey("price-" + suffix)
 		result := client.checkout(t, confirmation.ID, checkoutKey, http.StatusCreated)
@@ -200,8 +225,158 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 			[]string{"INVENTORY_REVISED", "BUYER_CONFIRMED", "CHECKOUT_BLOCKED_STALE_QUOTE"})
 	}) && allScenariosPass
 
+	allScenariosPass = t.Run("explicit buyer rejection prevents checkout side effects", func(t *testing.T) {
+		fixture := createMySQLIntegrationFixture(t, ctx, store, client, suffix+"-rejected")
+		quote := client.issueAndCheckQuote(t, fixture)
+		rejection := client.confirm(t, quote, false, "buyer-rejected-consent", http.StatusCreated).confirmation
+		if rejection.Accepted {
+			t.Fatal("explicitly rejected confirmation was persisted as accepted")
+		}
+		client.assertTaskStatus(t, fixture.taskID, TaskStatusBuyerRejected)
+		blocked := client.checkoutError(t, rejection.ID, "checkout-after-buyer-rejection", http.StatusConflict)
+		if blocked != "BUYER_CONFIRMATION_REQUIRED" {
+			t.Fatalf("checkout after explicit buyer rejection returned %q, want BUYER_CONFIRMATION_REQUIRED", blocked)
+		}
+		assertMySQLIntegrationLifecycle(t, ctx, store, fixture.taskID, fixture, 0, 0, 0, 0, 4,
+			[]string{"BUYER_REJECTED"})
+	}) && allScenariosPass
+
+	allScenariosPass = t.Run("ambiguous intent is persisted for clarification with no purchase side effects", func(t *testing.T) {
+		fixture := createMySQLIntegrationFixture(t, ctx, store, client, suffix+"-clarification")
+		requestBody := map[string]any{"buyer_id": fixture.buyerID, "prompt": "safety-ambiguous-intent",
+			"idempotency_key": "ambiguous-" + suffix}
+		response := client.do(t, http.MethodPost, "/v1/intents/parse", requestBody)
+		var result struct {
+			TaskID                    string      `json:"task_id"`
+			TaskStatus                string      `json:"task_status"`
+			ClarificationQuestion     string      `json:"clarification_question"`
+			ClarificationFields       []string    `json:"clarification_fields"`
+			Candidates                []Candidate `json:"candidates"`
+			BuyerConfirmationRequired bool        `json:"buyer_confirmation_required"`
+			PaymentCreated            bool        `json:"payment_created"`
+			IdempotentReplay          bool        `json:"idempotent_replay"`
+		}
+		if response.status != http.StatusOK || json.Unmarshal(response.body, &result) != nil {
+			t.Fatalf("clarification response status=%d body=%s", response.status, response.body)
+		}
+		if result.TaskID == "" || result.TaskStatus != TaskStatusClarificationRequired ||
+			result.ClarificationQuestion != "您想购买哪种商品？" || len(result.ClarificationFields) != 1 ||
+			result.ClarificationFields[0] != "item" || len(result.Candidates) != 0 ||
+			result.BuyerConfirmationRequired || result.PaymentCreated || result.IdempotentReplay {
+			t.Fatalf("ambiguous intent did not stop at a durable clarification: %+v", result)
+		}
+		client.assertTaskStatus(t, result.TaskID, TaskStatusClarificationRequired)
+		replay := client.do(t, http.MethodPost, "/v1/intents/parse", requestBody)
+		var replayResult struct {
+			TaskID                string `json:"task_id"`
+			TaskStatus            string `json:"task_status"`
+			ClarificationQuestion string `json:"clarification_question"`
+			IdempotentReplay      bool   `json:"idempotent_replay"`
+		}
+		if replay.status != http.StatusOK || json.Unmarshal(replay.body, &replayResult) != nil ||
+			replayResult.TaskID != result.TaskID || replayResult.TaskStatus != TaskStatusClarificationRequired ||
+			replayResult.ClarificationQuestion != result.ClarificationQuestion || !replayResult.IdempotentReplay {
+			t.Fatalf("clarification idempotent replay changed its durable response: status=%d response=%+v body=%s", replay.status, replayResult, replay.body)
+		}
+		var traceCount int64
+		if err := store.db.WithContext(ctx).Model(&IntentParseTraceRecord{}).
+			Where("tenant_id = ? AND task_id = ?", tenantID, result.TaskID).Count(&traceCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if traceCount != 1 {
+			t.Fatalf("clarification replay invoked parsing or wrote duplicate traces: traces=%d", traceCount)
+		}
+		assertNoMySQLPurchaseSideEffects(t, ctx, store, tenantID, result.TaskID, fixture)
+
+		followUpRequest := map[string]any{"buyer_id": fixture.buyerID,
+			"prompt": "Buy one floral whole-bean coffee within budget", "idempotency_key": "clarified-" + suffix,
+			"clarifies_task_id": result.TaskID}
+		followUp := client.do(t, http.MethodPost, "/v1/intents/parse", followUpRequest)
+		var followUpResult struct {
+			TaskID          string      `json:"task_id"`
+			TaskStatus      string      `json:"task_status"`
+			ClarifiesTaskID string      `json:"clarifies_task_id"`
+			Candidates      []Candidate `json:"candidates"`
+		}
+		if followUp.status != http.StatusOK || json.Unmarshal(followUp.body, &followUpResult) != nil ||
+			followUpResult.TaskID == "" || followUpResult.TaskID == result.TaskID ||
+			followUpResult.TaskStatus != TaskStatusDiscovered || followUpResult.ClarifiesTaskID != result.TaskID ||
+			!containsCandidate(followUpResult.Candidates, fixture.merchantID, fixture.skuID) {
+			t.Fatalf("clarified follow-up did not create a linked candidate-search task: status=%d result=%+v body=%s",
+				followUp.status, followUpResult, followUp.body)
+		}
+		parent, err := store.GetTask(ctx, result.TaskID)
+		if err != nil || parent.Status != TaskStatusClarificationResolved || parent.ResolvedByTaskID != followUpResult.TaskID {
+			t.Fatalf("clarification parent was not durably linked to its answer: parent=%+v err=%v", parent, err)
+		}
+		var followUpRecord ShoppingTaskRecord
+		if err := store.db.WithContext(ctx).Where("tenant_id = ? AND task_id = ?", tenantID, followUpResult.TaskID).First(&followUpRecord).Error; err != nil {
+			t.Fatal(err)
+		}
+		if followUpRecord.ClarifiesTaskID != result.TaskID {
+			t.Fatalf("follow-up task parent link=%q, want %q", followUpRecord.ClarifiesTaskID, result.TaskID)
+		}
+		replayedResolvedParent := client.do(t, http.MethodPost, "/v1/intents/parse", requestBody)
+		var resolvedParentResponse struct {
+			TaskStatus       string `json:"task_status"`
+			ResolvedByTaskID string `json:"resolved_by_task_id"`
+			IdempotentReplay bool   `json:"idempotent_replay"`
+		}
+		if replayedResolvedParent.status != http.StatusOK || json.Unmarshal(replayedResolvedParent.body, &resolvedParentResponse) != nil ||
+			resolvedParentResponse.TaskStatus != TaskStatusClarificationResolved ||
+			resolvedParentResponse.ResolvedByTaskID != followUpResult.TaskID || !resolvedParentResponse.IdempotentReplay {
+			t.Fatalf("resolved clarification replay lost its linked outcome: status=%d response=%+v body=%s",
+				replayedResolvedParent.status, resolvedParentResponse, replayedResolvedParent.body)
+		}
+		assertNoMySQLPurchaseSideEffects(t, ctx, store, tenantID, followUpResult.TaskID, fixture)
+	}) && allScenariosPass
+
+	allScenariosPass = t.Run("impossible budget, unsupported region, and forbidden substitution fail closed", func(t *testing.T) {
+		fixture := createMySQLIntegrationFixture(t, ctx, store, client, suffix+"-negative")
+		cases := []struct {
+			name   string
+			prompt string
+			region string
+			budget int64
+			noSub  bool
+		}{
+			{name: "impossible budget", prompt: "Buy coffee with an impossible budget", region: "CN-EAST", budget: 999},
+			{name: "unsupported region", prompt: "Buy coffee outside all delivery regions", region: "EU-REMOTE", budget: 2000},
+			{name: "forbidden substitution", prompt: "safety-unavailable-item-no-substitution", region: "CN-EAST", budget: 2000, noSub: true},
+		}
+		for _, scenario := range cases {
+			t.Run(scenario.name, func(t *testing.T) {
+				if err := store.db.WithContext(ctx).Model(&BuyerRecord{}).
+					Where("tenant_id = ? AND buyer_id = ?", tenantID, fixture.buyerID).
+					Updates(map[string]any{"home_region": scenario.region, "budget_minor": scenario.budget}).Error; err != nil {
+					t.Fatal(err)
+				}
+				response := client.do(t, http.MethodPost, "/v1/intents/parse", map[string]any{
+					"buyer_id": fixture.buyerID, "prompt": scenario.prompt,
+					"idempotency_key": "negative-" + strings.ReplaceAll(scenario.name, " ", "-") + "-" + suffix,
+				})
+				var result struct {
+					TaskID     string      `json:"task_id"`
+					TaskStatus string      `json:"task_status"`
+					Intent     Intent      `json:"intent"`
+					Candidates []Candidate `json:"candidates"`
+				}
+				if response.status != http.StatusOK || json.Unmarshal(response.body, &result) != nil {
+					t.Fatalf("negative intent response status=%d body=%s", response.status, response.body)
+				}
+				if result.TaskID == "" || result.TaskStatus != TaskStatusNoMatchingCandidates || len(result.Candidates) != 0 {
+					t.Fatalf("unsafe negative intent was not rejected without candidates: %+v", result)
+				}
+				if scenario.noSub && result.Intent.AllowSubstitution {
+					t.Fatal("parser enabled substitution for a task that explicitly forbids it")
+				}
+				assertNoMySQLPurchaseSideEffects(t, ctx, store, tenantID, result.TaskID, fixture)
+			})
+		}
+	}) && allScenariosPass
+
 	if allScenariosPass {
-		t.Logf("MYSQL_HTTP_LIFECYCLE_PASS tenant=%s scenarios=3 price_requote=PASS stock_restock_reconfirm=PASS stock_loss_no_side_effect=PASS real_payment_adapter=NOT_PRESENT",
+		t.Logf("MYSQL_HTTP_LIFECYCLE_PASS tenant=%s scenarios=8 price_requote=PASS stock_restock_reconfirm=PASS stock_loss_no_side_effect=PASS buyer_rejection_no_payment=PASS ambiguous_intent_clarification=PASS impossible_budget_no_plan=PASS unsupported_region_no_plan=PASS forbidden_substitution_no_plan=PASS duplicate_confirmation_rows=0 real_payment_adapter=NOT_PRESENT",
 			tenantID)
 	}
 }
@@ -729,6 +904,15 @@ func createMySQLIntegrationFixture(t *testing.T, ctx context.Context, store *MyS
 	return fixture
 }
 
+func containsCandidate(candidates []Candidate, merchantID, skuID string) bool {
+	for _, candidate := range candidates {
+		if candidate.Product.MerchantID == merchantID && candidate.Product.SKUID == skuID {
+			return true
+		}
+	}
+	return false
+}
+
 func assertMySQLIntegrationLifecycle(t *testing.T, ctx context.Context, store *MySQLStore, taskID string,
 	fixture mysqlIntegrationFixture, orders, payments, reservations, staleAttempts int64, expectedOnHand int, requiredActions []string) {
 	t.Helper()
@@ -783,6 +967,79 @@ func assertMySQLIntegrationLifecycle(t *testing.T, ctx context.Context, store *M
 		if !seen[action] {
 			t.Errorf("missing audit action %q; events=%v", action, events)
 		}
+	}
+}
+
+func assertNoMySQLPurchaseSideEffects(t *testing.T, ctx context.Context, store *MySQLStore, tenant, taskID string,
+	fixture mysqlIntegrationFixture) {
+	t.Helper()
+	checks := []struct {
+		name  string
+		count func() (int64, error)
+	}{
+		{"quotes", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&QuoteRecord{}).Where("tenant_id = ? AND task_id = ?", tenant, taskID).Count(&count).Error
+			return count, err
+		}},
+		{"confirmations", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&BuyerConfirmationRecord{}).
+				Where("tenant_id = ? AND quote_id IN (SELECT quote_id FROM sim_quotes WHERE tenant_id = ? AND task_id = ?)", tenant, tenant, taskID).
+				Count(&count).Error
+			return count, err
+		}},
+		{"confirmation_attempts", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&BuyerConfirmationAttemptRecord{}).
+				Where("tenant_id = ? AND quote_id IN (SELECT quote_id FROM sim_quotes WHERE tenant_id = ? AND task_id = ?)", tenant, tenant, taskID).
+				Count(&count).Error
+			return count, err
+		}},
+		{"orders", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&OrderRecord{}).Where("tenant_id = ? AND task_id = ?", tenant, taskID).Count(&count).Error
+			return count, err
+		}},
+		{"reservations", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&InventoryReservationRecord{}).
+				Where("tenant_id = ? AND order_id IN (SELECT order_id FROM sim_orders WHERE tenant_id = ? AND task_id = ?)", tenant, tenant, taskID).
+				Count(&count).Error
+			return count, err
+		}},
+		{"simulated_payments", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&MockPaymentRecord{}).
+				Where("tenant_id = ? AND order_id IN (SELECT order_id FROM sim_orders WHERE tenant_id = ? AND task_id = ?)", tenant, tenant, taskID).
+				Count(&count).Error
+			return count, err
+		}},
+		{"inventory_adjustments", func() (int64, error) {
+			var count int64
+			err := store.db.WithContext(ctx).Model(&InventoryAdjustmentRecord{}).
+				Where("tenant_id = ? AND task_id = ?", tenant, taskID).Count(&count).Error
+			return count, err
+		}},
+	}
+	for _, check := range checks {
+		count, err := check.count()
+		if err != nil {
+			t.Errorf("count %s for no-plan task %s: %v", check.name, taskID, err)
+			continue
+		}
+		if count != 0 {
+			t.Errorf("no-plan task %s produced %d %s rows", taskID, count, check.name)
+		}
+	}
+	var inventory InventoryRecord
+	if err := store.db.WithContext(ctx).Where("tenant_id = ? AND merchant_id = ? AND sku_id = ? AND region = ?",
+		tenant, fixture.merchantID, fixture.skuID, "CN-EAST").First(&inventory).Error; err != nil {
+		t.Errorf("read inventory after no-plan task %s: %v", taskID, err)
+		return
+	}
+	if inventory.OnHand != 4 || inventory.Reserved != 0 {
+		t.Errorf("no-plan task %s changed inventory: on_hand=%d reserved=%d, want 4/0", taskID, inventory.OnHand, inventory.Reserved)
 	}
 }
 

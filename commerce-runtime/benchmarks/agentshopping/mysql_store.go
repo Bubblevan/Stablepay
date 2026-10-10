@@ -1063,25 +1063,47 @@ func (s *MySQLStore) Counts(ctx context.Context) (map[string]int64, error) {
 	return counts, nil
 }
 
-func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotencyKey string) (ShoppingTaskRecord, error) {
-	if buyerID == "" || strings.TrimSpace(prompt) == "" || idempotencyKey == "" || len(prompt) > 8000 {
+func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotencyKey string, clarifiesTaskIDs ...string) (ShoppingTaskRecord, error) {
+	if buyerID == "" || strings.TrimSpace(prompt) == "" || idempotencyKey == "" || len(prompt) > 8000 || len(clarifiesTaskIDs) > 1 {
 		return ShoppingTaskRecord{}, ErrInvalidSimulationData
+	}
+	clarifiesTaskID := ""
+	if len(clarifiesTaskIDs) == 1 {
+		clarifiesTaskID = strings.TrimSpace(clarifiesTaskIDs[0])
 	}
 	var buyer BuyerRecord
 	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND buyer_id = ?", s.tenant, buyerID).First(&buyer).Error; err != nil {
 		return ShoppingTaskRecord{}, ErrNotFound
 	}
+	requestHash := hashValue(buyerID, prompt, clarifiesTaskID)
+	var existing ShoppingTaskRecord
+	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&existing).Error; err == nil {
+		if existing.BuyerID == buyerID && hashValue(existing.BuyerID, existing.Prompt, existing.ClarifiesTaskID) == requestHash {
+			return existing, nil
+		}
+		return ShoppingTaskRecord{}, ErrIdempotencyConflict
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return ShoppingTaskRecord{}, err
+	}
+	if clarifiesTaskID != "" {
+		var parent ShoppingTaskRecord
+		if err := s.db.WithContext(ctx).Where("tenant_id = ? AND task_id = ?", s.tenant, clarifiesTaskID).First(&parent).Error; err != nil {
+			return ShoppingTaskRecord{}, ErrNotFound
+		}
+		if parent.BuyerID != buyerID || parent.Status != TaskStatusClarificationRequired {
+			return ShoppingTaskRecord{}, ErrClarificationNotOpen
+		}
+	}
 	promptBytes, _ := json.Marshal(map[string]any{})
-	requestHash := hashValue(buyerID, prompt)
 	row := ShoppingTaskRecord{TaskID: StableID("task", s.tenant, idempotencyKey), TenantID: s.tenant,
-		BuyerID: buyerID, IdempotencyKey: idempotencyKey, Prompt: prompt, IntentJSON: promptBytes,
+		BuyerID: buyerID, ClarifiesTaskID: clarifiesTaskID, IdempotencyKey: idempotencyKey, Prompt: prompt, IntentJSON: promptBytes,
 		Provider: "pending", Model: "pending", ParseSource: "live", Status: TaskStatusIntentPending, CreatedAt: s.now(), DataOrigin: syntheticOrigin}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			var existing ShoppingTaskRecord
-			if lookupErr := s.db.WithContext(ctx).Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&existing).Error; lookupErr == nil {
-				if existing.BuyerID == buyerID && hashValue(existing.BuyerID, existing.Prompt) == requestHash {
-					return existing, nil
+			var concurrent ShoppingTaskRecord
+			if lookupErr := s.db.WithContext(ctx).Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&concurrent).Error; lookupErr == nil {
+				if concurrent.BuyerID == buyerID && hashValue(concurrent.BuyerID, concurrent.Prompt, concurrent.ClarifiesTaskID) == requestHash {
+					return concurrent, nil
 				}
 				return ShoppingTaskRecord{}, ErrIdempotencyConflict
 			}
@@ -1137,10 +1159,29 @@ func (s *MySQLStore) SaveParsedIntent(ctx context.Context, taskID, provider, mod
 			task.IntentJSON = output
 			task.Provider = provider
 			task.Model = model
-			task.Status = TaskStatusDiscovered
+			if intent.ClarificationRequired {
+				task.Status = TaskStatusClarificationRequired
+			} else {
+				task.Status = TaskStatusDiscovered
+			}
 		}
 		if err := tx.Save(&task).Error; err != nil {
 			return err
+		}
+		if parseErr == nil && !intent.ClarificationRequired && task.ClarifiesTaskID != "" {
+			var parent ShoppingTaskRecord
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("tenant_id = ? AND task_id = ?", s.tenant, task.ClarifiesTaskID).First(&parent).Error; err != nil {
+				return ErrNotFound
+			}
+			if parent.BuyerID != task.BuyerID || parent.Status != TaskStatusClarificationRequired {
+				return ErrClarificationNotOpen
+			}
+			parent.Status = TaskStatusClarificationResolved
+			parent.ResolvedByTaskID = task.TaskID
+			if err := tx.Save(&parent).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "trace_id"}}, DoNothing: true}).Create(&trace).Error; err != nil {
 			return err

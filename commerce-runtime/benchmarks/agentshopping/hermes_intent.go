@@ -153,9 +153,15 @@ func (p HermesIntentParser) ParseWithUsage(ctx context.Context, prompt, defaultR
 	if parsed.MaxPriceMinor <= 0 || parsed.MaxPriceMinor > buyerBudgetMinor {
 		return Intent{}, usage, errors.New("parsed budget is missing or exceeds the buyer's fixed simulation budget")
 	}
-	if !allowedValue(taxonomy.Regions, parsed.Region) || !allowedValue(taxonomy.Categories, parsed.Category) ||
-		!allowedValue(taxonomy.Items, parsed.Item) || !allowedValue(taxonomy.Formats, parsed.RequiredFormat) ||
-		!allowedValue(taxonomy.Styles, parsed.PreferredStyle) {
+	if !allowedValue(taxonomy.Regions, parsed.Region) {
+		return Intent{}, usage, errors.New("parsed shopping intent contains a region outside the simulated catalog taxonomy")
+	}
+	parsed = normalizeIntentClarification(parsed)
+	if parsed.ClarificationRequired {
+		return parsed, usage, nil
+	}
+	if !allowedValue(taxonomy.Categories, parsed.Category) || !allowedValue(taxonomy.Items, parsed.Item) ||
+		!allowedValue(taxonomy.Formats, parsed.RequiredFormat) || !allowedValue(taxonomy.Styles, parsed.PreferredStyle) {
 		return Intent{}, usage, errors.New("parsed shopping intent contains values outside the simulated catalog taxonomy")
 	}
 	parsed.ConfirmationNeeded = true
@@ -219,6 +225,49 @@ type hermesIntentResponse struct {
 	AllowSubstitution bool   `json:"allow_substitution"`
 }
 
+func missingIntentClarificationFields(intent Intent) []string {
+	missing := make([]string, 0, 4)
+	for _, field := range []struct{ name, value string }{
+		{"category", intent.Category}, {"item", intent.Item},
+		{"required_format", intent.RequiredFormat}, {"preferred_style", intent.PreferredStyle},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			missing = append(missing, field.name)
+		}
+	}
+	return missing
+}
+
+func normalizeIntentClarification(intent Intent) Intent {
+	missing := missingIntentClarificationFields(intent)
+	if len(missing) == 0 && !intent.ClarificationRequired {
+		return intent
+	}
+	intent.ClarificationRequired = true
+	intent.ConfirmationNeeded = true
+	if strings.TrimSpace(intent.ClarificationQuestion) == "" {
+		questions := make([]string, 0, len(missing))
+		for _, field := range missing {
+			switch field {
+			case "category":
+				questions = append(questions, "商品属于哪一类？")
+			case "item":
+				questions = append(questions, "您想购买哪种商品？")
+			case "required_format":
+				questions = append(questions, "需要哪种规格或形式？")
+			case "preferred_style":
+				questions = append(questions, "对商品风格或属性有什么偏好？")
+			}
+		}
+		if len(questions) == 0 {
+			intent.ClarificationQuestion = "请补充商品类型、规格或偏好，以便继续搜索。"
+		} else {
+			intent.ClarificationQuestion = strings.Join(questions, "")
+		}
+	}
+	return intent
+}
+
 func decodeHermesIntent(output []byte) (Intent, error) {
 	text := strings.TrimSpace(string(bytes.TrimPrefix(output, []byte{0xef, 0xbb, 0xbf})))
 	if strings.HasPrefix(text, "```json") {
@@ -237,10 +286,6 @@ func decodeHermesIntent(output []byte) (Intent, error) {
 			return Intent{}, errors.New("Hermes returned trailing data after intent JSON")
 		}
 		return Intent{}, fmt.Errorf("Hermes returned invalid trailing data after intent JSON: %w", err)
-	}
-	if strings.TrimSpace(response.Category) == "" || strings.TrimSpace(response.Item) == "" ||
-		strings.TrimSpace(response.RequiredFormat) == "" || strings.TrimSpace(response.PreferredStyle) == "" {
-		return Intent{}, errors.New("Hermes intent is missing required product attributes")
 	}
 	return Intent{Category: strings.TrimSpace(response.Category), Item: strings.TrimSpace(response.Item),
 		RequiredFormat: strings.TrimSpace(response.RequiredFormat), PreferredStyle: strings.TrimSpace(response.PreferredStyle),

@@ -1,13 +1,17 @@
 # Agent Shopping Evaluation Plan
 
-Status: the locked 500-task intent-and-ranking evaluation and a 500-task
-persistent HTTP-to-MySQL purchase lifecycle completed on 2026-10-10. The
-lifecycle covers quote revisions, buyer consent, simulated payment, and SQL
-audit on synthetic data. The online API now has an opt-in path that takes its
-product snapshot directly from the 12 Merchant HTTP APIs; that exact full
-lifecycle has not yet been rerun through the new path. Do not present the
-synthetic results as production marketplace quality or as live Merchant
-fulfillment.
+Status: the locked 500-task intent-and-ranking evaluation and persistent
+HTTP-to-MySQL lifecycle completed on 2026-10-10. The final lifecycle run
+loaded and hash-validated its 24,000-product catalog from 12 running local
+Merchant HTTP fixtures (`lifecycle-20261010T163527.512255000Z-http-3d8d77529c31d84e`),
+then exercised quotes, buyer consent, stock/price revisions, simulation-only
+payment, and SQL audit in an isolated tenant. A separate 8-scenario,
+MySQL-backed safety integration covers budget/region/no-substitution
+refusals, explicit buyer rejection, stale quotes, idempotent confirmation,
+and a durable ambiguity-to-clarification path with a linked follow-up task.
+The remaining evaluation gaps are a human-authored paraphrase holdout and a
+concurrent shopping-API load test. These are still synthetic local results,
+not production marketplace quality or Merchant fulfillment.
 
 ## What the existing fixture proves—and does not prove
 
@@ -27,10 +31,11 @@ separate read-only Merchant HTTP snapshot; the isolated MySQL tenant holds the
 benchmark inventory/region/price overlay and transaction state.
 
 The catalog importer validates all 240 listing pages (12 Merchants × 20 pages)
-and the completed HTTP lifecycle run exercised 24,000 imported products. The
-currently added online HTTP-source mode must still be rerun with the Merchant
-processes listening so the final lifecycle evidence proves discovery used that
-source snapshot, rather than only the cloned MySQL catalog.
+and the final HTTP lifecycle run exercised 24,000 imported products from the
+running Merchant APIs. Startup validated the Merchant snapshot against the
+isolated MySQL seed and recorded equal catalog, overlay, task, and source
+manifest hashes. The shopping API itself was an in-process `httptest` server;
+the tasks ran sequentially, so this does not establish concurrent API capacity.
 
 ## Measured locked intent-and-ranking subset
 
@@ -161,14 +166,22 @@ counts unestimated.
 2. **Complete on the isolated MySQL snapshot:** exercise all 500 task lifecycles,
    including 50 price changes, 50 stock losses, fresh-consent checks, mock
    payment outcomes, idempotent replay, and SQL audit.
-3. **Next:** rerun that same locked lifecycle with `-UseMerchantHTTPSource`,
-   require live-vs-seeded catalog hash equality, and retain the new manifest and
-   audit artifacts. This requires all 12 local Merchant APIs to be healthy.
+3. **Complete:** rerun the locked lifecycle with the 12-process Merchant HTTP
+   snapshot, require live-vs-seeded hash equality, and retain the final metrics,
+   audit, manifest, and trial artifacts. Run ID and exact output directory are
+   recorded in `docs/RESUME_EVIDENCE.md`.
 4. Add a distinct holdout with human-authored paraphrases not included in the
    supplied alias table; report it separately from this templated suite.
-5. Expand the dedicated safety suite with impossible budgets, unsupported
-   regions, ambiguous intent, and forbidden substitutions; preserve the
-   zero-side-effect audit gate.
-6. Keep local raw model artifacts
+5. **Complete for the listed local safety cases:** MySQL/API integration covers
+   impossible budgets, unsupported regions, forbidden substitutions, rejected
+   buyer consent, stale price/stock quotes, duplicate confirmation, and
+   ambiguity-to-clarification followed by a linked child task. Clarification,
+   refusal, and rejected-consent paths assert zero unauthorized purchase-side
+   effects; every per-test tenant is checked empty after cleanup. This is
+   deterministic synthetic coverage, not a production authorization claim.
+6. Add a concurrent shopping-API load test with isolated tenant state and
+   deterministic recorded-intent replay; report p50/p95 and completed task
+   rate separately from the existing Runtime k6 benchmark.
+7. Keep local raw model artifacts
    ignored, and update resume evidence only with achieved numbers and explicit
    scope.

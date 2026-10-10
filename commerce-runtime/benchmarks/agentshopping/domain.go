@@ -79,14 +79,16 @@ type OverlayEntry struct {
 }
 
 type Intent struct {
-	Category           string `json:"category"`
-	Item               string `json:"item"`
-	RequiredFormat     string `json:"required_format"`
-	PreferredStyle     string `json:"preferred_style"`
-	Region             string `json:"region"`
-	MaxPriceMinor      int64  `json:"max_price_minor"`
-	AllowSubstitution  bool   `json:"allow_substitution"`
-	ConfirmationNeeded bool   `json:"confirmation_required"`
+	Category              string `json:"category"`
+	Item                  string `json:"item"`
+	RequiredFormat        string `json:"required_format"`
+	PreferredStyle        string `json:"preferred_style"`
+	Region                string `json:"region"`
+	MaxPriceMinor         int64  `json:"max_price_minor"`
+	AllowSubstitution     bool   `json:"allow_substitution"`
+	ConfirmationNeeded    bool   `json:"confirmation_required"`
+	ClarificationRequired bool   `json:"clarification_required,omitempty"`
+	ClarificationQuestion string `json:"clarification_question,omitempty"`
 }
 
 type Task struct {

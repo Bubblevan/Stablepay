@@ -171,9 +171,10 @@ func (a *HTTPAPI) buyers(w http.ResponseWriter, r *http.Request) {
 }
 
 type parseIntentRequest struct {
-	BuyerID        string `json:"buyer_id"`
-	Prompt         string `json:"prompt"`
-	IdempotencyKey string `json:"idempotency_key"`
+	BuyerID         string `json:"buyer_id"`
+	Prompt          string `json:"prompt"`
+	IdempotencyKey  string `json:"idempotency_key"`
+	ClarifiesTaskID string `json:"clarifies_task_id,omitempty"`
 }
 
 func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +187,7 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	task, err := a.store.CreateTask(r.Context(), buyer.BuyerID, request.Prompt, request.IdempotencyKey)
+	task, err := a.store.CreateTask(r.Context(), buyer.BuyerID, request.Prompt, request.IdempotencyKey, request.ClarifiesTaskID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -200,6 +201,10 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 		var intent Intent
 		if err := json.Unmarshal(task.IntentJSON, &intent); err != nil {
 			writeError(w, http.StatusInternalServerError, "TASK_STATE_INVALID", "persisted shopping intent could not be read")
+			return
+		}
+		if task.Status == TaskStatusClarificationRequired || task.Status == TaskStatusClarificationResolved {
+			writeIntentClarification(w, task.TaskID, task.Status, intent, task.Provider, task.Model, task.ResolvedByTaskID, true)
 			return
 		}
 		candidates, err := a.findCandidates(r.Context(), intent, 20)
@@ -228,6 +233,10 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 		intent, parseErr = a.parser.Parse(parseCtx, request.Prompt, buyer.HomeRegion, buyer.BudgetMinor, taxonomy)
 		usage.UsageStatus = "TOKEN_METRIC_UNAVAILABLE"
 	}
+	if parseErr == nil {
+		intent, _ = canonicalizeIntentFromTaxonomy(intent, taxonomy)
+		intent = normalizeIntentClarification(intent)
+	}
 	latency := time.Since(started)
 	if err := a.store.SaveParsedIntent(r.Context(), task.TaskID, a.parser.Provider(), a.parser.Model(), intent, latency, parseErr, usage); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "INTENT_TRACE_WRITE_FAILED", "could not persist the simulation intent trace")
@@ -236,6 +245,10 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 	if parseErr != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]string{"code": "INTENT_PARSE_FAILED", "message": "Hermes could not produce a valid shopping intent"},
 			"task_id": task.TaskID, "provider": a.parser.Provider(), "model": a.parser.Model()})
+		return
+	}
+	if intent.ClarificationRequired {
+		writeIntentClarification(w, task.TaskID, TaskStatusClarificationRequired, intent, a.parser.Provider(), a.parser.Model(), "", false)
 		return
 	}
 	candidates, err := a.findCandidates(r.Context(), intent, 20)
@@ -248,13 +261,28 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "TASK_STATE_WRITE_FAILED", "could not persist the no-candidate task status")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusNoMatchingCandidates, "intent": intent,
+		writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusNoMatchingCandidates,
+			"clarifies_task_id": task.ClarifiesTaskID, "intent": intent,
 			"candidates": []Candidate{}, "provider": a.parser.Provider(), "model": a.parser.Model(),
 			"message": "No in-stock catalog item matches this region and budget; no quote or payment was created."})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusDiscovered, "intent": intent, "candidates": candidates,
+	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": TaskStatusDiscovered,
+		"clarifies_task_id": task.ClarifiesTaskID, "intent": intent, "candidates": candidates,
 		"provider": a.parser.Provider(), "model": a.parser.Model(), "latency_ms": latency.Milliseconds(), "buyer_confirmation_required": true})
+}
+
+func writeIntentClarification(w http.ResponseWriter, taskID, status string, intent Intent, provider, model, resolvedByTaskID string, replay bool) {
+	payload := map[string]any{"task_id": taskID, "task_status": status,
+		"intent": intent, "candidates": []Candidate{}, "clarification_question": intent.ClarificationQuestion,
+		"clarification_fields": missingIntentClarificationFields(intent), "provider": provider, "model": model,
+		"buyer_confirmation_required": false, "payment_created": false, "real_settlement": false,
+		"idempotent_replay": replay,
+		"message":           "请补充缺失的购物条件后再搜索；当前没有创建报价或支付。"}
+	if resolvedByTaskID != "" {
+		payload["resolved_by_task_id"] = resolvedByTaskID
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 type issueQuoteRequest struct {
@@ -358,6 +386,7 @@ func (a *HTTPAPI) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.TaskID, "task_status": task.Status,
+		"clarifies_task_id": task.ClarifiesTaskID, "resolved_by_task_id": task.ResolvedByTaskID,
 		"provider": task.Provider, "model": task.Model, "data_origin": task.DataOrigin})
 }
 
@@ -414,6 +443,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "QUOTE_AMOUNT_MISMATCH", "confirmation amount must equal the immutable quote amount")
 	case errors.Is(err, ErrConfirmationRequired):
 		writeError(w, http.StatusConflict, "BUYER_CONFIRMATION_REQUIRED", "an accepted buyer confirmation is required before checkout")
+	case errors.Is(err, ErrClarificationNotOpen):
+		writeError(w, http.StatusConflict, "CLARIFICATION_NOT_OPEN", "the referenced shopping task is not awaiting clarification from this buyer")
 	case errors.Is(err, ErrIdempotencyConflict):
 		writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "idempotency key was already used for a different request")
 	case errors.Is(err, ErrInvalidSimulationData):

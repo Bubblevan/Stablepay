@@ -16,6 +16,7 @@ var (
 	ErrQuoteAmountMismatch   = errors.New("confirmation amount does not match the immutable quote")
 	ErrConfirmationRequired  = errors.New("explicit buyer confirmation is required")
 	ErrIdempotencyConflict   = errors.New("idempotency key was already used for a different confirmation")
+	ErrClarificationNotOpen  = errors.New("shopping task is not awaiting clarification from this buyer")
 	ErrInvalidSimulationData = errors.New("invalid benchmark simulation data")
 )
 

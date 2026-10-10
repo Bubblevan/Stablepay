@@ -7,6 +7,8 @@ const SimulationTenantID = "stablepay-shopping-sim"
 const (
 	TaskStatusIntentPending          = "INTENT_PENDING"
 	TaskStatusIntentParseFailed      = "INTENT_PARSE_FAILED"
+	TaskStatusClarificationRequired  = "CLARIFICATION_REQUIRED"
+	TaskStatusClarificationResolved  = "CLARIFICATION_RESOLVED"
 	TaskStatusDiscovered             = "DISCOVERED"
 	TaskStatusNoMatchingCandidates   = "NO_MATCHING_CANDIDATES"
 	TaskStatusQuoted                 = "QUOTED"
@@ -87,18 +89,20 @@ type BuyerRecord struct {
 func (BuyerRecord) TableName() string { return "sim_buyers" }
 
 type ShoppingTaskRecord struct {
-	TaskID         string    `gorm:"primaryKey;size:96"`
-	TenantID       string    `gorm:"size:64;not null;uniqueIndex:uk_sim_task_idem,priority:1;index:idx_sim_task_buyer,priority:1"`
-	BuyerID        string    `gorm:"size:96;not null;index:idx_sim_task_buyer,priority:2"`
-	IdempotencyKey string    `gorm:"size:128;not null;uniqueIndex:uk_sim_task_idem,priority:2"`
-	Prompt         string    `gorm:"type:text;not null"`
-	IntentJSON     []byte    `gorm:"type:json;not null"`
-	Provider       string    `gorm:"size:64;not null"`
-	Model          string    `gorm:"size:128;not null"`
-	ParseSource    string    `gorm:"size:32;not null"`
-	Status         string    `gorm:"size:32;not null;index"`
-	CreatedAt      time.Time `gorm:"not null"`
-	DataOrigin     string    `gorm:"size:32;not null;default:SYNTHETIC"`
+	TaskID           string    `gorm:"primaryKey;size:96"`
+	TenantID         string    `gorm:"size:64;not null;uniqueIndex:uk_sim_task_idem,priority:1;index:idx_sim_task_buyer,priority:1"`
+	BuyerID          string    `gorm:"size:96;not null;index:idx_sim_task_buyer,priority:2"`
+	ClarifiesTaskID  string    `gorm:"size:96;index"`
+	ResolvedByTaskID string    `gorm:"size:96"`
+	IdempotencyKey   string    `gorm:"size:128;not null;uniqueIndex:uk_sim_task_idem,priority:2"`
+	Prompt           string    `gorm:"type:text;not null"`
+	IntentJSON       []byte    `gorm:"type:json;not null"`
+	Provider         string    `gorm:"size:64;not null"`
+	Model            string    `gorm:"size:128;not null"`
+	ParseSource      string    `gorm:"size:32;not null"`
+	Status           string    `gorm:"size:32;not null;index"`
+	CreatedAt        time.Time `gorm:"not null"`
+	DataOrigin       string    `gorm:"size:32;not null;default:SYNTHETIC"`
 }
 
 func (ShoppingTaskRecord) TableName() string { return "sim_shopping_tasks" }
