@@ -32,6 +32,15 @@ This inventory records evidence-backed resume and interview claims from the curr
 | Historical real payment path | Earlier U1 runs also validated real Solana Devnet settlement/verification. The current six-node acceptance above is the latest retained proof. | qualitative | REAL_DEVNET | `benchmarks/minikube-six-node-devnet/acceptance-report.md`; historical U1 script `scripts/test-unified-business-e2e.ps1 -Mode U1` | `9b885e2`; historical `9086871`, `b62e062`, `1fccccf` | One paid six-node acceptance only; never call it “56 trials on Devnet.” | Which report and transaction identity prove this was Devnet? |
 | Prior real recovery provider | Validated a real DeepSeek recovery integration in prior U2 acceptance. | qualitative | REAL_LLM | `scripts/test-unified-business-e2e.ps1 -Mode U2`; recorded U2 artifacts | `b423752` | F0 status is `NOT RUN`; require a persisted non-rule `ModelDecisionTrace` for a fresh claim. | What distinguishes a real LLM trace from a rule fallback? |
 
+The Merchant-source boundary has a separate, narrower verification: the full
+240-page importer test reads 24,000 synthetic products from 12 in-process HTTP
+fixtures, and `TestMySQLHTTPMerchantSnapshotCandidateSearch` passed against
+isolated MySQL with a one-product fixture. It verified exact startup snapshot
+matching, rejected deliberate catalog drift, and returned Merchant snapshot
+metadata alongside MySQL inventory even after the copied MySQL title was made
+stale. This does not upgrade the 500-task lifecycle result to a live 12-process
+Merchant run; that rerun remains pending.
+
 ## Quantitative claim policy
 
 For a performance-focused resume, a safe quantified line is: “Load-tested a stateful commerce Runtime to 200 VUs, sustaining 1,319 HTTP req/s and 72.6 completed Episodes/s at 0% observed HTTP/business errors (60s measurement; local deterministic dependencies).” Keep the local scope adjacent to the numbers. A reliability-focused alternative is the observed safety pair (`0` unauthorized side effects / `0` duplicate settlements) plus `40/48` fault-trial recovery in deterministic live-local. The overall `48/56` is deliberately not a headline because the 56 include the expected `guard-rejected` safety-negative group.
