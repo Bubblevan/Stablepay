@@ -205,6 +205,135 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 	}
 }
 
+func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
+	if os.Getenv("SHOP_SIM_MYSQL_INTEGRATION") != "1" {
+		t.Skip("set SHOP_SIM_MYSQL_INTEGRATION=1 to run against the isolated shopping simulation MySQL")
+	}
+	password := os.Getenv("SHOP_SIM_DB_PASSWORD")
+	if strings.TrimSpace(password) == "" {
+		t.Fatal("SHOP_SIM_DB_PASSWORD is required when SHOP_SIM_MYSQL_INTEGRATION=1")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store, err := OpenLocalMySQLStore(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close isolated Merchant catalog integration MySQL: %v", err)
+		}
+	})
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := mysqlIntegrationSuffix(t)
+	tenantID := "shopping-catalog-it-" + suffix
+	store.tenant = tenantID
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cleanupCancel()
+		if err := cleanupMySQLIntegrationTenant(cleanupCtx, store, tenantID); err != nil {
+			t.Errorf("clean isolated catalog integration tenant %q: %v", tenantID, err)
+			return
+		}
+		counts, err := store.Counts(cleanupCtx)
+		if err != nil {
+			t.Errorf("verify catalog integration tenant cleanup: %v", err)
+			return
+		}
+		for table, count := range counts {
+			if count != 0 {
+				t.Errorf("catalog integration tenant retained %d rows in %s", count, table)
+			}
+		}
+	})
+
+	now := time.Now().UTC()
+	merchantID, skuID, buyerID := "sim-m01", "sim-m01-catalog-integration", "sim-buyer-catalog-integration"
+	merchant := MerchantRecord{TenantID: tenantID, MerchantID: merchantID, Name: "Synthetic Merchant",
+		Category: "coffee", DID: "did:sim:merchant:" + merchantID, DataOrigin: syntheticOrigin, CreatedAt: now}
+	product := Product{ID: StableID("product", merchantID, skuID), MerchantID: merchantID, SKUID: skuID,
+		Category: "coffee", Item: "beans", Format: "whole-bean", Style: "floral",
+		Title: "beans · whole-bean · floral · source integration fixture", Description: "synthetic source listing",
+		Price: "10.00", PriceMinor: 1000, Currency: "USDC", Tags: []string{"synthetic"}, Status: "active"}
+	tagsJSON, err := json.Marshal(product.Tags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	productRow := ProductRecord{TenantID: tenantID, MerchantID: merchantID, SKUID: skuID, Category: product.Category,
+		Item: product.Item, Format: product.Format, Style: product.Style, Title: product.Title,
+		Description: product.Description, BasePrice: product.PriceMinor, Currency: product.Currency,
+		Status: product.Status, TagsJSON: tagsJSON, AttributesJSON: []byte(`{"data_origin":"SYNTHETIC_SIMULATION"}`),
+		DataOrigin: syntheticOrigin, CreatedAt: now, UpdatedAt: now}
+	inventory := InventoryRecord{TenantID: tenantID, MerchantID: merchantID, SKUID: skuID, Region: "CN-EAST",
+		OnHand: 4, Eligible: true, PriceMinor: 1000, Currency: "USDC", Revision: 1, UpdatedAt: now, DataOrigin: syntheticOrigin}
+	buyer := BuyerRecord{TenantID: tenantID, BuyerID: buyerID, DisplayName: "Synthetic Catalog Buyer",
+		HomeRegion: "CN-EAST", Segment: "integration", BudgetMinor: 2000, PreferencesJSON: []byte(`{}`),
+		DataOrigin: syntheticOrigin, CreatedAt: now}
+	if err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, row := range []any{&merchant, &productRow, &inventory, &buyer} {
+			if err := tx.Create(row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed synthetic Merchant HTTP catalog integration tenant: %v", err)
+	}
+
+	catalog := ImportedCatalog{Merchants: []MerchantRecord{merchant}, Products: []Product{product}}
+	if err := store.ValidateMerchantCatalogSnapshot(ctx, catalog); err != nil {
+		t.Fatalf("matching Merchant and MySQL snapshots should validate: %v", err)
+	}
+	drifted := catalog
+	drifted.Products = append([]Product(nil), catalog.Products...)
+	drifted.Products[0].Description = "stale Merchant description"
+	if err := store.ValidateMerchantCatalogSnapshot(ctx, drifted); err == nil {
+		t.Fatal("Merchant/MySQL snapshot validator accepted product metadata drift")
+	}
+	if err := store.db.WithContext(ctx).Model(&ProductRecord{}).
+		Where("tenant_id = ? AND merchant_id = ? AND sku_id = ?", tenantID, merchantID, skuID).
+		Update("title", "stale MySQL title after startup").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	api, err := NewHTTPAPIWithMerchantCatalog(store, mysqlIntegrationParser{}, mysqlIntegrationAPIKey, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+	client := &mysqlIntegrationAPI{client: server.Client(), server: server, key: mysqlIntegrationAPIKey}
+	response := client.do(t, http.MethodPost, "/v1/intents/parse", map[string]any{
+		"buyer_id": buyerID, "prompt": "Buy one floral whole-bean coffee within budget", "idempotency_key": "catalog-search-" + suffix,
+	})
+	if response.status != http.StatusOK {
+		t.Fatalf("Merchant-backed intent search status=%d body=%s", response.status, response.body)
+	}
+	var result struct {
+		TaskStatus string      `json:"task_status"`
+		Candidates []Candidate `json:"candidates"`
+	}
+	if err := json.Unmarshal(response.body, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.TaskStatus != TaskStatusDiscovered || len(result.Candidates) != 1 {
+		t.Fatalf("Merchant-backed candidate search result=%+v body=%s", result, response.body)
+	}
+	candidate := result.Candidates[0]
+	if candidate.Product.SKUID != skuID || candidate.Product.Title != product.Title ||
+		candidate.Inventory.MerchantID != merchantID || candidate.Inventory.PriceMinor != inventory.PriceMinor ||
+		candidate.Inventory.OnHand != inventory.OnHand || !candidate.Inventory.Eligible {
+		t.Fatalf("candidate did not combine Merchant product facts with isolated MySQL inventory: %+v", candidate)
+	}
+	t.Logf("MYSQL_MERCHANT_HTTP_CANDIDATE_PASS tenant=%s products=%d source=%s", tenantID, len(catalog.Products), "merchant_http_snapshot")
+}
+
 func TestCleanupMySQLIntegrationTenant(t *testing.T) {
 	tenant := os.Getenv("SHOP_SIM_MYSQL_CLEANUP_TENANT")
 	if tenant == "" {
