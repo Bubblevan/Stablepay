@@ -1,7 +1,10 @@
 # Agent Shopping Evaluation Plan
 
-Status: experiment design only. The 500-task targets below are not measured
-results and must not be put on a resume until the locked run completes.
+Status: the locked 500-task intent-and-ranking sub-experiment completed on
+2026-10-10 and exceeded its numeric targets on this synthetic fixture. The
+broader purchase lifecycle, real state-transition, confirmation, and safety
+suite remain incomplete; do not present the current numbers as production
+marketplace quality or as proof of those unmeasured behaviors.
 
 ## What the existing fixture proves—and does not prove
 
@@ -22,6 +25,35 @@ have its own read-only catalog adapter and benchmark index.
 The earlier page-20 smoke test establishes pagination metadata for one page per
 Merchant. It does not yet prove a complete 24,000-row ingest or shopping
 quality.
+
+## Measured locked intent-and-ranking subset
+
+Run `shopping-intents-20261010T135310.164825200Z` completed the fixed 500-task
+suite (`seed=20261010`, task SHA-256
+`sha256:4f7619a0455dfadfc20922c39b12824218250ebf80d8cc395eed2948a4f84b21`):
+
+- GPT-6 Luna via the `openai-codex` provider produced 500/500 parse-valid and
+  raw-model exact intents. The explicit taxonomy normalizer made zero
+  corrections in this run.
+- On the same 500 intents, B1 had `Recall@20 = 596/596` (macro and micro both
+  100%) and 500/500 valid snapshot plans. B0 had 389/500 valid plans (77.8%),
+  so the observed paired plan-rate difference was 22.2 percentage points.
+- The model ran in 10 batches. Hermes reported 82,434 input and 26,682 output
+  tokens; API-call count is `TOKEN_METRIC_UNAVAILABLE`. Temperature, top-p, and
+  max-token settings were not reported by the CLI. All 10 saved streams had
+  zero `tool_use` and zero `tool_result` events; the run used the explicit
+  no-tools `bot_room` allowlist.
+- The reproducible report, manifest, 500 trials, raw responses, and streams
+  are local-only under
+  `.local-run/agent-shopping/evaluations/shopping-intents-20261010T135310.164825200Z/`.
+
+This is a generated, templated suite derived from the same synthetic catalog;
+the model was given catalog allowlists and the benchmark's explicit alias
+dictionary. It is not a human-authored holdout or a measure of open-world
+shopping language. The evaluator checks a deterministic inventory/price/
+region snapshot; its `PRICE_CHANGE` and `STOCK_CHANGE` labels do not inject a
+post-quote mutation. It does not execute buyer confirmation, checkout, payment,
+or Devnet settlement. Those remain separate gates below.
 
 ## Architecture for a safe local experiment
 
@@ -83,12 +115,12 @@ Run both versions on the same snapshot, task IDs, overlay, and ranking cutoff:
 
 Initially feed both rankers the same structured gold intent to isolate catalog
 recall and plan selection. In a second, separately reported pass, feed the
-Chinese prompt through the intent parser and score field-level extraction
-against the gold intent. This prevents parser errors from being confused with
-ranking errors. No DeepSeek or other paid/external LLM call is part of this
-plan; a provider-backed parsing experiment needs separate explicit
-authorization and must record model/config/prompt hashes and actual token
-usage only.
+Chinese prompt through the intent parser and score both raw-model and
+post-normalization field accuracy against the gold intent. This prevents parser
+errors from being confused with ranking errors. The completed intent pass used
+GPT-6 Luna through the Codex provider, not DeepSeek; its manifest records model,
+prompt hashes, and observed token usage while leaving unavailable API-call
+counts unestimated.
 
 ## Metrics and decision rules
 
@@ -118,9 +150,13 @@ usage only.
 1. Verify the 12-service pagination contract and complete 24,000-SKU ingest.
 2. Validate task/oracle and state-overlay invariants with boundary and
    adversarial tests; freeze hashes.
-3. Run the safety suite first with a mock plan executor and prove no payment
-   adapter is reachable.
-4. Run B0 and B1 over all 500 locked cases, compare paired results, and inspect
-   every mismatch before publishing a resume claim.
-5. Commit the benchmark code, fixed dataset, manifest, raw traces, and report;
-   update resume evidence only with achieved numbers and explicit scope.
+3. Add a distinct holdout with human-authored paraphrases not included in the
+   supplied alias table; report it separately from this templated suite.
+4. Implement and test price/stock mutation followed by stale-quote rejection,
+   renewed buyer confirmation, and safe decline/accept paths.
+5. Run the dedicated safety suite with a mock plan executor and prove no
+   payment adapter is reachable; then run the full shopping lifecycle and
+   audit its state transitions.
+6. Commit the benchmark code and methodology; keep local raw model artifacts
+   ignored, and update resume evidence only with achieved numbers and explicit
+   scope.
