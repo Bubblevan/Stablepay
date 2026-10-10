@@ -1,7 +1,9 @@
 package agentshopping
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -18,28 +20,59 @@ func TestStructuredEvaluationSeparatesStaticBaselineFromCurrentOfferFilter(t *te
 	}
 	products = append(products, Product{SKUID: "available-target", MerchantID: "m1", Category: "coffee", Item: "beans",
 		Format: "bag", Style: "floral", Currency: "USDC", PriceMinor: 500, Title: "beans · bag · floral · target"})
+	products = append(products, Product{SKUID: "available-alternative", MerchantID: "m1", Category: "coffee", Item: "beans",
+		Format: "bag", Style: "floral", Currency: "USDC", PriceMinor: 550, Title: "beans · bag · floral · alternative"})
 	offers = append(offers, Inventory{TenantID: SimulationTenantID, MerchantID: "m1", SKUID: "available-target",
 		Region: "CN-EAST", OnHand: 1, Eligible: true, PriceMinor: 500, Revision: 1})
+	offers = append(offers, Inventory{TenantID: SimulationTenantID, MerchantID: "m1", SKUID: "available-alternative",
+		Region: "CN-EAST", OnHand: 1, Eligible: true, PriceMinor: 550, Revision: 1})
 	catalog := ImportedCatalog{Seed: 20261010, Products: products, Inventory: offers}
 	task := Task{TaskID: "locked-001", SourceMerchantID: "m1", Scenario: "STOCK_CHANGE",
 		Intent: Intent{Category: "coffee", Item: "beans", RequiredFormat: "bag", PreferredStyle: "floral",
 			Region: "CN-EAST", MaxPriceMinor: 1000, ConfirmationNeeded: true},
-		GoldSKUs: []string{"available-target"}, UniqueTarget: "available-target"}
-	report, rows, err := EvaluateStructuredTasks(catalog, []Task{task}, 20, 1000, 7)
+		GoldSKUs: []string{"available-target", "available-alternative"}, UniqueTarget: "available-target"}
+	report, rows, err := EvaluateStructuredTasks(catalog, []Task{task}, 1, 1000, 7)
 	if err != nil {
 		t.Fatalf("EvaluateStructuredTasks: %v", err)
 	}
 	if len(rows) != 1 || report.TaskCount != 1 {
 		t.Fatalf("unexpected evaluation dimensions: report=%+v rows=%d", report, len(rows))
 	}
-	if rows[0].Baseline.RecallHits != 0 || rows[0].Baseline.PlanValid {
-		t.Fatalf("static baseline should miss the unavailable/expensive gold SKU at K=20: %+v", rows[0].Baseline)
+	if rows[0].Baseline.RecallHits != 0 || rows[0].Baseline.TaskHit || rows[0].Baseline.PlanValid {
+		t.Fatalf("static baseline should miss the unavailable/expensive gold SKUs at K=1: %+v", rows[0].Baseline)
 	}
-	if rows[0].Treatment.RecallHits != 1 || !rows[0].Treatment.PlanValid || rows[0].Treatment.TopSKU != "available-target" {
+	if rows[0].Treatment.RecallHits != 1 || !rows[0].Treatment.TaskHit || !rows[0].Treatment.PlanValid || rows[0].Treatment.TopSKU != "available-target" {
 		t.Fatalf("treatment should retrieve and select the eligible offer: %+v", rows[0].Treatment)
 	}
 	if report.Baseline.ValidPlans != 0 || report.Treatment.ValidPlans != 1 || report.Treatment.ValidPlanRate != 1 {
 		t.Fatalf("unexpected paired summaries: baseline=%+v treatment=%+v", report.Baseline, report.Treatment)
+	}
+	if report.SchemaVersion != "stablepay.agent-shopping-eval.v2" ||
+		report.Baseline.TaskHitCount != 0 || report.Baseline.TaskHitRate != 0 || report.Baseline.TaskHitRateCI95 != [2]float64{} ||
+		report.Treatment.TaskHitCount != 1 || report.Treatment.TaskHitRate != 1 || report.Treatment.TaskHitRateCI95 != [2]float64{1, 1} ||
+		report.TaskHitDeltaTreatmentMinusBaseline != 1 || report.TaskHitDeltaTreatmentMinusBaselineCI95 != [2]float64{1, 1} {
+		t.Fatalf("task-hit metrics should count tasks with at least one gold SKU independently from SKU recall: baseline=%+v treatment=%+v",
+			report.Baseline, report.Treatment)
+	}
+	if report.Treatment.RecallHits != 1 || report.Treatment.RelevantGoldSKUs != 2 || report.Treatment.MicroRecallAtK != 0.5 {
+		t.Fatalf("SKU-level recall denominator was conflated with task-level hits: %+v", report.Treatment)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal evaluation v2 report: %v", err)
+	}
+	for _, field := range []string{"\"task_hit_rate_at_k_ci95\":[1,1]",
+		"\"paired_task_hit_rate_delta_treatment_minus_baseline\":1"} {
+		if !strings.Contains(string(encoded), field) {
+			t.Errorf("evaluation v2 JSON omits %s: %s", field, encoded)
+		}
+	}
+	encodedTrials, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("marshal evaluation v2 trials: %v", err)
+	}
+	if !strings.Contains(string(encodedTrials), "\"task_hit_at_k\":true") {
+		t.Errorf("evaluation v2 per-task JSON omits the task-hit decision: %s", encodedTrials)
 	}
 }
 

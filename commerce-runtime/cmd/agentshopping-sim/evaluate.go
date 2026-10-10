@@ -150,10 +150,16 @@ func evaluate(args []string) error {
 		"run_id": runID, "run_dir": finalDir, "manifest_sha256": hashes.ManifestSHA256,
 		"catalog_sha256": hashes.CatalogSHA256, "overlay_sha256": hashes.OverlaySHA256,
 		"tasks_sha256": hashes.TasksSHA256, "task_count": len(tasks), "provider": "not_used",
-		"baseline_recall_at_20":     report.Baseline.MacroRecallAtK,
-		"treatment_recall_at_20":    report.Treatment.MacroRecallAtK,
-		"baseline_valid_plan_rate":  report.Baseline.ValidPlanRate,
-		"treatment_valid_plan_rate": report.Treatment.ValidPlanRate,
+		"baseline_recall_at_20":                               report.Baseline.MacroRecallAtK,
+		"treatment_recall_at_20":                              report.Treatment.MacroRecallAtK,
+		"baseline_task_hit_rate_at_20":                        report.Baseline.TaskHitRate,
+		"treatment_task_hit_rate_at_20":                       report.Treatment.TaskHitRate,
+		"baseline_tasks_with_any_gold_in_top_20":              report.Baseline.TaskHitCount,
+		"treatment_tasks_with_any_gold_in_top_20":             report.Treatment.TaskHitCount,
+		"paired_task_hit_rate_delta_treatment_minus_baseline": report.TaskHitDeltaTreatmentMinusBaseline,
+		"paired_task_hit_rate_delta_ci95":                     report.TaskHitDeltaTreatmentMinusBaselineCI95,
+		"baseline_valid_plan_rate":                            report.Baseline.ValidPlanRate,
+		"treatment_valid_plan_rate":                           report.Treatment.ValidPlanRate,
 	})
 }
 

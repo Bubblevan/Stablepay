@@ -71,8 +71,15 @@ suite (`seed=20261010`, task SHA-256
   raw-model exact intents. The explicit taxonomy normalizer made zero
   corrections in this run.
 - On the same 500 intents, B1 had `Recall@20 = 596/596` (macro and micro both
-  100%) and 500/500 valid snapshot plans. B0 had 389/500 valid plans (77.8%),
-  so the observed paired plan-rate difference was 22.2 percentage points.
+  100%), a task-level `any gold SKU in top 20` hit on 500/500 tasks (derived
+  from the saved per-task `downstream_treatment.recall_hits` values), and
+  500/500 valid snapshot plans. B0 had 389/500 valid plans (77.8%), so the
+  observed paired plan-rate difference was 22.2 percentage points. The
+  task-hit figure is a derived view of this same templated run, not an
+  independent evaluation. Evaluation report schema v2 now emits task-hit
+  numerator/rate/95% bootstrap CI for each policy and the paired treatment vs
+  baseline delta/CI; this schema change does not retroactively alter the
+  original run artifacts.
 - The model ran in 10 batches. Hermes reported 82,434 input and 26,682 output
   tokens; API-call count is `TOKEN_METRIC_UNAVAILABLE`. Temperature, top-p, and
   max-token settings were not reported by the CLI. All 10 saved streams had

@@ -32,6 +32,9 @@ type EvaluationSummary struct {
 	MicroRecallAtK         float64    `json:"micro_recall_at_k"`
 	MacroRecallAtK         float64    `json:"macro_recall_at_k"`
 	MacroRecallAtKCI95     [2]float64 `json:"macro_recall_at_k_ci95"`
+	TaskHitCount           int        `json:"tasks_with_any_gold_in_top_k"`
+	TaskHitRate            float64    `json:"task_hit_rate_at_k"`
+	TaskHitRateCI95        [2]float64 `json:"task_hit_rate_at_k_ci95"`
 	ValidPlans             int        `json:"valid_plans"`
 	ValidPlanRate          float64    `json:"valid_plan_rate"`
 	ValidPlanRateCI95      [2]float64 `json:"valid_plan_rate_ci95"`
@@ -59,6 +62,8 @@ type EvaluationReport struct {
 	RecallDeltaTreatmentMinusBaselineCI95   [2]float64         `json:"paired_macro_recall_delta_ci95"`
 	PlanRateDeltaTreatmentMinusBaseline     float64            `json:"paired_valid_plan_rate_delta_treatment_minus_baseline"`
 	PlanRateDeltaTreatmentMinusBaselineCI95 [2]float64         `json:"paired_valid_plan_rate_delta_ci95"`
+	TaskHitDeltaTreatmentMinusBaseline      float64            `json:"paired_task_hit_rate_delta_treatment_minus_baseline"`
+	TaskHitDeltaTreatmentMinusBaselineCI95  [2]float64         `json:"paired_task_hit_rate_delta_ci95"`
 	PairedPlanOutcomes                      PairedPlanOutcomes `json:"paired_plan_outcomes"`
 }
 
@@ -74,6 +79,7 @@ type PolicyTrial struct {
 	TopSKU         string   `json:"top_sku,omitempty"`
 	RecallHits     int      `json:"recall_hits"`
 	GoldCount      int      `json:"gold_count"`
+	TaskHit        bool     `json:"task_hit_at_k"`
 	PlanValid      bool     `json:"plan_valid"`
 	FailureReasons []string `json:"failure_reasons,omitempty"`
 }
@@ -177,6 +183,7 @@ func EvaluateStructuredTasks(catalog ImportedCatalog, tasks []Task, cutoff, boot
 	treatmentAcc := newEvaluationAccumulator("B1 hard-filter + live-stock-region-price + preference-rank", len(tasks), cutoff)
 	trials := make([]EvaluationTrial, 0, len(tasks))
 	pairedRecallDeltas := make([]float64, 0, len(tasks))
+	pairedTaskHitDeltas := make([]float64, 0, len(tasks))
 	pairedPlanDeltas := make([]float64, 0, len(tasks))
 	pairedOutcomes := PairedPlanOutcomes{}
 	seenIDs := make(map[string]bool, len(tasks))
@@ -197,6 +204,8 @@ func EvaluateStructuredTasks(catalog ImportedCatalog, tasks []Task, cutoff, boot
 		treatmentAcc.add(treatmentTrial, treatmentLatency)
 		pairedRecallDeltas = append(pairedRecallDeltas,
 			float64(treatmentTrial.RecallHits-baselineTrial.RecallHits)/float64(len(task.GoldSKUs)))
+		pairedTaskHitDeltas = append(pairedTaskHitDeltas,
+			float64(boolToInt(treatmentTrial.TaskHit)-boolToInt(baselineTrial.TaskHit)))
 		pairedPlanDeltas = append(pairedPlanDeltas,
 			float64(boolToInt(treatmentTrial.PlanValid)-boolToInt(baselineTrial.PlanValid)))
 		switch {
@@ -215,12 +224,14 @@ func EvaluateStructuredTasks(catalog ImportedCatalog, tasks []Task, cutoff, boot
 	baselineSummary := baselineAcc.finish(bootstrapSamples, seed)
 	treatmentSummary := treatmentAcc.finish(bootstrapSamples, seed+1)
 	recallDelta, recallDeltaCI := bootstrapMeanCI(pairedRecallDeltas, bootstrapSamples, seed+2)
+	taskHitDelta, taskHitDeltaCI := bootstrapMeanCI(pairedTaskHitDeltas, bootstrapSamples, seed+4)
 	planDelta, planDeltaCI := bootstrapMeanCI(pairedPlanDeltas, bootstrapSamples, seed+3)
-	return EvaluationReport{SchemaVersion: "stablepay.agent-shopping-eval.v1", Evaluation: "structured-gold-ranking",
+	return EvaluationReport{SchemaVersion: "stablepay.agent-shopping-eval.v2", Evaluation: "structured-gold-ranking",
 		DataOrigin: "SYNTHETIC_SIMULATION", Provider: "not_used", Model: "not_used", Seed: catalog.Seed,
 		ProductCount: len(catalog.Products), InventoryRows: len(catalog.Inventory), TaskCount: len(tasks),
 		Baseline: baselineSummary, Treatment: treatmentSummary,
 		RecallDeltaTreatmentMinusBaseline: recallDelta, RecallDeltaTreatmentMinusBaselineCI95: recallDeltaCI,
+		TaskHitDeltaTreatmentMinusBaseline: taskHitDelta, TaskHitDeltaTreatmentMinusBaselineCI95: taskHitDeltaCI,
 		PlanRateDeltaTreatmentMinusBaseline: planDelta, PlanRateDeltaTreatmentMinusBaselineCI95: planDeltaCI,
 		PairedPlanOutcomes: pairedOutcomes}, trials, nil
 }
@@ -307,6 +318,7 @@ func makePolicyTrial(task Task, candidates []rankedOffer, offers map[string]Inve
 			trial.RecallHits++
 		}
 	}
+	trial.TaskHit = trial.RecallHits > 0
 	if len(candidates) == 0 {
 		trial.FailureReasons = []string{"NO_CANDIDATE"}
 		return trial
@@ -349,22 +361,26 @@ type evaluationAccumulator struct {
 	cutoff         int
 	recallHits     int
 	relevant       int
+	taskHitCount   int
 	validPlans     int
 	noCandidates   int
 	candidateTotal int
 	macroRecall    []float64
+	taskHits       []float64
 	planSuccess    []float64
 	latencyMillis  []float64
 }
 
 func newEvaluationAccumulator(policy string, tasks, cutoff int) *evaluationAccumulator {
 	return &evaluationAccumulator{policy: policy, tasks: tasks, cutoff: cutoff,
-		macroRecall: make([]float64, 0, tasks), planSuccess: make([]float64, 0, tasks), latencyMillis: make([]float64, 0, tasks)}
+		macroRecall: make([]float64, 0, tasks), taskHits: make([]float64, 0, tasks),
+		planSuccess: make([]float64, 0, tasks), latencyMillis: make([]float64, 0, tasks)}
 }
 
 func (a *evaluationAccumulator) add(trial PolicyTrial, latency time.Duration) {
 	a.recallHits += trial.RecallHits
 	a.relevant += trial.GoldCount
+	a.taskHitCount += boolToInt(trial.TaskHit)
 	a.validPlans += boolToInt(trial.PlanValid)
 	a.noCandidates += boolToInt(trial.CandidateCount == 0)
 	a.candidateTotal += trial.CandidateCount
@@ -373,12 +389,14 @@ func (a *evaluationAccumulator) add(trial PolicyTrial, latency time.Duration) {
 	} else {
 		a.macroRecall = append(a.macroRecall, 0)
 	}
+	a.taskHits = append(a.taskHits, float64(boolToInt(trial.TaskHit)))
 	a.planSuccess = append(a.planSuccess, float64(boolToInt(trial.PlanValid)))
 	a.latencyMillis = append(a.latencyMillis, float64(latency.Nanoseconds())/1e6)
 }
 
 func (a *evaluationAccumulator) finish(bootstrapSamples int, seed int64) EvaluationSummary {
 	macroRecall, recallCI := bootstrapMeanCI(a.macroRecall, bootstrapSamples, seed)
+	taskHitRate, taskHitCI := bootstrapMeanCI(a.taskHits, bootstrapSamples, seed+0x517cc1b)
 	planRate, planCI := bootstrapMeanCI(a.planSuccess, bootstrapSamples, seed+0x9e3779b)
 	var microRecall, candidateMean float64
 	if a.relevant > 0 {
@@ -389,7 +407,9 @@ func (a *evaluationAccumulator) finish(bootstrapSamples int, seed int64) Evaluat
 	}
 	return EvaluationSummary{Policy: a.policy, TaskCount: a.tasks, RecallCutoff: a.cutoff,
 		RecallHits: a.recallHits, RelevantGoldSKUs: a.relevant, MicroRecallAtK: microRecall,
-		MacroRecallAtK: macroRecall, MacroRecallAtKCI95: recallCI, ValidPlans: a.validPlans,
+		MacroRecallAtK: macroRecall, MacroRecallAtKCI95: recallCI,
+		TaskHitCount: a.taskHitCount, TaskHitRate: taskHitRate, TaskHitRateCI95: taskHitCI,
+		ValidPlans:    a.validPlans,
 		ValidPlanRate: planRate, ValidPlanRateCI95: planCI, NoCandidateTasks: a.noCandidates,
 		CandidateCountTotal: a.candidateTotal, CandidateCountMean: candidateMean,
 		SearchLatencyP50Millis: percentile(a.latencyMillis, 0.50), SearchLatencyP95Millis: percentile(a.latencyMillis, 0.95)}
