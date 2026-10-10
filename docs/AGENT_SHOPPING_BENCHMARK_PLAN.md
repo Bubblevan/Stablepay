@@ -177,13 +177,29 @@ follow the benchmark-code license.
 | [Amazon ESCI official repository](https://github.com/amazon-science/esci-data), [paper](https://arxiv.org/abs/2206.06588) | Human judgments label Exact, Substitute, Complement, or Irrelevant product matches; the repository documents reduced and full query/product-judgment sets. | Repository code is Apache-2.0; comply separately with dataset source and attribution conditions. | Calibrate Recall@K, nDCG, and substitution labels. It is a retrieval benchmark, not a multi-turn commerce or transaction test. |
 | [ShoppingBench official repository](https://github.com/yjwjy/ShoppingBench), [paper](https://arxiv.org/abs/2508.04266) | 3,310 instructions and 2.5M+ product records; includes product discovery, same-store multi-item requests, coupons, and budget constraints. | Repository is Apache-2.0; third-party product-catalog rights are separate and should be checked before redistribution. | Useful for budget, coupon, and multi-product scenario coverage; not live inventory/price concurrency or payment-ledger correctness. |
 | [WebMall official repository](https://github.com/wbsg-uni-mannheim/WebMall), [paper](https://arxiv.org/abs/2508.13024) | Four simulated shops, 4,421 offers, and 91 cross-shop tasks, including vague requests, comparison, alternatives/compatibility, cart, and simulated checkout. | No clear dataset license was visible in the repository root during review; obtain author clarification before copying or redistributing data. | Best reference for cross-shop navigation and checkout-flow cases, but its fixed simulated offers cannot establish dynamic stock, fulfillment, or payment correctness. |
+| [WebArena-Verified official repository](https://github.com/ServiceNow/webarena-verified), [dataset page](https://huggingface.co/datasets/AmineHA/WebArena-Verified) | 812 verified web-agent tasks and a 258-task hard subset; task data, deterministic evaluators, and a Docker-backed `shopping` site are available. | Repository is Apache-2.0. Check licenses for the separately built site images and components before redistributing the full environment. | Useful for browser navigation, cart changes, and state/trace evaluation when an API path fails; it is not a cross-merchant comparison or real-payment benchmark. |
+| [τ³-bench official repository](https://github.com/sierra-research/tau2-bench), [original paper](https://arxiv.org/abs/2406.12045) | Versioned tool-agent-user simulation with a retail domain, explicit policies, tools, tasks, and simulated conversations; the maintained repository documents 75+ task-quality fixes. | Repository is MIT. Pin the release/task split because the maintained tasks differ from early paper versions; its README recommends the `base` split for full-set evaluation. | Borrow multi-turn policy and state-transition cases; it is customer-service oriented, not product ranking, cross-shop discovery, or payment-side-effect proof. |
+| [ShopBench / Shopping MMLU official repository](https://github.com/KL4805/ShoppingMMLU), [paper](https://arxiv.org/abs/2410.20745) | 57 task types spanning shopping concepts, knowledge reasoning, user-behavior alignment, and multilinguality; includes static multiple-choice, retrieval, ranking, NER, and generation tasks. | Repository is Apache-2.0 and publishes `data.zip`; the benchmark derives from Amazon data, so verify upstream product-data terms separately before redistribution. | Good broad shopping-domain and attribute/ranking calibration. It is a static QA/evaluation set, not a stateful commerce-agent or checkout environment. |
+| [RetailBench official repository](https://github.com/linghuazhang01/RetailBench), [paper](https://arxiv.org/abs/2603.16453) | Interactive single-store operator simulation over a 180-day horizon, with SKU assortment, suppliers, replenishment, inventory aging/stockouts, prices, sales, returns, and cash flow. | Repository is MIT; large LLM rollout logs may not be included in each release. | Useful for designing dynamic stock/price and delayed-feedback scenarios, but it evaluates a merchant operator—not a buyer selecting across merchants. |
 | [IdempotencyBench official repository](https://github.com/gssanjana4/idempotencybench) | Repository describes 320 deterministic tasks with simulated payment side effects, timeout-after-commit, transport/agent retries, full replay, and an effect ledger. | Repository reports MIT for code and CC BY 4.0 for task/record data; the project is early-stage and its paper/results are not yet mature. Verify current terms before reuse. | Borrow fault categories and independent-effect-ledger design for the StablePay 300-attempt suite. It cannot replace StablePay's own isolated database/provider audit. |
 
-Recommended use: treat ESCI as the retrieval-metric reference, EComAgentBench
-as the clarification/hidden-preference design reference, and ShoppingBench or
-WebMall as budget/multi-shop scenario references (WebMall only after license
-clarification). Keep all public-benchmark results in separate reports. The
-StablePay holdout must have independently authored prompts and labels,
+Additional paper-only/design references: [ShopperBench (EACL 2026)](https://aclanthology.org/2026.eacl-industry.62/)
+studies persona-conditioned shopping trajectories and reports persona fidelity,
+query alignment, and path consistency; a public task bundle and data license
+were not confirmed during this review. [MMShopBench](https://arxiv.org/abs/2607.29002)
+is a relevant real-log, image-plus-dialogue benchmark, but a complete
+redistributable asset bundle and its rights were not confirmed. Use these to
+design harder preference and multimodal cases, not as imported scored data.
+
+Recommended use: treat ESCI as the retrieval-metric reference,
+EComAgentBench as the clarification/hidden-preference design reference,
+ShoppingBench and WebMall as intent/budget/cross-shop references (WebMall only
+after license clarification), and WebArena-Verified as a browser-state/trace
+reference. Use τ³-bench for policy-driven dialogue/state transitions, RetailBench
+for stock/price dynamics, and IdempotencyBench only for retry/effect-ledger
+fault categories. ShopBench/Shopping MMLU is broad static-domain calibration.
+Keep all public-benchmark scores and labels out of StablePay's private holdout.
+The StablePay holdout must have independently authored prompts and labels,
 catalog/task hashes frozen before ranker changes, and explicit feasible,
 infeasible, ambiguous, stale-quote, and stock/price-race strata. Generated
 StablePay fixture results remain labeled synthetic even if public benchmark
