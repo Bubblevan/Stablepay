@@ -748,11 +748,7 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 			return err
 		}
 
-		paymentStatus := PaymentSettled
-		paymentDigest := sha256.Sum256([]byte("simulation-payment|" + orderID))
-		if int(paymentDigest[0])%100 >= 95 {
-			paymentStatus = PaymentDeclined
-		}
+		paymentStatus := simulatedPaymentStatus(idempotencyKey)
 		payment := MockPaymentRecord{PaymentID: paymentID, TenantID: s.tenant, OrderID: orderID,
 			AmountMinor: quote.AmountMinor, Currency: quote.Currency, Provider: "simulation-only",
 			Status: paymentStatus, IdempotencyKey: StableID("payment-idempotency", s.tenant, orderID),
@@ -823,6 +819,14 @@ func (s *MySQLStore) Checkout(ctx context.Context, tenant, confirmationID, idemp
 		return CheckoutResult{}, ErrStaleQuote
 	}
 	return result, err
+}
+
+func simulatedPaymentStatus(idempotencyKey string) string {
+	digest := sha256.Sum256([]byte("simulation-payment|" + idempotencyKey))
+	if int(digest[0])%100 >= 95 {
+		return PaymentDeclined
+	}
+	return PaymentSettled
 }
 
 func (s *MySQLStore) GetOrder(ctx context.Context, orderID string) (Order, MockPayment, error) {

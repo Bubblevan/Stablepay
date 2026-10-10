@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -139,7 +138,7 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusQuoted)
 		confirmation := client.confirm(t, secondQuote, true, "fresh-price-confirm", http.StatusCreated).confirmation
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusBuyerConfirmed)
-		checkoutKey := settledCheckoutKey(tenantID, "price-"+suffix)
+		checkoutKey := settledCheckoutKey("price-" + suffix)
 		result := client.checkout(t, confirmation.ID, checkoutKey, http.StatusCreated)
 		if result.Order.Status != OrderPaid || result.Payment.Status != PaymentSettled || result.Payment.Provider != "simulation-only" ||
 			!result.Payment.SimulationOnly || !result.SimulationOnly || result.RealSettlement || result.ChainTransaction != nil {
@@ -174,7 +173,7 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 		}
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusQuoted)
 		confirmation := client.confirm(t, secondQuote, true, "fresh-stock-confirm", http.StatusCreated).confirmation
-		checkoutKey := settledCheckoutKey(tenantID, "restock-"+suffix)
+		checkoutKey := settledCheckoutKey("restock-" + suffix)
 		result := client.checkout(t, confirmation.ID, checkoutKey, http.StatusCreated)
 		if result.Order.Status != OrderPaid || result.Payment.Status != PaymentSettled || result.RealSettlement || result.ChainTransaction != nil {
 			t.Fatalf("restocked lifecycle did not complete via mock payment: %+v", result)
@@ -577,12 +576,10 @@ func mysqlIntegrationSuffix(t *testing.T) string {
 	return hex.EncodeToString(data[:])
 }
 
-func settledCheckoutKey(tenant, prefix string) string {
+func settledCheckoutKey(prefix string) string {
 	for i := 0; i < 1000; i++ {
 		key := fmt.Sprintf("%s-%d", prefix, i)
-		orderID := StableID("order", tenant, key)
-		digest := sha256.Sum256([]byte("simulation-payment|" + orderID))
-		if int(digest[0])%100 < 95 {
+		if simulatedPaymentStatus(key) == PaymentSettled {
 			return key
 		}
 	}
