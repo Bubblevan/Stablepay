@@ -199,9 +199,23 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	if hashes != intentRun.Hashes {
 		t.Fatalf("intent replay input hashes differ from locked catalog/suite: current=%+v source=%+v", hashes, intentRun.Hashes)
 	}
+	merchantCatalog, err := LoadMerchantCatalog(ctx, sourceManifestPath, nil)
+	if err != nil {
+		t.Fatalf("load the live Merchant HTTP catalog snapshot: %v", err)
+	}
+	if err := store.ValidateMerchantCatalogSnapshot(ctx, merchantCatalog); err != nil {
+		t.Fatalf("live Merchant HTTP snapshot differs from the isolated MySQL seed: %v", err)
+	}
+	merchantHashes, err := ComputeEvaluationHashes(merchantCatalog, tasks, manifestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merchantHashes != hashes {
+		t.Fatalf("live Merchant HTTP snapshot differs from the isolated MySQL seed: live=%+v mysql=%+v", merchantHashes, hashes)
+	}
 	parser := replayLifecycleIntents(t, tasks, intentTrials, intentRun.PromptTemplateSHA256)
 	store.tenant = tenantID
-	api, err := NewHTTPAPI(store, parser, mysqlIntegrationAPIKey)
+	api, err := NewHTTPAPIWithMerchantCatalog(store, parser, mysqlIntegrationAPIKey, merchantCatalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +242,9 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	manifest := map[string]any{"schema_version": "stablepay.agent-shopping-http-lifecycle.v1", "run_id": runID,
 		"status": "RUNNING", "database": SimulationDatabaseName, "tenant_id": tenantID,
 		"source_tenant_id": sourceTenant, "seed": 20261010, "hashes": hashes,
+		"catalog_source": "merchant_http_snapshot", "catalog_merchants": len(merchantCatalog.Merchants),
+		"catalog_products":     len(merchantCatalog.Products),
+		"catalog_boundary":     "product discovery and taxonomy from loopback Merchant HTTP snapshot; stock, regional eligibility, and transaction state from isolated MySQL",
 		"intent_source":        "recorded GPT-6 Luna parsed intents; replayed through the HTTP API; no model call in this run",
 		"source_intent_run_id": intentRun.RunID, "provider": parser.Provider(), "model": parser.Model(),
 		"new_model_calls": 0, "token_usage": "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY",

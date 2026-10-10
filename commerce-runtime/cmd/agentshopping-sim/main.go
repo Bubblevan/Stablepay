@@ -61,6 +61,7 @@ Environment (loaded explicitly by the local runner; no StablePay .env is read):
   SHOP_SIM_DB_PASSWORD  Password for 127.0.0.1:13327/stablepay_shopping_sim only
   SHOP_SIM_API_KEY      Local simulation HTTP bearer secret (never written to evidence)
   SHOP_SIM_HTTP_ADDR    Optional loopback bind address; defaults to 127.0.0.1:18090
+  SHOP_SIM_MERCHANT_MANIFEST Optional manifest; loads products from its loopback Merchant HTTP APIs
   SHOP_SIM_HERMES_BIN   Optional Hermes executable path; defaults to hermes`)
 }
 
@@ -174,7 +175,22 @@ func serve(args []string) error {
 	}
 	hermesBinary := strings.TrimSpace(os.Getenv("SHOP_SIM_HERMES_BIN"))
 	parser := agentshopping.NewHermesIntentParser(hermesBinary, "openai-codex", "gpt-6-luna")
-	api, err := agentshopping.NewHTTPAPI(store, parser, apiKey)
+	var api *agentshopping.HTTPAPI
+	merchantManifest := strings.TrimSpace(os.Getenv("SHOP_SIM_MERCHANT_MANIFEST"))
+	if merchantManifest != "" {
+		catalogCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		catalog, loadErr := agentshopping.LoadMerchantCatalog(catalogCtx, merchantManifest, nil)
+		if loadErr == nil {
+			loadErr = store.ValidateMerchantCatalogSnapshot(catalogCtx, catalog)
+		}
+		cancel()
+		if loadErr != nil {
+			return fmt.Errorf("load or validate Merchant HTTP catalog snapshot: %w", loadErr)
+		}
+		api, err = agentshopping.NewHTTPAPIWithMerchantCatalog(store, parser, apiKey, catalog)
+	} else {
+		api, err = agentshopping.NewHTTPAPI(store, parser, apiKey)
+	}
 	if err != nil {
 		return err
 	}
@@ -183,6 +199,7 @@ func serve(args []string) error {
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
 	slog.Info("isolated shopping simulation ready", "addr", addr, "database", agentshopping.SimulationDatabaseName,
+		"merchant_http_catalog", merchantManifest != "",
 		"provider", parser.Provider(), "model", parser.Model(), "simulation_only", true)
 	select {
 	case <-ctx.Done():

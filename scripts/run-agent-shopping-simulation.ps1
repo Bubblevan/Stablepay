@@ -3,6 +3,7 @@ param(
     [switch]$StartMerchants,
     [switch]$Seed,
     [switch]$StartAPI,
+    [switch]$UseMerchantHTTPSource,
     [switch]$StopAPI,
     [switch]$StopMySQL,
     [switch]$StopMerchants,
@@ -187,6 +188,11 @@ function Invoke-Seed {
 function Start-SimulationAPI {
     Ensure-MySQL
     Build-SimulationBinary
+    if ($UseMerchantHTTPSource) {
+        $merchantHealth = Test-MerchantHealth
+        if ($merchantHealth -ne 12) { throw "Merchant HTTP source requested, but only $merchantHealth of 12 fixture APIs are healthy." }
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Merchant manifest not found: $manifestPath" }
+    }
     if (Test-Path -LiteralPath $apiStatePath -PathType Leaf) {
         $state = Get-Content -LiteralPath $apiStatePath -Raw | ConvertFrom-Json
         $process = Get-Process -Id ([int]$state.pid) -ErrorAction SilentlyContinue
@@ -199,12 +205,14 @@ function Start-SimulationAPI {
     $stdoutPath = Join-Path $stateRoot 'api.stdout.log'
     $stderrPath = Join-Path $stateRoot 'api.stderr.log'
     $usagePath = Assert-RepoLocalPath (Join-Path $stateRoot 'model-usage') (Join-Path $repoRoot '.local-run')
-    $oldDbPassword, $oldApiKey, $oldHttpAddr, $oldUsageDir = $env:SHOP_SIM_DB_PASSWORD, $env:SHOP_SIM_API_KEY, $env:SHOP_SIM_HTTP_ADDR, $env:SHOP_SIM_USAGE_DIR
+    $oldDbPassword, $oldApiKey, $oldHttpAddr, $oldUsageDir, $oldMerchantManifest = $env:SHOP_SIM_DB_PASSWORD, $env:SHOP_SIM_API_KEY, $env:SHOP_SIM_HTTP_ADDR, $env:SHOP_SIM_USAGE_DIR, $env:SHOP_SIM_MERCHANT_MANIFEST
     try {
         $env:SHOP_SIM_DB_PASSWORD = $secrets['SHOP_SIM_DB_PASSWORD']
         $env:SHOP_SIM_API_KEY = $secrets['SHOP_SIM_API_KEY']
         $env:SHOP_SIM_HTTP_ADDR = $apiAddr
         $env:SHOP_SIM_USAGE_DIR = $usagePath
+        if ($UseMerchantHTTPSource) { $env:SHOP_SIM_MERCHANT_MANIFEST = $manifestPath }
+        else { $env:SHOP_SIM_MERCHANT_MANIFEST = '' }
         $process = Start-Process -FilePath $binaryPath -ArgumentList 'serve' -WorkingDirectory $stateRoot `
             -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
     } finally {
@@ -212,6 +220,7 @@ function Start-SimulationAPI {
         $env:SHOP_SIM_API_KEY = $oldApiKey
         $env:SHOP_SIM_HTTP_ADDR = $oldHttpAddr
         $env:SHOP_SIM_USAGE_DIR = $oldUsageDir
+        $env:SHOP_SIM_MERCHANT_MANIFEST = $oldMerchantManifest
     }
     $state = [pscustomobject]@{ binary = [IO.Path]::GetFullPath($binaryPath); pid = $process.Id; started_utc = $process.StartTime.ToUniversalTime().ToString('o') }
     $state | ConvertTo-Json | Set-Content -LiteralPath $apiStatePath -Encoding utf8
@@ -219,10 +228,25 @@ function Start-SimulationAPI {
     do {
         $process.Refresh()
         if ($process.HasExited) { throw "Simulation API exited early; inspect $stderrPath (secrets are not logged)." }
+        $ready = $null
         try {
             $ready = Invoke-RestMethod -Uri 'http://127.0.0.1:18090/readyz' -TimeoutSec 2
-            if ($ready.status -eq 'ready') { return }
         } catch { }
+        if ($null -ne $ready -and $ready.status -eq 'ready') {
+            if ($UseMerchantHTTPSource) {
+                $catalog = Invoke-RestMethod -Uri 'http://127.0.0.1:18090/v1/catalog/source' `
+                    -Headers @{ 'X-Simulation-API-Key' = $secrets['SHOP_SIM_API_KEY'] } -TimeoutSec 5
+                if ($catalog.source -ne 'merchant_http_snapshot' -or $catalog.merchant_count -ne 12 -or $catalog.product_count -ne 24000) {
+                    throw "Shopping API did not confirm the expected live Merchant HTTP snapshot: $($catalog | ConvertTo-Json -Compress)"
+                }
+                $dataset = Invoke-RestMethod -Uri 'http://127.0.0.1:18090/v1/dataset' `
+                    -Headers @{ 'X-Simulation-API-Key' = $secrets['SHOP_SIM_API_KEY'] } -TimeoutSec 5
+                if ($dataset.counts.merchants -ne 12 -or $dataset.counts.products -ne 24000) {
+                    throw "Isolated MySQL seed dimensions do not match the Merchant catalog: $($dataset.counts | ConvertTo-Json -Compress)"
+                }
+            }
+            return
+        }
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Timed out waiting for simulation API readiness; inspect $stderrPath."
@@ -262,9 +286,10 @@ function Stop-SimulationMySQL {
 }
 
 if (-not ($StartMySQL -or $StartMerchants -or $Seed -or $StartAPI -or $StopAPI -or $StopMySQL -or $StopMerchants -or $Status)) {
-    Write-Output 'Use -Seed for isolated MySQL + simulated Merchant import, -StartAPI to launch the loopback API, and -StopAPI/-StopMySQL/-StopMerchants for exact-target shutdown.'
+    Write-Output 'Use -Seed for isolated MySQL + simulated Merchant import, -StartAPI -UseMerchantHTTPSource to serve live Merchant HTTP catalog data, and -StopAPI/-StopMySQL/-StopMerchants for exact-target shutdown.'
     exit 0
 }
+if ($UseMerchantHTTPSource -and -not $StartAPI) { throw '-UseMerchantHTTPSource requires -StartAPI.' }
 
 if ($StartMySQL) { Ensure-MySQL; Write-Output 'Isolated MySQL is healthy at 127.0.0.1:13327/stablepay_shopping_sim' }
 if ($StartMerchants) { Ensure-Merchants }

@@ -114,12 +114,54 @@ type ParsedIntent struct {
 
 func OverlayKey(sku, region string) string { return sku + "\x00" + region }
 
+func catalogProductKey(merchantID, skuID string) string { return merchantID + "\x00" + skuID }
+
 func ParseProductTitle(title string) (item, format, style string, err error) {
 	parts := strings.Split(title, " · ")
 	if len(parts) < 4 {
 		return "", "", "", fmt.Errorf("unexpected synthetic product title %q", title)
 	}
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), nil
+}
+
+// TaxonomyFromProducts builds the deterministic intent-parser vocabulary from
+// the same product snapshot used for candidate discovery.
+func TaxonomyFromProducts(products []Product) Taxonomy {
+	categories, items, formats, styles := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	itemCategories := map[string]map[string]bool{}
+	for _, product := range products {
+		if product.Status != "active" {
+			continue
+		}
+		categories[product.Category] = true
+		items[product.Item] = true
+		formats[product.Format] = true
+		styles[product.Style] = true
+		if itemCategories[product.Item] == nil {
+			itemCategories[product.Item] = map[string]bool{}
+		}
+		itemCategories[product.Item][product.Category] = true
+	}
+
+	categoryByItem := make(map[string][]string, len(itemCategories))
+	for item, values := range itemCategories {
+		categoryByItem[item] = sortedStringSet(values)
+	}
+	formatAliases, styleAliases := IntentAliasHints()
+	return Taxonomy{
+		Regions: append([]string(nil), Regions...), Categories: sortedStringSet(categories),
+		Items: sortedStringSet(items), Formats: sortedStringSet(formats), Styles: sortedStringSet(styles),
+		ItemCategories: categoryByItem, FormatAliases: formatAliases, StyleAliases: styleAliases,
+	}
+}
+
+func sortedStringSet(values map[string]bool) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func ParseMinorUnits(value string) (int64, error) {

@@ -316,36 +316,5 @@ func selectStratifiedDiagnosticTasks(tasks []agentshopping.Task, count int) ([]a
 }
 
 func taxonomyFromCatalog(catalog agentshopping.ImportedCatalog) agentshopping.Taxonomy {
-	categories, items, formats, styles := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
-	itemCategories := map[string]map[string]bool{}
-	for _, product := range catalog.Products {
-		categories[product.Category] = true
-		items[product.Item] = true
-		formats[product.Format] = true
-		styles[product.Style] = true
-		if itemCategories[product.Item] == nil {
-			itemCategories[product.Item] = map[string]bool{}
-		}
-		itemCategories[product.Item][product.Category] = true
-	}
-	categoryByItem := make(map[string][]string, len(itemCategories))
-	for item, values := range itemCategories {
-		categoryByItem[item] = sortedKeys(values)
-	}
-	formatAliases, styleAliases := agentshopping.IntentAliasHints()
-	return agentshopping.Taxonomy{
-		Regions:    append([]string(nil), agentshopping.Regions...),
-		Categories: sortedKeys(categories), Items: sortedKeys(items),
-		Formats: sortedKeys(formats), Styles: sortedKeys(styles), ItemCategories: categoryByItem,
-		FormatAliases: formatAliases, StyleAliases: styleAliases,
-	}
-}
-
-func sortedKeys(values map[string]bool) []string {
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
+	return agentshopping.TaxonomyFromProducts(catalog.Products)
 }

@@ -10,9 +10,9 @@ import (
 
 func TestTaxonomyFromCatalogMapsItemsToSortedCategories(t *testing.T) {
 	catalog := agentshopping.ImportedCatalog{Products: []agentshopping.Product{
-		{Category: "z-books", Item: "shared-item", Format: "ebook", Style: "minimal"},
-		{Category: "a-books", Item: "shared-item", Format: "ebook", Style: "minimal"},
-		{Category: "coffee", Item: "beans", Format: "bag", Style: "floral"},
+		{Category: "z-books", Item: "shared-item", Format: "ebook", Style: "minimal", Status: "active"},
+		{Category: "a-books", Item: "shared-item", Format: "ebook", Style: "minimal", Status: "active"},
+		{Category: "coffee", Item: "beans", Format: "bag", Style: "floral", Status: "active"},
 	}}
 
 	taxonomy := taxonomyFromCatalog(catalog)

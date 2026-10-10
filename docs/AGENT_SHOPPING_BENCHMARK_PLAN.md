@@ -1,10 +1,13 @@
 # Agent Shopping Evaluation Plan
 
-Status: the locked 500-task intent-and-ranking sub-experiment completed on
-2026-10-10 and exceeded its numeric targets on this synthetic fixture. The
-broader purchase lifecycle, real state-transition, confirmation, and safety
-suite remain incomplete; do not present the current numbers as production
-marketplace quality or as proof of those unmeasured behaviors.
+Status: the locked 500-task intent-and-ranking evaluation and a 500-task
+persistent HTTP-to-MySQL purchase lifecycle completed on 2026-10-10. The
+lifecycle covers quote revisions, buyer consent, simulated payment, and SQL
+audit on synthetic data. The online API now has an opt-in path that takes its
+product snapshot directly from the 12 Merchant HTTP APIs; that exact full
+lifecycle has not yet been rerun through the new path. Do not present the
+synthetic results as production marketplace quality or as live Merchant
+fulfillment.
 
 ## What the existing fixture proves—and does not prove
 
@@ -19,12 +22,15 @@ wallet, Payment Service, or Devnet path is configured.
 
 `merchant_capabilities` describes executable Merchant services, not product
 SKUs. Do not import these 24,000 products into that table or treat synthetic
-seller addresses as registered payment identities. Product discovery should
-have its own read-only catalog adapter and benchmark index.
+seller addresses as registered payment identities. Product discovery uses a
+separate read-only Merchant HTTP snapshot; the isolated MySQL tenant holds the
+benchmark inventory/region/price overlay and transaction state.
 
-The earlier page-20 smoke test establishes pagination metadata for one page per
-Merchant. It does not yet prove a complete 24,000-row ingest or shopping
-quality.
+The catalog importer validates all 240 listing pages (12 Merchants × 20 pages)
+and the completed HTTP lifecycle run exercised 24,000 imported products. The
+currently added online HTTP-source mode must still be rerun with the Merchant
+processes listening so the final lifecycle evidence proves discovery used that
+source snapshot, rather than only the cloned MySQL catalog.
 
 ## Measured locked intent-and-ranking subset
 
@@ -58,7 +64,10 @@ or Devnet settlement. Those remain separate gates below.
 ## Architecture for a safe local experiment
 
 1. Start only the recorded simulated Merchant processes. Check readiness and
-   manifest identity before querying them.
+   manifest identity before querying them. Start the shopping API with
+   `SHOP_SIM_MERCHANT_MANIFEST` (or `-UseMerchantHTTPSource`) to pin the
+   product/taxonomy snapshot to the Merchant APIs; verify `/v1/catalog/source`
+   reports `merchant_http_snapshot`, 12 merchants, and 24,000 products.
 2. Build an immutable catalog snapshot over the HTTP APIs: 12 Merchants × 20
    pages × 100 rows = 240 listing requests. Validate each page's `total`, page
    size, stable SKU identity, no duplicate/missing SKU, and the final 2,000
@@ -72,10 +81,10 @@ or Devnet settlement. Those remain separate gates below.
    immediately before a plan is offered.
 4. Return a ranked `ShoppingPlan` with item, Merchant, price, quantity,
    fulfillment eligibility, quote revision, alternatives, and the reason each
-   hard constraint passed. A changed price, unavailable item, or disallowed
-   substitute returns `NEEDS_CONFIRMATION`/`NO_VALID_PLAN`; it must not silently
-   proceed. The simulator stops at an accepted local plan. It creates no real
-   payment, PaymentIntent, wallet signature, or Devnet transaction.
+   hard constraint passed. In the implemented lifecycle, a changed price or
+   unavailable item invalidates the old quote and requires a new confirmation;
+   the checkout/payment channel is isolated and simulation-only. It creates no
+   real payment, wallet signature, or Devnet transaction.
 5. Keep this product catalog separate from the existing Commerce Runtime
    capability catalog. A later integration may translate a confirmed product
    choice into the real payment plane only after Merchant identities,
@@ -147,16 +156,19 @@ counts unestimated.
 
 ## Execution gates
 
-1. Verify the 12-service pagination contract and complete 24,000-SKU ingest.
-2. Validate task/oracle and state-overlay invariants with boundary and
-   adversarial tests; freeze hashes.
-3. Add a distinct holdout with human-authored paraphrases not included in the
+1. **Complete:** validate the 12-service pagination contract and 24,000-SKU
+   catalog ingest; lock the catalog and task hashes.
+2. **Complete on the isolated MySQL snapshot:** exercise all 500 task lifecycles,
+   including 50 price changes, 50 stock losses, fresh-consent checks, mock
+   payment outcomes, idempotent replay, and SQL audit.
+3. **Next:** rerun that same locked lifecycle with `-UseMerchantHTTPSource`,
+   require live-vs-seeded catalog hash equality, and retain the new manifest and
+   audit artifacts. This requires all 12 local Merchant APIs to be healthy.
+4. Add a distinct holdout with human-authored paraphrases not included in the
    supplied alias table; report it separately from this templated suite.
-4. Implement and test price/stock mutation followed by stale-quote rejection,
-   renewed buyer confirmation, and safe decline/accept paths.
-5. Run the dedicated safety suite with a mock plan executor and prove no
-   payment adapter is reachable; then run the full shopping lifecycle and
-   audit its state transitions.
-6. Commit the benchmark code and methodology; keep local raw model artifacts
+5. Expand the dedicated safety suite with impossible budgets, unsupported
+   regions, ambiguous intent, and forbidden substitutions; preserve the
+   zero-side-effect audit gate.
+6. Keep local raw model artifacts
    ignored, and update resume evidence only with achieved numbers and explicit
    scope.

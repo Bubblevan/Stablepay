@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,17 +14,63 @@ import (
 )
 
 type HTTPAPI struct {
-	store  *MySQLStore
-	parser IntentParser
-	apiKey string
-	mux    *http.ServeMux
+	store                *MySQLStore
+	parser               IntentParser
+	apiKey               string
+	mux                  *http.ServeMux
+	catalogSource        string
+	catalogProducts      []Product
+	catalogProductsByKey map[string]struct{}
+	catalogMerchantCount int
+	catalogLoadedAt      time.Time
 }
 
 func NewHTTPAPI(store *MySQLStore, parser IntentParser, apiKey string) (*HTTPAPI, error) {
+	return newHTTPAPI(store, parser, apiKey, nil, "mysql_simulation_snapshot", 0)
+}
+
+// NewHTTPAPIWithMerchantCatalog serves product facts and taxonomy from a
+// startup snapshot fetched through the local Merchant HTTP listing APIs. The
+// isolated MySQL store remains authoritative for regional inventory and all
+// transactional state.
+func NewHTTPAPIWithMerchantCatalog(store *MySQLStore, parser IntentParser, apiKey string, catalog ImportedCatalog) (*HTTPAPI, error) {
+	if len(catalog.Products) == 0 || len(catalog.Merchants) == 0 {
+		return nil, errors.New("Merchant HTTP catalog snapshot must include merchants and products")
+	}
+	return newHTTPAPI(store, parser, apiKey, catalog.Products, "merchant_http_snapshot", len(catalog.Merchants))
+}
+
+func newHTTPAPI(store *MySQLStore, parser IntentParser, apiKey string, products []Product, source string, merchantCount int) (*HTTPAPI, error) {
 	if store == nil || parser == nil || len(apiKey) < 32 {
 		return nil, errors.New("simulation API requires MySQL store, intent parser, and an API key of at least 32 characters")
 	}
-	api := &HTTPAPI{store: store, parser: parser, apiKey: apiKey, mux: http.NewServeMux()}
+	api := &HTTPAPI{store: store, parser: parser, apiKey: apiKey, mux: http.NewServeMux(), catalogSource: source}
+	if len(products) > 0 {
+		api.catalogProducts = make([]Product, 0, len(products))
+		api.catalogProductsByKey = make(map[string]struct{}, len(products))
+		merchants := make(map[string]struct{})
+		for _, product := range products {
+			if strings.TrimSpace(product.MerchantID) == "" || strings.TrimSpace(product.SKUID) == "" ||
+				product.Status != "active" || product.Currency != "USDC" || product.PriceMinor <= 0 ||
+				strings.TrimSpace(product.Category) == "" || strings.TrimSpace(product.Item) == "" ||
+				strings.TrimSpace(product.Format) == "" {
+				return nil, fmt.Errorf("invalid product in Merchant HTTP catalog snapshot: merchant=%q sku=%q", product.MerchantID, product.SKUID)
+			}
+			key := catalogProductKey(product.MerchantID, product.SKUID)
+			if _, exists := api.catalogProductsByKey[key]; exists {
+				return nil, fmt.Errorf("duplicate product in Merchant HTTP catalog snapshot: merchant=%q sku=%q", product.MerchantID, product.SKUID)
+			}
+			product.Tags = append([]string(nil), product.Tags...)
+			api.catalogProducts = append(api.catalogProducts, product)
+			api.catalogProductsByKey[key] = struct{}{}
+			merchants[product.MerchantID] = struct{}{}
+		}
+		if merchantCount == 0 {
+			merchantCount = len(merchants)
+		}
+		api.catalogMerchantCount = merchantCount
+		api.catalogLoadedAt = time.Now().UTC()
+	}
 	api.routes()
 	return api, nil
 }
@@ -42,6 +89,7 @@ func (a *HTTPAPI) routes() {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "database": SimulationDatabaseName, "simulation_only": true})
 	})
 	a.mux.Handle("GET /v1/dataset", a.auth(http.HandlerFunc(a.dataset)))
+	a.mux.Handle("GET /v1/catalog/source", a.auth(http.HandlerFunc(a.catalogSourceStatus)))
 	a.mux.Handle("GET /v1/buyers", a.auth(http.HandlerFunc(a.buyers)))
 	a.mux.Handle("GET /v1/tasks/{taskID}", a.auth(http.HandlerFunc(a.getTask)))
 	a.mux.Handle("POST /v1/intents/parse", a.auth(http.HandlerFunc(a.parseIntent)))
@@ -70,8 +118,46 @@ func (a *HTTPAPI) dataset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "DATASET_READ_FAILED", "could not read isolated simulation dataset")
 		return
 	}
+	productCount, merchantCount := int64(len(a.catalogProducts)), int64(a.catalogMerchantCount)
+	if len(a.catalogProducts) == 0 {
+		productCount, merchantCount = counts["products"], counts["merchants"]
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tenant_id": a.store.tenant, "counts": counts,
-		"data_origin": syntheticOrigin, "payment_provider": "simulation-only", "real_settlement": false})
+		"data_origin": syntheticOrigin, "catalog_source": a.catalogSource,
+		"catalog_products": productCount, "catalog_merchants": merchantCount,
+		"payment_provider": "simulation-only", "real_settlement": false})
+}
+
+func (a *HTTPAPI) catalogSourceStatus(w http.ResponseWriter, r *http.Request) {
+	productCount, merchantCount := int64(len(a.catalogProducts)), int64(a.catalogMerchantCount)
+	if len(a.catalogProducts) == 0 {
+		counts, err := a.store.Counts(r.Context())
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "CATALOG_STATUS_UNAVAILABLE", "could not inspect the isolated MySQL catalog")
+			return
+		}
+		productCount, merchantCount = counts["products"], counts["merchants"]
+	}
+	status := map[string]any{"source": a.catalogSource, "product_count": productCount,
+		"merchant_count": merchantCount, "simulation_only": true}
+	if !a.catalogLoadedAt.IsZero() {
+		status["snapshot_loaded_at_utc"] = a.catalogLoadedAt.Format(time.RFC3339Nano)
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (a *HTTPAPI) readTaxonomy(ctx context.Context) (Taxonomy, error) {
+	if len(a.catalogProducts) > 0 {
+		return TaxonomyFromProducts(a.catalogProducts), nil
+	}
+	return a.store.ReadTaxonomy(ctx)
+}
+
+func (a *HTTPAPI) findCandidates(ctx context.Context, intent Intent, limit int) ([]Candidate, error) {
+	if len(a.catalogProducts) > 0 {
+		return a.store.FindCandidatesFromMerchantCatalog(ctx, a.catalogProducts, intent, limit)
+	}
+	return a.store.FindCandidates(ctx, intent, limit)
 }
 
 func (a *HTTPAPI) buyers(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +202,7 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "TASK_STATE_INVALID", "persisted shopping intent could not be read")
 			return
 		}
-		candidates, err := a.store.FindCandidates(r.Context(), intent, 20)
+		candidates, err := a.findCandidates(r.Context(), intent, 20)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "CATALOG_READ_FAILED", "could not search the simulated catalog")
 			return
@@ -125,7 +211,7 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 			"candidates": candidates, "provider": task.Provider, "model": task.Model, "idempotent_replay": true})
 		return
 	}
-	taxonomy, err := a.store.ReadTaxonomy(r.Context())
+	taxonomy, err := a.readTaxonomy(r.Context())
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "CATALOG_TAXONOMY_UNAVAILABLE", "could not load the simulated catalog taxonomy")
 		return
@@ -152,7 +238,7 @@ func (a *HTTPAPI) parseIntent(w http.ResponseWriter, r *http.Request) {
 			"task_id": task.TaskID, "provider": a.parser.Provider(), "model": a.parser.Model()})
 		return
 	}
-	candidates, err := a.store.FindCandidates(r.Context(), intent, 20)
+	candidates, err := a.findCandidates(r.Context(), intent, 20)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "CATALOG_SEARCH_FAILED", "could not search the simulated catalog")
 		return
@@ -186,6 +272,12 @@ func (a *HTTPAPI) issueQuote(w http.ResponseWriter, r *http.Request) {
 	var request issueQuoteRequest
 	if !readJSON(w, r, &request) {
 		return
+	}
+	if len(a.catalogProductsByKey) > 0 {
+		if _, exists := a.catalogProductsByKey[catalogProductKey(request.MerchantID, request.SKUID)]; !exists {
+			writeError(w, http.StatusConflict, "CATALOG_PRODUCT_UNAVAILABLE", "product is not present in the active Merchant HTTP catalog snapshot")
+			return
+		}
 	}
 	quote, err := a.store.IssueQuote(r.Context(), PersistentQuoteRequest{TaskID: request.TaskID,
 		BuyerID: request.BuyerID, MerchantID: request.MerchantID, SKUID: request.SKUID,

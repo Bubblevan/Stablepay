@@ -432,6 +432,205 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 	return result, nil
 }
 
+// FindCandidatesFromMerchantCatalog uses the Merchant HTTP snapshot as the
+// product source of truth and the isolated MySQL tenant only for inventory,
+// regional eligibility, and synthetic product enrichment.
+func (s *MySQLStore) FindCandidatesFromMerchantCatalog(ctx context.Context, catalog []Product, intent Intent, limit int) ([]Candidate, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	productsByMerchant := make(map[string]map[string]Product)
+	for _, product := range catalog {
+		if !catalogProductMatchesIntent(product, intent) {
+			continue
+		}
+		if productsByMerchant[product.MerchantID] == nil {
+			productsByMerchant[product.MerchantID] = make(map[string]Product)
+		}
+		productsByMerchant[product.MerchantID][product.SKUID] = product
+	}
+	if len(productsByMerchant) == 0 {
+		return []Candidate{}, nil
+	}
+
+	type inventoryCandidateRow struct {
+		SKUID      string `gorm:"column:sku_id"`
+		MerchantID string `gorm:"column:merchant_id"`
+		Region     string `gorm:"column:region"`
+		OnHand     int    `gorm:"column:on_hand"`
+		Reserved   int    `gorm:"column:reserved"`
+		Eligible   bool   `gorm:"column:eligible"`
+		PriceMinor int64  `gorm:"column:price_minor"`
+		Revision   int64  `gorm:"column:revision"`
+		Attributes []byte `gorm:"column:attributes"`
+	}
+	const catalogInventoryBatchSize = 500
+	merchantIDs := make([]string, 0, len(productsByMerchant))
+	for merchantID := range productsByMerchant {
+		merchantIDs = append(merchantIDs, merchantID)
+	}
+	sort.Strings(merchantIDs)
+	result := make([]Candidate, 0)
+	for _, merchantID := range merchantIDs {
+		products := productsByMerchant[merchantID]
+		skuIDs := make([]string, 0, len(products))
+		for skuID := range products {
+			skuIDs = append(skuIDs, skuID)
+		}
+		sort.Strings(skuIDs)
+		for start := 0; start < len(skuIDs); start += catalogInventoryBatchSize {
+			end := start + catalogInventoryBatchSize
+			if end > len(skuIDs) {
+				end = len(skuIDs)
+			}
+			var rows []inventoryCandidateRow
+			err := s.db.WithContext(ctx).Table("sim_inventory AS i").
+				Select("i.sku_id, i.merchant_id, i.region, i.on_hand, i.reserved, i.eligible, i.price_minor, i.revision, p.attributes_json AS attributes").
+				Joins("JOIN sim_products AS p ON p.tenant_id = i.tenant_id AND p.merchant_id = i.merchant_id AND p.sku_id = i.sku_id").
+				Where("i.tenant_id = ? AND p.tenant_id = ? AND p.status = 'active' AND i.merchant_id = ? AND i.sku_id IN ? AND i.region = ? AND i.eligible = ? AND i.on_hand > i.reserved AND i.price_minor <= ?",
+					s.tenant, s.tenant, merchantID, skuIDs[start:end], intent.Region, true, intent.MaxPriceMinor).
+				Scan(&rows).Error
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				product, ok := products[row.SKUID]
+				if !ok {
+					return nil, fmt.Errorf("Merchant catalog inventory returned an unknown SKU %s/%s", merchantID, row.SKUID)
+				}
+				var attributes map[string]any
+				if len(row.Attributes) > 0 {
+					if err := json.Unmarshal(row.Attributes, &attributes); err != nil {
+						return nil, fmt.Errorf("decode synthetic attributes for %s/%s: %w", merchantID, row.SKUID, err)
+					}
+				}
+				product.Tags = append([]string(nil), product.Tags...)
+				product.Attributes = attributes
+				result = append(result, Candidate{
+					Product: product,
+					Inventory: OverlayEntry{MerchantID: merchantID, SKUID: row.SKUID, Region: row.Region,
+						OnHand: row.OnHand, Eligible: row.Eligible, PriceMinor: row.PriceMinor, Revision: row.Revision},
+				})
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		leftScore := stylePreferenceScore(result[i].Product, intent.PreferredStyle)
+		rightScore := stylePreferenceScore(result[j].Product, intent.PreferredStyle)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if result[i].Inventory.PriceMinor != result[j].Inventory.PriceMinor {
+			return result[i].Inventory.PriceMinor < result[j].Inventory.PriceMinor
+		}
+		if result[i].Product.MerchantID != result[j].Product.MerchantID {
+			return result[i].Product.MerchantID < result[j].Product.MerchantID
+		}
+		return result[i].Product.SKUID < result[j].Product.SKUID
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func catalogProductMatchesIntent(product Product, intent Intent) bool {
+	return product.Status == "active" && product.Currency == "USDC" &&
+		product.Category == intent.Category && product.Item == intent.Item &&
+		product.Format == intent.RequiredFormat
+}
+
+// ValidateMerchantCatalogSnapshot rejects a mixed catalog where candidate
+// metadata comes from one Merchant snapshot but quotes would read a different
+// product seed from isolated MySQL.
+func (s *MySQLStore) ValidateMerchantCatalogSnapshot(ctx context.Context, catalog ImportedCatalog) error {
+	if len(catalog.Merchants) == 0 || len(catalog.Products) == 0 {
+		return errors.New("Merchant HTTP catalog snapshot is empty")
+	}
+	var merchants []MerchantRecord
+	if err := s.db.WithContext(ctx).Where("tenant_id = ?", s.tenant).Find(&merchants).Error; err != nil {
+		return fmt.Errorf("read isolated Merchant seed: %w", err)
+	}
+	var products []ProductRecord
+	if err := s.db.WithContext(ctx).Where("tenant_id = ?", s.tenant).Find(&products).Error; err != nil {
+		return fmt.Errorf("read isolated product seed: %w", err)
+	}
+	return validateMerchantCatalogSnapshotRecords(catalog.Merchants, catalog.Products, merchants, products)
+}
+
+func validateMerchantCatalogSnapshotRecords(sourceMerchants []MerchantRecord, sourceProducts []Product,
+	seedMerchants []MerchantRecord, seedProducts []ProductRecord) error {
+	if len(sourceMerchants) != len(seedMerchants) {
+		return fmt.Errorf("Merchant count mismatch: HTTP snapshot=%d isolated seed=%d", len(sourceMerchants), len(seedMerchants))
+	}
+	if len(sourceProducts) != len(seedProducts) {
+		return fmt.Errorf("product count mismatch: HTTP snapshot=%d isolated seed=%d", len(sourceProducts), len(seedProducts))
+	}
+	sourceMerchantIDs := make(map[string]struct{}, len(sourceMerchants))
+	for _, merchant := range sourceMerchants {
+		if _, exists := sourceMerchantIDs[merchant.MerchantID]; exists {
+			return fmt.Errorf("duplicate Merchant %s in HTTP snapshot", merchant.MerchantID)
+		}
+		sourceMerchantIDs[merchant.MerchantID] = struct{}{}
+	}
+	seedMerchantByID := make(map[string]MerchantRecord, len(seedMerchants))
+	for _, merchant := range seedMerchants {
+		if _, exists := seedMerchantByID[merchant.MerchantID]; exists {
+			return fmt.Errorf("duplicate Merchant %s in isolated seed", merchant.MerchantID)
+		}
+		seedMerchantByID[merchant.MerchantID] = merchant
+	}
+	for _, source := range sourceMerchants {
+		seed, exists := seedMerchantByID[source.MerchantID]
+		if !exists || seed.Name != source.Name || seed.Category != source.Category || seed.DID != source.DID {
+			return fmt.Errorf("Merchant HTTP profile %s differs from isolated seed", source.MerchantID)
+		}
+	}
+	seedProductByKey := make(map[string]ProductRecord, len(seedProducts))
+	for _, product := range seedProducts {
+		key := catalogProductKey(product.MerchantID, product.SKUID)
+		if _, exists := seedProductByKey[key]; exists {
+			return fmt.Errorf("duplicate product %s/%s in isolated seed", product.MerchantID, product.SKUID)
+		}
+		seedProductByKey[key] = product
+	}
+	sourceProductKeys := make(map[string]struct{}, len(sourceProducts))
+	for _, source := range sourceProducts {
+		key := catalogProductKey(source.MerchantID, source.SKUID)
+		if _, exists := sourceProductKeys[key]; exists {
+			return fmt.Errorf("duplicate product %s/%s in HTTP snapshot", source.MerchantID, source.SKUID)
+		}
+		sourceProductKeys[key] = struct{}{}
+		seed, exists := seedProductByKey[key]
+		if !exists {
+			return fmt.Errorf("Merchant HTTP product %s/%s is missing from isolated seed", source.MerchantID, source.SKUID)
+		}
+		var seedTags []string
+		if err := json.Unmarshal(seed.TagsJSON, &seedTags); err != nil {
+			return fmt.Errorf("decode isolated product tags for %s/%s: %w", source.MerchantID, source.SKUID, err)
+		}
+		if seed.Category != source.Category || seed.Item != source.Item || seed.Format != source.Format ||
+			seed.Style != source.Style || seed.Title != source.Title || seed.Description != source.Description ||
+			seed.ImageURL != source.ImageURL || seed.BasePrice != source.PriceMinor || seed.Currency != source.Currency ||
+			seed.Status != source.Status || !equalStringSlices(seedTags, source.Tags) {
+			return fmt.Errorf("Merchant HTTP product %s/%s differs from isolated seed", source.MerchantID, source.SKUID)
+		}
+	}
+	return nil
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 type PersistentQuoteRequest struct {
 	TaskID         string
 	BuyerID        string
