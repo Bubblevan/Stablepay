@@ -688,7 +688,75 @@ different dense-Exact distribution. The independently reviewed StablePay
 - This is a public judged-candidate reference set, not the StablePay full
   24,000-product catalog, and contains no region/price/inventory feasibility
   or valid-plan labels. The `94.2%` target-product Recall@5 and paired
-  `72.6% → 91.8%` plan-rate result remain unverified; the next shortest valid
-  step is an independently frozen 500-task StablePay holdout with separately
-  reviewed `relevant_skus` and plan graders. Do not backfill these targets from
-  this ESCI result.
+  `72.6% → 91.8%` plan-rate result remain unverified and are intentionally
+  absent from the resume. Do not backfill those targets from this ESCI result.
+
+## 2026-10-12 — Final resume claim boundaries
+
+- Bullet 1 is frozen: the isolated-Mock 50-task matrix had `50/50` correct
+  expected terminal outcomes, `40/40` valid deliveries for purchasable tasks,
+  `10/10` quote-change cases reapproved, duplicate settlement count `0`, and
+  task P95 `442.024 ms`. A separate local-synthetic-Merchant Devnet check was
+  `1/1` delivered at `0.99 USDC`; it is not part of the Mock denominator.
+- Bullet 2's primary quantitative result is the query-disjoint public ESCI
+  judged-candidate test above: macro Exact Recall@5 `86.96% → 88.51%`, NDCG@5
+  `0.89069 → 0.90518`; paired query outcomes were 40 improved, 448 unchanged,
+  and 12 regressed. It is not full-catalog retrieval or plan quality.
+- Bullet 3 is a local isolated-tenant Mock purchase/recovery replay: `287/300`
+  completed; 13 deterministic Mock declines; `29/29` predeclared transient
+  fulfillment failures recovered; duplicate order/payment/settlement/
+  fulfillment counts and orphan attempts were all `0`. No Devnet or external
+  payment/fulfillment provider was used.
+- Bullet 4 is isolated MySQL recovery: `160/160` across 8 predefined crash
+  windows; duplicate payment facts, budget drift, orphan/stuck Episodes `0`;
+  TTR P50/P95 `0.621/28.807 s`.
+- Bullet 5 separates two environments: ACK deployment is the user's stated
+  internship experience; local Minikube has 6 Kubernetes nodes on one Docker
+  Desktop host. The independent local k6 run at 200 VUs measured `1,319.133`
+  HTTP req/s and `72.6` completed Episodes/s, HTTP P95 `114.393 ms`, Episode
+  P95 `3.349 s`, and `0%` errors in its 60-second measurement window.
+- Bullet 6 separates the user's stated internship Labubu demo from the later
+  local `9/9` buyer-authorization/API-MySQL boundary regression. The repo's
+  Labubu files are scenario/backend-state templates, not transaction receipts;
+  no order count, payment success rate, or conversion metric is claimed.
+- E1 DeepSeek remains `INTERVIEW_ONLY_NEGATIVE_ABLATION`; it is not part of the
+  resume claims. Prior 500-task synthetic shopping challenge percentages are
+  excluded because prompts and labels were generated from the same local
+  catalog and were not independently validated.
+- A bounded B2-FAST diagnostic used 30 newly authored prompts against the
+  fixed 12-merchant / 24,000-product local catalog snapshot (15 PLAN, 5
+  NO_PLAN, 10 CLARIFY). The first draft was rejected before model use because
+  one prompt/intent pair contained an unstated style preference; it remains an
+  unused draft. Corrected v2 tasks were frozen and validated against the
+  catalog and deterministic inventory overlay before model output. The overlay
+  is synthetic fixture state, not merchant-observed stock. No human review or
+  adjudication occurred; this is diagnostic-only evidence. Task file:
+  `.local-run/agent-shopping/challenge-suites/b2-fast-v2/tasks.jsonl`, SHA-256
+  `69529021ad365a680f68bc3a88d52f9ac211e79de2ec9836633c8d70b95a6270`.
+- One 30-task GPT-6 Luna (`openai-codex`, reasoning `none`) parse batch
+  completed; the same parsed intents were scored at K=5 by BM25 baseline and
+  current BM25 + title-coverage/ordered-bigram treatment. On the 15 PLAN tasks,
+  valid plans were `7/15` baseline (`46.7%`) and `14/15` treatment (`93.3%`),
+  a paired `+46.7 pp`; paired outcomes: 7 treatment-only, 0 baseline-only,
+  7 both-valid, 1 neither-valid. Across all 30 tasks, correct expected
+  decisions were `27/30` (90%); NO_PLAN `5/5`, CLARIFY `8/10`, and a
+  missing-field cue appeared in `10/10` clarification questions. At K=5,
+  feasible-SKU recall was 3.98% macro / 5.15% micro and at least one feasible
+  gold SKU appeared for `4/15` PLAN tasks. Exact-target task hit was `15/15`,
+  but its catalog-derived labels cover 1,177 SKUs and are unreviewed; it is not
+  a human relevance result. These 30-task figures are small-sample synthetic
+  diagnostics, not resume claims and not comparable to the 500-query ESCI
+  retrieval metric.
+- Run artifact:
+  `.local-run/agent-shopping/challenge-evaluations/shopping-challenge-20261011T184940.691141900Z/`.
+  Provider/model were `openai-codex` / `gpt-6-luna`; temperature, top_p and
+  max_tokens were unreported by Hermes. Usage status was `AVAILABLE` with
+  6,027 input and 1,742 output tokens; API-call count status remains
+  `TOKEN_METRIC_UNAVAILABLE`. Prompt/template and task hashes, raw response,
+  trials and metrics are saved in the ignored run directory. The evaluator
+  made no payment and wrote no simulation DB. All 12 local listing APIs were
+  stopped afterward; no new dataset was downloaded.
+- Bullet 2 therefore uses only the 500-query ESCI judged-candidate paired
+  ranking result as its headline evidence. The paired task-level outcomes
+  (40 improved / 448 unchanged / 12 regressed) are disclosed alongside the
+  aggregate Recall@5 and NDCG@5, not hidden behind the aggregate lift.
