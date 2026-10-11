@@ -50,11 +50,15 @@ func (apiEntitlement) Verify(_ context.Context, request adapters.EntitlementQuer
 	return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: request.IntentID, TxID: request.TxID, Reference: "entitlement:" + request.IntentID, EvidenceRef: "entitlement://" + request.IntentID}, nil
 }
 
-type currentBuyerQuote struct{ err error }
+type currentBuyerQuote struct {
+	calls   atomic.Int32
+	staleAt atomic.Int32
+}
 
 func (v *currentBuyerQuote) ValidateBuyerOffer(_ context.Context, offer application.BuyerOffer) error {
-	if v.err != nil {
-		return v.err
+	call := v.calls.Add(1)
+	if staleAt := v.staleAt.Load(); staleAt > 0 && call >= staleAt {
+		return application.ErrBuyerQuoteStale
 	}
 	if offer.ProductID == "" || offer.QuoteHash == "" || offer.AmountMinor <= 0 || !time.Now().Before(offer.ExpiresAt) {
 		return application.ErrBuyerQuoteStale
@@ -65,6 +69,7 @@ func (v *currentBuyerQuote) ValidateBuyerOffer(_ context.Context, offer applicat
 type apiMerchant struct {
 	calls                    atomic.Int32
 	initialCalls             atomic.Int32
+	refreshCalls             atomic.Int32
 	deliveryCalls            atomic.Int32
 	invalidFirst             bool
 	transientInitialFailures int32
@@ -73,13 +78,22 @@ type apiMerchant struct {
 func (m *apiMerchant) Invoke(_ context.Context, request adapters.MerchantInvokeRequest) (adapters.MerchantInvokeResult, error) {
 	m.calls.Add(1)
 	now := time.Now().UTC()
-	if request.Phase == invocation.PhaseInitial {
-		initialCall := m.initialCalls.Add(1)
-		if initialCall <= m.transientInitialFailures {
-			return adapters.MerchantInvokeResult{}, errors.New("merchant transport timeout")
+	if request.Phase == invocation.PhaseInitial || request.Phase == invocation.PhaseQuoteRefresh {
+		if request.Phase == invocation.PhaseInitial {
+			initialCall := m.initialCalls.Add(1)
+			if initialCall <= m.transientInitialFailures {
+				return adapters.MerchantInvokeResult{}, errors.New("merchant transport timeout")
+			}
 		}
-		challenge := []byte(`{"x402Version":2,"resource":{"url":"https://merchant.test/execute"},"accepts":[{"scheme":"exact","network":"devnet","amount":"200000","asset":"USDC","payTo":"did:payee:test","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"api-test"}}]}`)
-		return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, ContentType: "application/json", Headers: map[string]string{"PAYMENT-REQUIRED": base64.StdEncoding.EncodeToString(challenge)}, Body: challenge, PayloadHash: invocation.PayloadHash(challenge), PayloadRef: "merchant-response://challenge", OccurredAt: now}, nil
+		if request.Phase == invocation.PhaseQuoteRefresh {
+			m.refreshCalls.Add(1)
+			challenge := []byte(`{"x402Version":2,"resource":{"url":"https://merchant.test/execute"},"accepts":[{"scheme":"exact","network":"devnet","amount":"250000","asset":"USDC","payTo":"did:payee:test","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"api-test-revised"}}]}`)
+			return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, ContentType: "application/json", Headers: map[string]string{"PAYMENT-REQUIRED": base64.StdEncoding.EncodeToString(challenge)}, Body: challenge, PayloadHash: invocation.PayloadHash(challenge), PayloadRef: "merchant-response://challenge-refresh", OccurredAt: now}, nil
+		}
+		{
+			challenge := []byte(`{"x402Version":2,"resource":{"url":"https://merchant.test/execute"},"accepts":[{"scheme":"exact","network":"devnet","amount":"200000","asset":"USDC","payTo":"did:payee:test","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"api-test"}}]}`)
+			return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, ContentType: "application/json", Headers: map[string]string{"PAYMENT-REQUIRED": base64.StdEncoding.EncodeToString(challenge)}, Body: challenge, PayloadHash: invocation.PayloadHash(challenge), PayloadRef: "merchant-response://challenge", OccurredAt: now}, nil
+		}
 	}
 	body := []byte(`{"artifact":"fulfilled by merchant"}`)
 	if m.invalidFirst && m.deliveryCalls.Add(1) == 1 {
@@ -276,14 +290,14 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	}
 	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, approvalMessage))
 	confirmationBody, err := json.Marshal(map[string]any{
-		"quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor,
+		"offer_ref": statusBody.BuyerOffer.OfferRef, "quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor,
 		"currency": statusBody.BuyerOffer.Currency, "accepted": true, "signature_base64": signature,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tamperedBody, err := json.Marshal(map[string]any{
-		"quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor + 1,
+		"offer_ref": statusBody.BuyerOffer.OfferRef, "quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor + 1,
 		"currency": statusBody.BuyerOffer.Currency, "accepted": true, "signature_base64": signature,
 	})
 	if err != nil {
@@ -294,7 +308,7 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if tampered.Code != http.StatusConflict {
 		t.Fatalf("tampered amount status=%d body=%s", tampered.Code, tampered.Body.String())
 	}
-	quoteValidator.err = application.ErrBuyerQuoteStale
+	quoteValidator.staleAt.Store(quoteValidator.calls.Load() + 1)
 	stale := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
 		"buyer-confirmation-token", "buyer-confirmation-1", confirmationBody)
 	if stale.Code != http.StatusConflict {
@@ -304,11 +318,104 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
 		t.Fatalf("tampered/stale approval caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
 	}
-	quoteValidator.err = nil
+	quoteValidator.staleAt.Store(0)
+	refreshPath := server.URL + "/v1/episodes/" + created.Episode.EpisodeID + "/buyer-offers/refresh"
+	refreshed := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-1", nil)
+	if refreshed.Code != http.StatusAccepted {
+		t.Fatalf("buyer offer refresh status=%d body=%s", refreshed.Code, refreshed.Body.String())
+	}
+	var refreshedBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+	}
+	if err := json.Unmarshal(refreshed.Body.Bytes(), &refreshedBody); err != nil || refreshedBody.BuyerOffer == nil {
+		t.Fatalf("refreshed offer missing: %#v err=%v body=%s", refreshedBody.BuyerOffer, err, refreshed.Body.String())
+	}
+	if refreshedBody.BuyerOffer.QuoteHash == statusBody.BuyerOffer.QuoteHash || refreshedBody.BuyerOffer.ProductID != "api-test-revised" {
+		t.Fatalf("quote refresh did not expose changed merchant terms: old=%#v new=%#v", statusBody.BuyerOffer, refreshedBody.BuyerOffer)
+	}
+	replayedRefresh := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-1", nil)
+	var replayedRefreshBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+		Replayed   bool                    `json:"replayed"`
+	}
+	if err := json.Unmarshal(replayedRefresh.Body.Bytes(), &replayedRefreshBody); err != nil || replayedRefresh.Code != http.StatusOK || !replayedRefreshBody.Replayed || replayedRefreshBody.BuyerOffer == nil {
+		t.Fatalf("quote refresh replay was not stable: status=%d replay=%#v err=%v body=%s", replayedRefresh.Code, replayedRefreshBody, err, replayedRefresh.Body.String())
+	}
+	if merchant.refreshCalls.Load() != 1 || replayedRefreshBody.BuyerOffer.QuoteHash != refreshedBody.BuyerOffer.QuoteHash {
+		t.Fatalf("refresh replay invoked merchant again or changed terms: calls=%d first=%q replay=%q", merchant.refreshCalls.Load(), refreshedBody.BuyerOffer.QuoteHash, replayedRefreshBody.BuyerOffer.QuoteHash)
+	}
+	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
+		t.Fatalf("quote refresh caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
+	}
+	newApprovalMessage, err := base64.StdEncoding.DecodeString(refreshedBody.BuyerOffer.AcceptMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSignature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, newApprovalMessage))
+	newConfirmationBody, err := json.Marshal(map[string]any{
+		"offer_ref": refreshedBody.BuyerOffer.OfferRef, "quote_hash": refreshedBody.BuyerOffer.QuoteHash, "amount_minor": refreshedBody.BuyerOffer.AmountMinor,
+		"currency": refreshedBody.BuyerOffer.Currency, "accepted": true, "signature_base64": newSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteValidator.staleAt.Store(quoteValidator.calls.Load() + 3)
 	confirmed := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
-		"buyer-confirmation-token", "buyer-confirmation-1", confirmationBody)
+		"buyer-confirmation-token", "buyer-confirmation-2", newConfirmationBody)
 	if confirmed.Code != http.StatusAccepted {
 		t.Fatalf("buyer confirmation status=%d body=%s", confirmed.Code, confirmed.Body.String())
+	}
+	reopened, err := runner.RunEpisode(context.Background(), created.Episode.EpisodeID)
+	if err != nil || reopened.Episode.State != episode.StateAwaitingBuyer || !reopened.Paused {
+		t.Fatalf("stale post-approval quote did not return to buyer gate: state=%s paused=%v err=%v", reopened.Episode.State, reopened.Paused, err)
+	}
+	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
+		t.Fatalf("post-approval stale quote caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
+	}
+	refreshedAgain := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-2", nil)
+	if refreshedAgain.Code != http.StatusAccepted {
+		t.Fatalf("second buyer offer refresh status=%d body=%s", refreshedAgain.Code, refreshedAgain.Body.String())
+	}
+	var refreshedAgainBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+	}
+	if err := json.Unmarshal(refreshedAgain.Body.Bytes(), &refreshedAgainBody); err != nil || refreshedAgainBody.BuyerOffer == nil {
+		t.Fatalf("second refreshed offer missing: %#v err=%v body=%s", refreshedAgainBody.BuyerOffer, err, refreshedAgain.Body.String())
+	}
+	if refreshedAgainBody.BuyerOffer.OfferRef == refreshedBody.BuyerOffer.OfferRef || refreshedAgainBody.BuyerOffer.QuoteHash != refreshedBody.BuyerOffer.QuoteHash {
+		t.Fatalf("refresh did not advance offer identity: first=%#v second=%#v", refreshedBody.BuyerOffer, refreshedAgainBody.BuyerOffer)
+	}
+	lateReplay := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-1", nil)
+	var lateReplayBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+		Replayed   bool                    `json:"replayed"`
+	}
+	if err := json.Unmarshal(lateReplay.Body.Bytes(), &lateReplayBody); err != nil || lateReplay.Code != http.StatusOK || !lateReplayBody.Replayed || lateReplayBody.BuyerOffer == nil || lateReplayBody.BuyerOffer.OfferRef != refreshedBody.BuyerOffer.OfferRef {
+		t.Fatalf("late refresh replay did not return its original offer: status=%d replay=%#v err=%v body=%s", lateReplay.Code, lateReplayBody, err, lateReplay.Body.String())
+	}
+	if merchant.refreshCalls.Load() != 2 {
+		t.Fatalf("late refresh replay invoked merchant again: calls=%d", merchant.refreshCalls.Load())
+	}
+	secondApprovalMessage, err := base64.StdEncoding.DecodeString(refreshedAgainBody.BuyerOffer.AcceptMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSignature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, secondApprovalMessage))
+	secondConfirmationBody, err := json.Marshal(map[string]any{
+		"offer_ref": refreshedAgainBody.BuyerOffer.OfferRef, "quote_hash": refreshedAgainBody.BuyerOffer.QuoteHash,
+		"amount_minor": refreshedAgainBody.BuyerOffer.AmountMinor, "currency": refreshedAgainBody.BuyerOffer.Currency,
+		"accepted": true, "signature_base64": secondSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteValidator.staleAt.Store(0)
+	confirmedAgain := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
+		"buyer-confirmation-token", "buyer-confirmation-3", secondConfirmationBody)
+	if confirmedAgain.Code != http.StatusAccepted {
+		t.Fatalf("second buyer confirmation status=%d body=%s", confirmedAgain.Code, confirmedAgain.Body.String())
 	}
 	completed, err := runner.RunEpisode(context.Background(), created.Episode.EpisodeID)
 	if err != nil || completed.Episode.State != episode.StateFulfilled {
@@ -318,8 +425,16 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 		t.Fatalf("payment submits=%d, want exactly one", paymentAdapter.submits.Load())
 	}
 	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
-	if err != nil || len(intents) != 1 || intents[0].QuoteHash != statusBody.BuyerOffer.QuoteHash {
+	if err != nil || len(intents) != 1 || intents[0].QuoteHash != refreshedAgainBody.BuyerOffer.QuoteHash || intents[0].AmountMinor != refreshedAgainBody.BuyerOffer.AmountMinor || intents[0].PaymentRequirementID != refreshedAgainBody.BuyerOffer.OfferRef {
 		t.Fatalf("unexpected runtime intents=%#v err=%v", intents, err)
+	}
+	terminalReplay := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-1", nil)
+	var terminalReplayBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+		Replayed   bool                    `json:"replayed"`
+	}
+	if err := json.Unmarshal(terminalReplay.Body.Bytes(), &terminalReplayBody); err != nil || terminalReplay.Code != http.StatusOK || !terminalReplayBody.Replayed || terminalReplayBody.BuyerOffer == nil || terminalReplayBody.BuyerOffer.OfferRef != refreshedBody.BuyerOffer.OfferRef {
+		t.Fatalf("terminal refresh replay did not return its original offer: status=%d replay=%#v err=%v body=%s", terminalReplay.Code, terminalReplayBody, err, terminalReplay.Body.String())
 	}
 }
 

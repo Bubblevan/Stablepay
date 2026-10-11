@@ -32,29 +32,30 @@ var (
 )
 
 type PaymentIntent struct {
-	IntentID           string       `json:"intent_id"`
-	EpisodeID          string       `json:"episode_id"`
-	MerchantDID        string       `json:"merchant_did"`
-	CapabilityID       string       `json:"capability_id"`
-	PayeeDID           string       `json:"payee_did"`
-	QuoteHash          string       `json:"quote_hash"`
-	AmountMinor        int64        `json:"amount_minor"`
-	Currency           string       `json:"currency"`
-	RequesterDID       string       `json:"requester_did"`
-	EpisodeVersion     uint64       `json:"episode_version"`
-	BudgetReservation  int64        `json:"budget_reservation"`
-	IdempotencyKey     string       `json:"idempotency_key"`
-	EconomicKey        string       `json:"economic_key"`
-	ExpiresAt          time.Time    `json:"expires_at"`
-	Status             IntentStatus `json:"status"`
-	TxID               string       `json:"tx_id,omitempty"`
-	TxHash             string       `json:"tx_hash,omitempty"`
-	AuthorizationRef   string       `json:"authorization_ref,omitempty"`
-	CredentialRef      string       `json:"credential_ref,omitempty"`
-	RequestFingerprint string       `json:"request_fingerprint"`
-	FailureCode        string       `json:"failure_code,omitempty"`
-	CreatedAt          time.Time    `json:"created_at"`
-	UpdatedAt          time.Time    `json:"updated_at"`
+	IntentID             string       `json:"intent_id"`
+	EpisodeID            string       `json:"episode_id"`
+	MerchantDID          string       `json:"merchant_did"`
+	CapabilityID         string       `json:"capability_id"`
+	PayeeDID             string       `json:"payee_did"`
+	QuoteHash            string       `json:"quote_hash"`
+	PaymentRequirementID string       `json:"payment_requirement_id,omitempty"`
+	AmountMinor          int64        `json:"amount_minor"`
+	Currency             string       `json:"currency"`
+	RequesterDID         string       `json:"requester_did"`
+	EpisodeVersion       uint64       `json:"episode_version"`
+	BudgetReservation    int64        `json:"budget_reservation"`
+	IdempotencyKey       string       `json:"idempotency_key"`
+	EconomicKey          string       `json:"economic_key"`
+	ExpiresAt            time.Time    `json:"expires_at"`
+	Status               IntentStatus `json:"status"`
+	TxID                 string       `json:"tx_id,omitempty"`
+	TxHash               string       `json:"tx_hash,omitempty"`
+	AuthorizationRef     string       `json:"authorization_ref,omitempty"`
+	CredentialRef        string       `json:"credential_ref,omitempty"`
+	RequestFingerprint   string       `json:"request_fingerprint"`
+	FailureCode          string       `json:"failure_code,omitempty"`
+	CreatedAt            time.Time    `json:"created_at"`
+	UpdatedAt            time.Time    `json:"updated_at"`
 }
 
 type economicIdentity struct {
@@ -102,18 +103,19 @@ func (i PaymentIntent) Validate() error {
 // command bytes for the payment-service idempotency hash.
 func RequestFingerprint(i PaymentIntent) string {
 	identity := struct {
-		IntentID       string `json:"intent_id"`
-		EpisodeID      string `json:"episode_id"`
-		MerchantDID    string `json:"merchant_did"`
-		CapabilityID   string `json:"capability_id"`
-		PayeeDID       string `json:"payee_did"`
-		QuoteHash      string `json:"quote_hash"`
-		AmountMinor    int64  `json:"amount_minor"`
-		Currency       string `json:"currency"`
-		RequesterDID   string `json:"requester_did"`
-		IdempotencyKey string `json:"idempotency_key"`
-		CredentialRef  string `json:"credential_ref"`
-	}{i.IntentID, i.EpisodeID, i.MerchantDID, i.CapabilityID, i.PayeeDID, i.QuoteHash, i.AmountMinor, strings.ToUpper(strings.TrimSpace(i.Currency)), i.RequesterDID, i.IdempotencyKey, i.CredentialRef}
+		IntentID             string `json:"intent_id"`
+		EpisodeID            string `json:"episode_id"`
+		MerchantDID          string `json:"merchant_did"`
+		CapabilityID         string `json:"capability_id"`
+		PayeeDID             string `json:"payee_did"`
+		QuoteHash            string `json:"quote_hash"`
+		PaymentRequirementID string `json:"payment_requirement_id,omitempty"`
+		AmountMinor          int64  `json:"amount_minor"`
+		Currency             string `json:"currency"`
+		RequesterDID         string `json:"requester_did"`
+		IdempotencyKey       string `json:"idempotency_key"`
+		CredentialRef        string `json:"credential_ref"`
+	}{i.IntentID, i.EpisodeID, i.MerchantDID, i.CapabilityID, i.PayeeDID, i.QuoteHash, i.PaymentRequirementID, i.AmountMinor, strings.ToUpper(strings.TrimSpace(i.Currency)), i.RequesterDID, i.IdempotencyKey, i.CredentialRef}
 	encoded, _ := json.Marshal(identity)
 	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:])

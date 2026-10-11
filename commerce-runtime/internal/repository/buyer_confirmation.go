@@ -20,7 +20,26 @@ func (s *InMemoryStore) GetBuyerConfirmationByQuoteHash(ctx context.Context, epi
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	id, ok := s.buyerConfirmationByQuote[buyerConfirmationKey(episodeID, quoteHash)]
+	var latest *buyer.Confirmation
+	for _, value := range s.buyerConfirmations {
+		if value.EpisodeID == episodeID && value.QuoteHash == quoteHash &&
+			(latest == nil || value.CreatedAt.After(latest.CreatedAt) || (value.CreatedAt.Equal(latest.CreatedAt) && value.OfferRef > latest.OfferRef)) {
+			latest = value
+		}
+	}
+	if latest == nil {
+		return nil, ErrNotFound
+	}
+	return latest.Clone(), nil
+}
+
+func (s *InMemoryStore) FindBuyerConfirmationByOfferRef(ctx context.Context, episodeID, offerRef string) (*buyer.Confirmation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.buyerConfirmationByOffer[buyerConfirmationKey(episodeID, offerRef)]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -62,6 +81,7 @@ func (s *InMemoryStore) CommitBuyerConfirmationTransition(ctx context.Context, t
 		return ErrVersionConflict
 	}
 	if transition.Event.StateAfter != transition.NextEpisode.State ||
+		transition.NextEpisode.CurrentPaymentRequirementID != transition.Confirmation.OfferRef || transition.NextEpisode.CurrentQuoteHash != transition.Confirmation.QuoteHash ||
 		(transition.Confirmation.Accepted && transition.NextEpisode.State != episode.StateNegotiating) ||
 		(!transition.Confirmation.Accepted && transition.NextEpisode.State != episode.StateAborted) {
 		return errors.New("buyer confirmation outcome does not match episode transition")
@@ -75,8 +95,8 @@ func (s *InMemoryStore) CommitBuyerConfirmationTransition(ctx context.Context, t
 		}
 		return ErrBuyerConfirmationConflict
 	}
-	byQuote := buyerConfirmationKey(transition.EpisodeID, transition.Confirmation.QuoteHash)
-	if existingID, ok := s.buyerConfirmationByQuote[byQuote]; ok {
+	byOffer := buyerConfirmationKey(transition.EpisodeID, transition.Confirmation.OfferRef)
+	if existingID, ok := s.buyerConfirmationByOffer[byOffer]; ok {
 		if reflect.DeepEqual(s.buyerConfirmations[existingID], transition.Confirmation) {
 			return ErrIdempotentReplay
 		}
@@ -89,7 +109,7 @@ func (s *InMemoryStore) CommitBuyerConfirmationTransition(ctx context.Context, t
 	if current.Version != transition.ExpectedEpisodeVersion || current.State != episode.StateAwaitingBuyer ||
 		current.RequestID != transition.Confirmation.RequestID || current.RequesterDID != transition.Confirmation.RequesterDID ||
 		current.SelectedMerchantDID != transition.Confirmation.MerchantDID || current.SelectedCapabilityID != transition.Confirmation.CapabilityID ||
-		current.CurrentQuoteHash != transition.Confirmation.QuoteHash {
+		current.CurrentQuoteHash != transition.Confirmation.QuoteHash || current.CurrentPaymentRequirementID != transition.Confirmation.OfferRef {
 		return ErrVersionConflict
 	}
 	for _, existing := range s.events[transition.EpisodeID] {
@@ -109,6 +129,6 @@ func (s *InMemoryStore) CommitBuyerConfirmationTransition(ctx context.Context, t
 	}
 	s.buyerConfirmations[transition.Confirmation.ConfirmationID] = transition.Confirmation.Clone()
 	s.buyerConfirmationByKey[byKey] = transition.Confirmation.ConfirmationID
-	s.buyerConfirmationByQuote[byQuote] = transition.Confirmation.ConfirmationID
+	s.buyerConfirmationByOffer[byOffer] = transition.Confirmation.ConfirmationID
 	return nil
 }

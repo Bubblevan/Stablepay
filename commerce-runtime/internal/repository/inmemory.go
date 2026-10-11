@@ -50,7 +50,7 @@ type InMemoryStore struct {
 	parentDecisions          map[string]*recovery.ParentDecisionFact
 	buyerConfirmations       map[string]*buyer.Confirmation
 	buyerConfirmationByKey   map[string]string
-	buyerConfirmationByQuote map[string]string
+	buyerConfirmationByOffer map[string]string
 	budgetAmendments         map[string]*recovery.BudgetAmendment
 	evidenceRecords          map[string]*evidence.EvidenceRecord
 	modelDecisionTraces      map[string]*llm.ModelDecisionTrace
@@ -92,7 +92,7 @@ func NewInMemoryStore() *InMemoryStore {
 		parentDecisions:          make(map[string]*recovery.ParentDecisionFact),
 		buyerConfirmations:       make(map[string]*buyer.Confirmation),
 		buyerConfirmationByKey:   make(map[string]string),
-		buyerConfirmationByQuote: make(map[string]string),
+		buyerConfirmationByOffer: make(map[string]string),
 		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
 		evidenceRecords:          make(map[string]*evidence.EvidenceRecord),
 		modelDecisionTraces:      make(map[string]*llm.ModelDecisionTrace),
@@ -1017,7 +1017,7 @@ func samePaymentIntentIdentity(left, right *payment.PaymentIntent) bool {
 		return false
 	}
 	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
-		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.PaymentRequirementID == right.PaymentRequirementID && left.AmountMinor == right.AmountMinor &&
 		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID && left.BudgetReservation == right.BudgetReservation &&
 		left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.CredentialRef == right.CredentialRef && left.ExpiresAt.Equal(right.ExpiresAt) &&
 		left.CreatedAt.Equal(right.CreatedAt) && left.RequestFingerprint == right.RequestFingerprint
@@ -1188,6 +1188,28 @@ func (s *InMemoryStore) FindPaymentRequirementByInvocation(ctx context.Context, 
 		return nil, ErrFactNotFound
 	}
 	return s.paymentRequirements[id].Clone(), nil
+}
+
+func (s *InMemoryStore) FindPaymentRequirementByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*invocation.PaymentRequirementFact, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest *invocation.PaymentRequirementFact
+	for _, value := range s.paymentRequirements {
+		if value.EpisodeID != episodeID || value.CanonicalQuoteHash != quoteHash {
+			continue
+		}
+		if latest == nil || value.ObservedAt.After(latest.ObservedAt) ||
+			(value.ObservedAt.Equal(latest.ObservedAt) && value.PaymentRequirementID > latest.PaymentRequirementID) {
+			latest = value
+		}
+	}
+	if latest == nil {
+		return nil, ErrFactNotFound
+	}
+	return latest.Clone(), nil
 }
 
 func (s *InMemoryStore) SaveDeliveryArtifact(ctx context.Context, value *invocation.DeliveryArtifact) error {

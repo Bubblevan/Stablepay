@@ -192,6 +192,7 @@ type PaymentRequirementFactRepository interface {
 	SavePaymentRequirementFact(context.Context, *invocation.PaymentRequirementFact) error
 	GetPaymentRequirementFact(context.Context, string) (*invocation.PaymentRequirementFact, error)
 	FindPaymentRequirementByInvocation(context.Context, string, string) (*invocation.PaymentRequirementFact, error)
+	FindPaymentRequirementByQuoteHash(context.Context, string, string) (*invocation.PaymentRequirementFact, error)
 }
 
 type DeliveryArtifactRepository interface {
@@ -247,6 +248,7 @@ type ParentApprovalRepository interface {
 
 type BuyerConfirmationRepository interface {
 	GetBuyerConfirmationByQuoteHash(context.Context, string, string) (*buyer.Confirmation, error)
+	FindBuyerConfirmationByOfferRef(context.Context, string, string) (*buyer.Confirmation, error)
 	FindBuyerConfirmationByIdempotencyKey(context.Context, string, string) (*buyer.Confirmation, error)
 }
 

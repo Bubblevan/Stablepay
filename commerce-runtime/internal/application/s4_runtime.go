@@ -190,12 +190,29 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	if err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	if fact.EpisodeID != current.EpisodeID || fact.Phase != invocation.PhaseInitial || fact.ResponseStatus != 402 {
+	quoteRefresh := fact.Phase == invocation.PhaseQuoteRefresh
+	if fact.EpisodeID != current.EpisodeID || (fact.Phase != invocation.PhaseInitial && !quoteRefresh) || fact.ResponseStatus != 402 {
 		return PaymentRequirementResult{}, fmt.Errorf("%w: invocation is not an HTTP 402", x402.ErrInvalidChallenge)
+	}
+	if quoteRefresh && current.State != episode.StateAwaitingBuyer {
+		return PaymentRequirementResult{}, decision.ErrActionNotAllowed
+	}
+	if !quoteRefresh && current.State != episode.StateInvoking && current.State != episode.StateNegotiating {
+		return PaymentRequirementResult{}, decision.ErrActionNotAllowed
+	}
+	quoteAction := trace.ActionParse402
+	quoteObservation := trace.ObservationQuoteValid
+	quoteEventKey := "parse-402:" + fact.InvocationID
+	quoteTargetState := episode.StateNegotiating
+	if quoteRefresh {
+		quoteAction = trace.ActionRefreshBuyerOffer
+		quoteObservation = trace.ObservationBuyerQuoteRefreshed
+		quoteEventKey = "refresh-buyer-offer:" + fact.InvocationID
+		quoteTargetState = episode.StateAwaitingBuyer
 	}
 	if existing, findErr := store.FindPaymentRequirementByInvocation(ctx, current.EpisodeID, fact.InvocationID); findErr == nil {
 		quote := trustedQuoteFromRequirement(*existing)
-		key := "parse-402:" + fact.InvocationID
+		key := quoteEventKey
 		event, eventErr := s.store.FindByIdempotencyKey(ctx, current.EpisodeID, key)
 		if errors.Is(eventErr, repository.ErrNotFound) {
 			traceID := strings.TrimSpace(request.TraceID)
@@ -204,18 +221,13 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 			}
 			next := current.Clone()
 			next.CurrentQuoteHash = existing.CanonicalQuoteHash
+			next.CurrentPaymentRequirementID = existing.PaymentRequirementID
 			next.ActionCount++
-			if current.State == episode.StateNegotiating {
-				if err := next.ApplyCommittedState(episode.StateNegotiating, existing.ObservedAt, ""); err != nil {
-					return PaymentRequirementResult{}, err
-				}
-			} else {
-				if err := next.ApplyCommittedState(episode.StateNegotiating, existing.ObservedAt, ""); err != nil {
-					return PaymentRequirementResult{}, err
-				}
+			if err := next.ApplyCommittedState(quoteTargetState, existing.ObservedAt, ""); err != nil {
+				return PaymentRequirementResult{}, err
 			}
 			var commitErr error
-			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionParse402, IdempotencyKey: key, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: trace.ObservationQuoteValid, Code: existing.CanonicalQuoteHash, FactsRef: existing.FactsRef, PayloadHash: existing.CanonicalQuoteHash}, nil, traceID, nil, nil, nil)
+			event, _, commitErr = s.commitS4Transition(ctx, current, next, trace.Action{Type: quoteAction, IdempotencyKey: key, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: quoteObservation, Code: existing.CanonicalQuoteHash, FactsRef: existing.FactsRef, PayloadHash: existing.CanonicalQuoteHash}, nil, traceID, nil, nil, nil)
 			if commitErr != nil {
 				return PaymentRequirementResult{}, commitErr
 			}
@@ -260,11 +272,12 @@ func (s *Service) ParsePaymentRequirement(ctx context.Context, request ParsePaym
 	}
 	next := current.Clone()
 	next.CurrentQuoteHash = requirement.CanonicalQuoteHash
+	next.CurrentPaymentRequirementID = requirement.PaymentRequirementID
 	next.ActionCount++
-	if err := next.ApplyCommittedState(episode.StateNegotiating, fact.CompletedAt, ""); err != nil {
+	if err := next.ApplyCommittedState(quoteTargetState, fact.CompletedAt, ""); err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: trace.ActionParse402, IdempotencyKey: "parse-402:" + fact.InvocationID, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: trace.ObservationQuoteValid, Code: requirement.CanonicalQuoteHash, FactsRef: requirement.FactsRef, PayloadHash: requirement.CanonicalQuoteHash}, nil, traceID, requirement, nil, nil)
+	event, replay, err := s.commitS4Transition(ctx, current, next, trace.Action{Type: quoteAction, IdempotencyKey: quoteEventKey, InputRef: fact.ResponseRef, InputHash: fact.ResponsePayloadHash}, trace.Observation{Type: quoteObservation, Code: requirement.CanonicalQuoteHash, FactsRef: requirement.FactsRef, PayloadHash: requirement.CanonicalQuoteHash}, nil, traceID, requirement, nil, nil)
 	if err != nil {
 		return PaymentRequirementResult{}, err
 	}
@@ -916,7 +929,7 @@ func merchantResponseFromFact(value invocation.MerchantInvocation) adapters.Merc
 	return adapters.MerchantInvokeResult{HTTPStatus: value.ResponseStatus, ContentType: value.ResponseContentType, Headers: copyHeaders(value.SelectedHeaders), PayloadRef: value.ResponseRef, PayloadHash: value.ResponsePayloadHash, Body: append([]byte(nil), value.ResponseBody...), OccurredAt: value.CompletedAt}
 }
 func trustedQuoteFromRequirement(value invocation.PaymentRequirementFact) TrustedPaymentQuote {
-	return TrustedPaymentQuote{MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID, QuoteHash: value.CanonicalQuoteHash, AmountMinor: value.BusinessAmountMinor, Currency: value.Currency, RequesterDID: "", ExpiresAt: value.ExpiresAt, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, ResourceURL: value.ResourceURL, ProductID: value.ProductID, SkillDID: value.SkillDID, PaymentRequirementRef: value.FactsRef}
+	return TrustedPaymentQuote{MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID, QuoteHash: value.CanonicalQuoteHash, AmountMinor: value.BusinessAmountMinor, Currency: value.Currency, RequesterDID: "", ExpiresAt: value.ExpiresAt, ProtocolVersion: value.ProtocolVersion, Scheme: value.Scheme, Network: value.Network, Asset: value.Asset, ResourceURL: value.ResourceURL, ProductID: value.ProductID, OfferRef: value.PaymentRequirementID, SkillDID: value.SkillDID, PaymentRequirementRef: value.FactsRef}
 }
 
 // TrustedQuoteFromPaymentRequirement exposes the already validated x402 fact

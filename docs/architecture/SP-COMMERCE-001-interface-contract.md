@@ -1,6 +1,6 @@
-# SP-COMMERCE-001 interface contract (M0 proposal)
+# SP-COMMERCE-001 interface contract (M0 contract, M1 implementation in progress)
 
-- Status: contract proposal for M1; not yet implemented or advertised as an available API.
+- Status: M0 audit/contract recorded; a narrow Runtime-owned buyer-confirmation path is implemented but the full contract and M1 acceptance are not complete (checkpoint 2026-10-11).
 - Authority rule: shopping/discovery is an input to Commerce Runtime. Runtime remains the only owner of durable purchase/payment/recovery state.
 
 ## Existing interfaces observed
@@ -11,8 +11,20 @@
 | Runtime `POST /v1/episodes` | Accepts `AcquireCapabilityRequest`; `Idempotency-Key` must match `request_id`; creates/replays an episode and enqueues the Runner | Not safe as the shopping confirmation endpoint: it can begin autonomous processing immediately |
 | Runtime `GET /v1/episodes/{episode_id}` and `/events` | Reads persisted episode/status and event history | Suitable for status and audit after a purchase is created |
 | Runtime `POST /v1/episodes/{episode_id}/parent-decisions` | Records an existing Parent Approval decision and enqueues/resumes the episode | Additional policy gate only; not a substitute for buyer approval of the exact product/quote |
+| Runtime `POST /v1/episodes/{episode_id}/buyer-confirmations` | Records a buyer signature bound to the current offer; accepted confirmation resumes the Runtime flow | Exact buyer authorization; distinct from Parent Approval |
+| Runtime `POST /v1/episodes/{episode_id}/buyer-offers/refresh` | Re-invokes the selected Merchant adapter for a new HTTP 402 challenge while `AWAITING_BUYER_CONFIRMATION` | Refreshes the Runtime payment requirement; does not itself prove catalog stock, region eligibility, or service availability |
 | AgentShopping `/v1/intents/parse`, `/v1/quotes`, `/confirm`, `/v1/orders`, `/fulfillment` | Benchmark API over isolated simulation store; checkout writes simulation-only settlement | Keep for local quality/fault evaluation; do not use as the production purchase API |
 | Merchant `GET /api/v1/products`, `GET /api/v1/products/{sku}`, `GET /api/v1/products/{sku}/execute` | Lists/details products; execute returns x402 requirements or performs the purchase path when a valid payment signature is supplied | Candidate source / payment-resource contract, but current Merchant schema has no authoritative stock-region revision |
+
+## Implemented M1 subset (not a full acceptance)
+
+- `GET /v1/episodes/{episode_id}` exposes `buyer_offer` when the Runtime has a current persisted payment requirement. The offer includes `offer_ref` (the immutable Runtime payment-requirement ID), quote hash, product, amount/currency, payee/network/asset/resource, and expiry.
+- `POST /v1/episodes/{episode_id}/buyer-offers/refresh` requires `Idempotency-Key`; it is accepted only while the episode is awaiting buyer confirmation. A new x402 challenge is persisted as a new payment-requirement fact and the episode remains paused for approval. A replay with the same key returns the persisted offer without re-invoking the Merchant.
+- `POST /v1/episodes/{episode_id}/buyer-confirmations` now requires the exact `offer_ref` as well as quote hash, amount, currency, acceptance, and a requester signature. The signature message binds the immutable offer identity, so a later refresh needs a new signature even if the quote hash is unchanged.
+- Runtime checks the current offer at confirmation time and again before payment reservation. A stale or expired offer must return to the buyer gate; no budget reservation or payment submission should occur for that stale offer.
+- Evidence so far: deterministic API test with in-memory Runtime persistence and mocked service adapters covers changed terms, same-key refresh replay, stale-after-approval, and a new approval for a refreshed offer. It is not a MySQL integration/audit, real Merchant, Devnet, or full delivery/recovery test.
+
+Still missing for M1: an authoritative catalog/stock/region/version adapter; production wiring for the live quote/availability validator (currently fail-closed when absent); a unified Agent HTTP/MCP/CLI discovery entry point; isolated MySQL migration and SQL audit; concurrent/restart/response-loss and full fulfillment recovery acceptance; and resolution of Verification's repeated-purchase cardinality. Do not describe this subset as the complete autonomous-shopping path.
 
 ## Proposed integrated operations
 

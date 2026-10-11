@@ -47,6 +47,7 @@ type EpisodeModel struct {
 	SelectedCatalogSnapshotRef  string    `gorm:"column:selected_catalog_snapshot_ref;type:varchar(255)"`
 	SelectedWorkflowVersion     string    `gorm:"column:selected_workflow_version;type:varchar(64)"`
 	CurrentQuoteHash            string    `gorm:"column:current_quote_hash;type:char(71)"`
+	CurrentPaymentRequirementID string    `gorm:"column:current_payment_requirement_id;type:varchar(128)"`
 	EntitlementRefs             []byte    `gorm:"column:entitlement_refs;type:json"`
 	DeliveryRefs                []byte    `gorm:"column:delivery_refs;type:json"`
 	ValidationEvidenceRefs      []byte    `gorm:"column:validation_evidence_refs;type:json"`
@@ -116,29 +117,30 @@ type LedgerEntryModel struct {
 func (LedgerEntryModel) TableName() string { return "ledger_entries" }
 
 type PaymentIntentModel struct {
-	IntentID           string    `gorm:"column:intent_id;type:varchar(128);primaryKey"`
-	EpisodeID          string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_intent_episode"`
-	MerchantDID        string    `gorm:"column:merchant_did;type:varchar(128);not null"`
-	CapabilityID       string    `gorm:"column:capability_id;type:varchar(128);not null"`
-	PayeeDID           string    `gorm:"column:payee_did;type:varchar(128);not null"`
-	QuoteHash          string    `gorm:"column:quote_hash;type:char(71);not null"`
-	AmountMinor        int64     `gorm:"column:amount_minor;not null"`
-	Currency           string    `gorm:"column:currency;type:varchar(16);not null"`
-	RequesterDID       string    `gorm:"column:requester_did;type:varchar(128);not null"`
-	EpisodeVersion     uint64    `gorm:"column:episode_version;not null"`
-	BudgetReservation  int64     `gorm:"column:budget_reservation;not null"`
-	IdempotencyKey     string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_intent_idempotency"`
-	EconomicKey        string    `gorm:"column:economic_key;type:char(71);not null;uniqueIndex:uk_intent_economic"`
-	ExpiresAt          time.Time `gorm:"column:expires_at;not null"`
-	Status             string    `gorm:"column:status;type:varchar(24);not null"`
-	TxID               string    `gorm:"column:tx_id;type:varchar(128)"`
-	TxHash             string    `gorm:"column:tx_hash;type:varchar(128)"`
-	AuthorizationRef   string    `gorm:"column:authorization_ref;type:varchar(128)"`
-	CredentialRef      string    `gorm:"column:credential_ref;type:varchar(128);not null"`
-	RequestFingerprint string    `gorm:"column:request_fingerprint;type:char(71);not null"`
-	FailureCode        string    `gorm:"column:failure_code;type:varchar(128)"`
-	CreatedAt          time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt          time.Time `gorm:"column:updated_at;not null"`
+	IntentID             string    `gorm:"column:intent_id;type:varchar(128);primaryKey"`
+	EpisodeID            string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_intent_episode"`
+	MerchantDID          string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID         string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	PayeeDID             string    `gorm:"column:payee_did;type:varchar(128);not null"`
+	QuoteHash            string    `gorm:"column:quote_hash;type:char(71);not null"`
+	PaymentRequirementID string    `gorm:"column:payment_requirement_id;type:varchar(128)"`
+	AmountMinor          int64     `gorm:"column:amount_minor;not null"`
+	Currency             string    `gorm:"column:currency;type:varchar(16);not null"`
+	RequesterDID         string    `gorm:"column:requester_did;type:varchar(128);not null"`
+	EpisodeVersion       uint64    `gorm:"column:episode_version;not null"`
+	BudgetReservation    int64     `gorm:"column:budget_reservation;not null"`
+	IdempotencyKey       string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_intent_idempotency"`
+	EconomicKey          string    `gorm:"column:economic_key;type:char(71);not null;uniqueIndex:uk_intent_economic"`
+	ExpiresAt            time.Time `gorm:"column:expires_at;not null"`
+	Status               string    `gorm:"column:status;type:varchar(24);not null"`
+	TxID                 string    `gorm:"column:tx_id;type:varchar(128)"`
+	TxHash               string    `gorm:"column:tx_hash;type:varchar(128)"`
+	AuthorizationRef     string    `gorm:"column:authorization_ref;type:varchar(128)"`
+	CredentialRef        string    `gorm:"column:credential_ref;type:varchar(128);not null"`
+	RequestFingerprint   string    `gorm:"column:request_fingerprint;type:char(71);not null"`
+	FailureCode          string    `gorm:"column:failure_code;type:varchar(128)"`
+	CreatedAt            time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt            time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (PaymentIntentModel) TableName() string { return "payment_intents" }
@@ -231,7 +233,7 @@ func (MerchantInvocationModel) TableName() string { return "merchant_invocations
 
 type PaymentRequirementFactModel struct {
 	PaymentRequirementID string    `gorm:"column:payment_requirement_id;type:varchar(128);primaryKey"`
-	EpisodeID            string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_requirement_episode"`
+	EpisodeID            string    `gorm:"column:episode_id;type:varchar(128);not null;index:idx_requirement_episode;index:idx_requirement_quote,priority:1"`
 	InvocationID         string    `gorm:"column:invocation_id;type:varchar(128);not null;uniqueIndex:uk_requirement_invocation"`
 	MerchantDID          string    `gorm:"column:merchant_did;type:varchar(128);not null"`
 	CapabilityID         string    `gorm:"column:capability_id;type:varchar(128);not null"`
@@ -254,7 +256,7 @@ type PaymentRequirementFactModel struct {
 	ObservedAt           time.Time `gorm:"column:observed_at;not null"`
 	ExpiresAt            time.Time `gorm:"column:expires_at;not null"`
 	RawPayloadHash       string    `gorm:"column:raw_payload_hash;type:char(71);not null"`
-	CanonicalQuoteHash   string    `gorm:"column:canonical_quote_hash;type:char(71);not null"`
+	CanonicalQuoteHash   string    `gorm:"column:canonical_quote_hash;type:char(71);not null;index:idx_requirement_quote,priority:2"`
 	FactsRef             string    `gorm:"column:facts_ref;type:varchar(255);not null"`
 }
 
@@ -384,6 +386,51 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	}
 	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &PaymentTransportTraceModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &BuyerConfirmationModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}, &DecisionOutcomeTraceModel{}, &WorkflowDefinitionModel{}, &WorkflowRunModel{}, &WorkflowStepRunModel{}, &WorkflowEventModel{}); err != nil {
 		return err
+	}
+	// Backfill the exact current offer and buyer-signature binding for databases
+	// created by the first M1 buyer-confirmation schema. Old versions had one
+	// payment requirement per episode/quote, so the newest matching fact is the
+	// only safe migration target. Do not guess if an existing confirmation has no
+	// matching immutable requirement fact.
+	if err := db.WithContext(ctx).Exec(`
+UPDATE commerce_episodes e
+SET current_payment_requirement_id = (
+    SELECT pr.payment_requirement_id
+    FROM payment_requirement_facts pr
+    WHERE pr.episode_id = e.episode_id AND pr.canonical_quote_hash = e.current_quote_hash
+    ORDER BY pr.observed_at DESC, pr.payment_requirement_id DESC
+    LIMIT 1
+)
+WHERE e.current_quote_hash IS NOT NULL AND e.current_quote_hash <> ''
+  AND (e.current_payment_requirement_id IS NULL OR e.current_payment_requirement_id = '')`).Error; err != nil {
+		return err
+	}
+	if err := db.WithContext(ctx).Exec(`
+UPDATE buyer_confirmations bc
+SET offer_ref = (
+    SELECT pr.payment_requirement_id
+    FROM payment_requirement_facts pr
+    WHERE pr.episode_id = bc.episode_id AND pr.canonical_quote_hash = bc.quote_hash
+    ORDER BY pr.observed_at DESC, pr.payment_requirement_id DESC
+    LIMIT 1
+)
+WHERE bc.offer_ref IS NULL OR bc.offer_ref = ''`).Error; err != nil {
+		return err
+	}
+	var unboundConfirmations int64
+	if err := db.WithContext(ctx).Model(&BuyerConfirmationModel{}).Where("offer_ref IS NULL OR offer_ref = ''").Count(&unboundConfirmations).Error; err != nil {
+		return err
+	}
+	if unboundConfirmations != 0 {
+		return fmt.Errorf("cannot migrate %d buyer confirmations without a matching payment requirement", unboundConfirmations)
+	}
+	if err := db.WithContext(ctx).Exec(`ALTER TABLE buyer_confirmations MODIFY COLUMN offer_ref VARCHAR(128) NOT NULL`).Error; err != nil {
+		return err
+	}
+	if db.WithContext(ctx).Migrator().HasIndex(&BuyerConfirmationModel{}, "uk_buyer_confirmation_quote") {
+		if err := db.WithContext(ctx).Migrator().DropIndex(&BuyerConfirmationModel{}, "uk_buyer_confirmation_quote"); err != nil {
+			return err
+		}
 	}
 	// GORM's generic MySQL time mapping may retain an older DATETIME(3)
 	// column created before S7. Memory payload hashes include timestamps, so
@@ -668,6 +715,17 @@ func (s *Store) GetPaymentRequirementFact(ctx context.Context, id string) (*invo
 func (s *Store) FindPaymentRequirementByInvocation(ctx context.Context, episodeID, invocationID string) (*invocation.PaymentRequirementFact, error) {
 	var row PaymentRequirementFactModel
 	if err := s.db.WithContext(ctx).Where("episode_id = ? AND invocation_id = ?", episodeID, invocationID).First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrFactNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return modelToPaymentRequirement(row)
+}
+
+func (s *Store) FindPaymentRequirementByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*invocation.PaymentRequirementFact, error) {
+	var row PaymentRequirementFactModel
+	if err := s.db.WithContext(ctx).Where("episode_id = ? AND canonical_quote_hash = ?", episodeID, quoteHash).
+		Order("observed_at DESC, payment_requirement_id DESC").First(&row).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, repository.ErrFactNotFound
 	} else if err != nil {
 		return nil, err
@@ -1929,7 +1987,7 @@ func episodeToModel(value *episode.CommerceEpisode) (*EpisodeModel, error) {
 		ContractSnapshotHash: value.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), value.ContractSnapshot...),
 		SelectedMerchantDID: value.SelectedMerchantDID, SelectedCapabilityID: value.SelectedCapabilityID, SelectedCandidateSetID: value.SelectedCandidateSetID,
 		SelectedCatalogVersion: value.SelectedCatalogVersion, SelectedCatalogSnapshotHash: value.SelectedCatalogSnapshotHash, SelectedCatalogSnapshotRef: value.SelectedCatalogSnapshotRef,
-		SelectedWorkflowVersion: value.SelectedWorkflowVersion, CurrentQuoteHash: value.CurrentQuoteHash,
+		SelectedWorkflowVersion: value.SelectedWorkflowVersion, CurrentQuoteHash: value.CurrentQuoteHash, CurrentPaymentRequirementID: value.CurrentPaymentRequirementID,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: value.ActionCount, PaymentAttemptCount: value.PaymentAttemptCount, DeliveryAttemptCount: value.DeliveryAttemptCount,
 		RetryCount: value.RetryCount, DiscoveryGeneration: value.DiscoveryGeneration, RecoveryID: value.RecoveryID, MaxTotalAttempts: value.MaxTotalAttempts, MaxPaymentAttempts: value.MaxPaymentAttempts,
@@ -1975,7 +2033,7 @@ func modelToEpisode(row EpisodeModel) (*episode.CommerceEpisode, error) {
 		ContractSnapshotHash: row.ContractSnapshotHash, ContractSnapshot: append([]byte(nil), row.ContractSnapshot...),
 		SelectedMerchantDID: row.SelectedMerchantDID, SelectedCapabilityID: row.SelectedCapabilityID, SelectedCandidateSetID: row.SelectedCandidateSetID,
 		SelectedCatalogVersion: row.SelectedCatalogVersion, SelectedCatalogSnapshotHash: row.SelectedCatalogSnapshotHash, SelectedCatalogSnapshotRef: row.SelectedCatalogSnapshotRef,
-		SelectedWorkflowVersion: row.SelectedWorkflowVersion, CurrentQuoteHash: row.CurrentQuoteHash,
+		SelectedWorkflowVersion: row.SelectedWorkflowVersion, CurrentQuoteHash: row.CurrentQuoteHash, CurrentPaymentRequirementID: row.CurrentPaymentRequirementID,
 		EntitlementRefs: entitlement, DeliveryRefs: delivery, ValidationEvidenceRefs: evidence, AttemptedMerchants: attempted,
 		ActionCount: row.ActionCount, PaymentAttemptCount: row.PaymentAttemptCount, DeliveryAttemptCount: row.DeliveryAttemptCount,
 		RetryCount: row.RetryCount, DiscoveryGeneration: row.DiscoveryGeneration, RecoveryID: row.RecoveryID, MaxTotalAttempts: row.MaxTotalAttempts, MaxPaymentAttempts: row.MaxPaymentAttempts,
@@ -2000,7 +2058,7 @@ func episodeUpdates(value *episode.CommerceEpisode) (map[string]any, error) {
 		"session_id": model.SessionID, "state": model.State, "terminal_reason": model.TerminalReason,
 		"selected_merchant_did": model.SelectedMerchantDID, "selected_capability_id": model.SelectedCapabilityID, "selected_candidate_set_id": model.SelectedCandidateSetID,
 		"selected_catalog_version": model.SelectedCatalogVersion, "selected_catalog_snapshot_hash": model.SelectedCatalogSnapshotHash, "selected_catalog_snapshot_ref": model.SelectedCatalogSnapshotRef,
-		"selected_workflow_version": model.SelectedWorkflowVersion, "current_quote_hash": model.CurrentQuoteHash,
+		"selected_workflow_version": model.SelectedWorkflowVersion, "current_quote_hash": model.CurrentQuoteHash, "current_payment_requirement_id": model.CurrentPaymentRequirementID,
 		"entitlement_refs": model.EntitlementRefs, "delivery_refs": model.DeliveryRefs,
 		"validation_evidence_refs": model.ValidationEvidenceRefs, "attempted_merchants": model.AttemptedMerchants,
 		"action_count": model.ActionCount, "payment_attempt_count": model.PaymentAttemptCount,
@@ -2109,7 +2167,7 @@ func paymentIntentToModel(value *payment.PaymentIntent) (*PaymentIntentModel, er
 	}
 	return &PaymentIntentModel{
 		IntentID: value.IntentID, EpisodeID: value.EpisodeID, MerchantDID: value.MerchantDID, CapabilityID: value.CapabilityID, PayeeDID: value.PayeeDID,
-		QuoteHash: value.QuoteHash, AmountMinor: value.AmountMinor, Currency: value.Currency, RequesterDID: value.RequesterDID,
+		QuoteHash: value.QuoteHash, PaymentRequirementID: value.PaymentRequirementID, AmountMinor: value.AmountMinor, Currency: value.Currency, RequesterDID: value.RequesterDID,
 		EpisodeVersion: value.EpisodeVersion, BudgetReservation: value.BudgetReservation, IdempotencyKey: value.IdempotencyKey,
 		EconomicKey: value.EconomicKey, ExpiresAt: value.ExpiresAt, Status: string(value.Status), TxID: value.TxID, TxHash: value.TxHash,
 		AuthorizationRef: value.AuthorizationRef, CredentialRef: value.CredentialRef, RequestFingerprint: value.RequestFingerprint, FailureCode: value.FailureCode, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
@@ -2119,7 +2177,7 @@ func paymentIntentToModel(value *payment.PaymentIntent) (*PaymentIntentModel, er
 func modelToPaymentIntent(row PaymentIntentModel) (*payment.PaymentIntent, error) {
 	value := &payment.PaymentIntent{
 		IntentID: row.IntentID, EpisodeID: row.EpisodeID, MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, PayeeDID: row.PayeeDID,
-		QuoteHash: row.QuoteHash, AmountMinor: row.AmountMinor, Currency: row.Currency, RequesterDID: row.RequesterDID,
+		QuoteHash: row.QuoteHash, PaymentRequirementID: row.PaymentRequirementID, AmountMinor: row.AmountMinor, Currency: row.Currency, RequesterDID: row.RequesterDID,
 		EpisodeVersion: row.EpisodeVersion, BudgetReservation: row.BudgetReservation, IdempotencyKey: row.IdempotencyKey,
 		EconomicKey: row.EconomicKey, ExpiresAt: row.ExpiresAt, Status: payment.IntentStatus(row.Status), TxID: row.TxID, TxHash: row.TxHash,
 		AuthorizationRef: row.AuthorizationRef, CredentialRef: row.CredentialRef, RequestFingerprint: row.RequestFingerprint, FailureCode: row.FailureCode, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
@@ -2142,7 +2200,7 @@ func sameIntentIdentity(left, right *payment.PaymentIntent) bool {
 		return false
 	}
 	return left.IntentID == right.IntentID && left.EpisodeID == right.EpisodeID && left.MerchantDID == right.MerchantDID &&
-		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.AmountMinor == right.AmountMinor &&
+		left.CapabilityID == right.CapabilityID && left.PayeeDID == right.PayeeDID && left.QuoteHash == right.QuoteHash && left.PaymentRequirementID == right.PaymentRequirementID && left.AmountMinor == right.AmountMinor &&
 		left.Currency == right.Currency && left.RequesterDID == right.RequesterDID &&
 		left.BudgetReservation == right.BudgetReservation && left.IdempotencyKey == right.IdempotencyKey && left.EconomicKey == right.EconomicKey && left.CredentialRef == right.CredentialRef &&
 		left.ExpiresAt.Equal(right.ExpiresAt) && left.CreatedAt.Equal(right.CreatedAt) && left.RequestFingerprint == right.RequestFingerprint

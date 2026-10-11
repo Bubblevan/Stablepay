@@ -323,6 +323,7 @@ func (s *Service) SwitchMerchant(ctx context.Context, request SwitchMerchantRequ
 	next.SelectedCatalogSnapshotHash = candidate.CatalogSnapshotHash
 	next.SelectedCatalogSnapshotRef = candidate.CatalogSnapshotRef
 	next.CurrentQuoteHash = ""
+	next.CurrentPaymentRequirementID = ""
 	next.AttemptedMerchants = appendAttemptedMerchant(next.AttemptedMerchants, candidate.MerchantDID)
 	next.ActionCount++
 	if err := next.ApplyCommittedState(episode.StateInvoking, now, ""); err != nil {

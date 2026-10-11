@@ -14,7 +14,20 @@ import (
 
 func (s *Store) GetBuyerConfirmationByQuoteHash(ctx context.Context, episodeID, quoteHash string) (*buyer.Confirmation, error) {
 	var row BuyerConfirmationModel
-	err := s.db.WithContext(ctx).Where("episode_id = ? AND quote_hash = ?", episodeID, quoteHash).First(&row).Error
+	err := s.db.WithContext(ctx).Where("episode_id = ? AND quote_hash = ?", episodeID, quoteHash).
+		Order("created_at DESC, offer_ref DESC").First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return modelToBuyerConfirmation(row)
+}
+
+func (s *Store) FindBuyerConfirmationByOfferRef(ctx context.Context, episodeID, offerRef string) (*buyer.Confirmation, error) {
+	var row BuyerConfirmationModel
+	err := s.db.WithContext(ctx).Where("episode_id = ? AND offer_ref = ?", episodeID, offerRef).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, repository.ErrNotFound
 	}
@@ -54,6 +67,7 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 		return repository.ErrVersionConflict
 	}
 	if t.Event.StateAfter != t.NextEpisode.State ||
+		t.NextEpisode.CurrentPaymentRequirementID != t.Confirmation.OfferRef || t.NextEpisode.CurrentQuoteHash != t.Confirmation.QuoteHash ||
 		(t.Confirmation.Accepted && t.NextEpisode.State != episode.StateNegotiating) ||
 		(!t.Confirmation.Accepted && t.NextEpisode.State != episode.StateAborted) {
 		return errors.New("buyer confirmation outcome does not match episode transition")
@@ -84,7 +98,7 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 			return lookup
 		}
 		var byQuote BuyerConfirmationModel
-		lookup = tx.Where("episode_id = ? AND quote_hash = ?", t.EpisodeID, t.Confirmation.QuoteHash).First(&byQuote).Error
+		lookup = tx.Where("episode_id = ? AND offer_ref = ?", t.EpisodeID, t.Confirmation.OfferRef).First(&byQuote).Error
 		if lookup == nil {
 			previous, decodeErr := modelToBuyerConfirmation(byQuote)
 			if decodeErr == nil && reflect.DeepEqual(previous, t.Confirmation) {
@@ -111,7 +125,7 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 		if current.Version != t.ExpectedEpisodeVersion || episode.State(current.State) != episode.StateAwaitingBuyer ||
 			current.RequestID != t.Confirmation.RequestID || current.RequesterDID != t.Confirmation.RequesterDID ||
 			current.SelectedMerchantDID != t.Confirmation.MerchantDID || current.SelectedCapabilityID != t.Confirmation.CapabilityID ||
-			current.CurrentQuoteHash != t.Confirmation.QuoteHash || episode.State(current.State) != t.Event.StateBefore {
+			current.CurrentQuoteHash != t.Confirmation.QuoteHash || current.CurrentPaymentRequirementID != t.Confirmation.OfferRef || episode.State(current.State) != t.Event.StateBefore {
 			return repository.ErrVersionConflict
 		}
 		if err := tx.Model(&EpisodeModel{}).Where("episode_id = ? AND version = ?", t.EpisodeID, t.ExpectedEpisodeVersion).Updates(updates).Error; err != nil {

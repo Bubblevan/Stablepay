@@ -1,6 +1,6 @@
 # ADR: SP-COMMERCE-001 purchase orchestration boundary
 
-- Status: M0 audit decision; implementation pending.
+- Status: M0 audit decision complete; M1 implementation in progress (checkpoint 2026-10-11).
 - Audited baseline: `0a0144896e7a3c4cabbc5eaf4af8563c93aaab3a` (`main` = `origin/main` at audit time).
 - Scope: connect buyer intent, discovery, live quote/stock validation, explicit approval, payment, verification, delivery, and recovery without creating a second production purchase state machine.
 
@@ -44,11 +44,13 @@ After that gate, continue through the existing Runtime-owned `PaymentIntent` + b
 
 ## M1 implementation gates
 
-1. Add a Runtime-owned shopping purchase facade/state transition that can persist intent and discovery, pause before any payment reservation, bind a selected SKU and fresh quote, persist exact buyer approval, and only then enqueue/continue the existing Runner. The facade may call benchmark/local adapters, but it must not own a second payment state machine.
-2. Add a versioned Merchant inventory/quote adapter contract. Local deterministic mock supplies product, region, stock revision, price, and x402-compatible payment requirement; production adoption remains blocked until the Merchant owner supplies equivalent live semantics.
-3. Resolve the Verification cardinality contract before claiming repeated production purchases: either make transaction receipts queryable by a stable transaction/purchase key while preserving the existing one-time entitlement API, or explicitly scope/deny repeat purchase of the same merchant entitlement. Do not remove the existing uniqueness constraint without a migration and compatibility review.
-4. Add explicit tests proving (a) no `PaymentIntent`, budget reservation, Payment Service call, or simulated settlement before approval; (b) changed quote/stock requires reconfirmation; (c) duplicate request/approval does not duplicate economic effects; (d) response loss/restart resumes from Runtime facts; (e) repeated same-buyer/same-merchant transactions verify correctly under the chosen Verification contract; and (f) verification is bound to the same transaction ID before fulfillment.
-5. Use separate local-only Runtime/MySQL configuration and mock adapters for deterministic M1. A real Devnet transaction is a later, separately bounded acceptance step requiring explicit user confirmation of network, wallet, amount cap, and transaction count.
+1. **Partially implemented:** Runtime exposes the buyer offer from the current persisted payment-requirement fact; `POST /v1/episodes/{id}/buyer-offers/refresh` obtains a new x402 challenge through the existing selected Merchant adapter and leaves the episode at the buyer-confirmation gate. The signed confirmation and PaymentIntent identity now include the exact `offer_ref` (payment-requirement ID), not only the quote hash. Runtime revalidates expiry/availability after signing and before finance reservation. A deterministic API test covers changed terms, idempotent refresh replay, stale-after-approval, and a fresh signature when the quote hash is unchanged but the offer identity advances. **Remaining:** no production catalog/stock/region revision adapter or production `BuyerQuoteValidator` wiring; this is not yet the full Shopping facade or full M1 acceptance.
+2. **Not implemented:** a versioned Merchant inventory/quote contract that supplies authoritative product, region, stock revision, and availability. The current refresh consumes an x402 payment challenge only; it does not prove stock or region eligibility.
+3. **Open blocker:** resolve Verification cardinality before claiming repeated production purchases: either make transaction receipts queryable by a stable transaction/purchase key while preserving the existing one-time entitlement API, or explicitly scope/deny repeat purchase of the same merchant entitlement. Do not remove the existing uniqueness constraint without a migration and compatibility review.
+4. **Partially tested:** deterministic API tests exercise buyer approval and stale quote gating with in-memory Runtime storage and mocked Merchant/payment/verification adapters. **Not yet evidenced:** MySQL migration/SQL audit, restart recovery at each failure point, response-loss recovery, full delivery recovery matrix, and repeated same-buyer/same-merchant purchase semantics. MySQL integration cannot be claimed until run against an explicitly isolated database.
+5. **Not yet accepted:** run the complete deterministic M1 path against a dedicated local-only Runtime/MySQL configuration and explicit mock adapters. A real Devnet transaction remains a later, separately bounded acceptance step requiring explicit user confirmation of network, wallet, amount cap, and transaction count.
+
+No Devnet payment, shared-database migration, dataset download, or Kubernetes mutation is part of this checkpoint.
 
 ## Rollout / safety
 

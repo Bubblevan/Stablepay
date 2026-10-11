@@ -21,8 +21,9 @@ var (
 type Phase string
 
 const (
-	PhaseInitial  Phase = "INITIAL"
-	PhaseDelivery Phase = "DELIVERY"
+	PhaseInitial      Phase = "INITIAL"
+	PhaseQuoteRefresh Phase = "QUOTE_REFRESH"
+	PhaseDelivery     Phase = "DELIVERY"
 )
 
 // MerchantInvocation is an immutable operation identity plus the redacted
@@ -60,7 +61,7 @@ func (i MerchantInvocation) Validate() error {
 		i.Attempt <= 0 || i.StartedAt.IsZero() || (!i.CompletedAt.IsZero() && i.CompletedAt.Before(i.StartedAt)) {
 		return ErrInvalidFact
 	}
-	if i.Phase != PhaseInitial && i.Phase != PhaseDelivery {
+	if i.Phase != PhaseInitial && i.Phase != PhaseQuoteRefresh && i.Phase != PhaseDelivery {
 		return ErrInvalidFact
 	}
 	if i.ResponseStatus < 0 || i.ResponseStatus > 599 || (i.ResponseStatus != 0 && i.ResponseStatus < 100) || len(i.ResponseBody) > MaxStoredPayloadBytes {

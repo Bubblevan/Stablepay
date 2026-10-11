@@ -112,6 +112,7 @@ type CommerceEpisode struct {
 	SelectedCatalogSnapshotRef  string         `json:"selected_catalog_snapshot_ref,omitempty"`
 	SelectedWorkflowVersion     string         `json:"selected_workflow_version,omitempty"`
 	CurrentQuoteHash            string         `json:"current_quote_hash,omitempty"`
+	CurrentPaymentRequirementID string         `json:"current_payment_requirement_id,omitempty"`
 	EntitlementRefs             []string       `json:"entitlement_refs,omitempty"`
 	DeliveryRefs                []string       `json:"delivery_refs,omitempty"`
 	ValidationEvidenceRefs      []string       `json:"validation_evidence_refs,omitempty"`
@@ -205,6 +206,9 @@ func (e *CommerceEpisode) Validate() error {
 	if (e.SelectedCatalogVersion != "" || e.SelectedCatalogSnapshotHash != "" || e.SelectedCatalogSnapshotRef != "" || e.SelectedCandidateSetID != "") &&
 		(strings.TrimSpace(e.SelectedMerchantDID) == "" || strings.TrimSpace(e.SelectedCapabilityID) == "" || strings.TrimSpace(e.SelectedCatalogVersion) == "" || strings.TrimSpace(e.SelectedCatalogSnapshotHash) == "" || strings.TrimSpace(e.SelectedCatalogSnapshotRef) == "" || strings.TrimSpace(e.SelectedCandidateSetID) == "") {
 		return fmt.Errorf("%w: incomplete catalog selection binding", ErrInvalidEpisode)
+	}
+	if e.CurrentPaymentRequirementID != "" && e.CurrentQuoteHash == "" {
+		return fmt.Errorf("%w: payment requirement reference has no current quote", ErrInvalidEpisode)
 	}
 	if IsTerminal(e.State) && strings.TrimSpace(e.TerminalReason) == "" {
 		return fmt.Errorf("%w: terminal_reason is required for terminal state", ErrInvalidEpisode)
@@ -361,6 +365,8 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		if observation == trace.ObservationBuyerRejected {
 			return StateAborted, from == StateAwaitingBuyer
 		}
+	case trace.ActionRefreshBuyerOffer:
+		return StateAwaitingBuyer, from == StateAwaitingBuyer && observation == trace.ObservationBuyerQuoteRefreshed
 	case trace.ActionStop:
 		return StateFailed, from == StateRecovering || from == StateAwaitingParent || from == StateDiscovering || from == StateInvoking || from == StateNegotiating
 	}

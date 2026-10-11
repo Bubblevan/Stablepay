@@ -95,13 +95,14 @@ func (BudgetAmendmentModel) TableName() string { return "budget_amendments" }
 
 type BuyerConfirmationModel struct {
 	ConfirmationID string    `gorm:"column:confirmation_id;type:varchar(128);primaryKey"`
-	EpisodeID      string    `gorm:"column:episode_id;type:varchar(128);not null;uniqueIndex:uk_buyer_confirmation_quote,priority:1;uniqueIndex:uk_buyer_confirmation_key,priority:1;index:idx_buyer_confirmation_episode"`
+	EpisodeID      string    `gorm:"column:episode_id;type:varchar(128);not null;uniqueIndex:uk_buyer_confirmation_offer,priority:1;uniqueIndex:uk_buyer_confirmation_key,priority:1;index:idx_buyer_confirmation_episode;index:idx_buyer_confirmation_quote,priority:1"`
 	RequestID      string    `gorm:"column:request_id;type:varchar(128);not null"`
 	RequesterDID   string    `gorm:"column:requester_did;type:varchar(128);not null"`
 	MerchantDID    string    `gorm:"column:merchant_did;type:varchar(128);not null"`
 	CapabilityID   string    `gorm:"column:capability_id;type:varchar(128);not null"`
 	ProductID      string    `gorm:"column:product_id;type:varchar(255);not null"`
-	QuoteHash      string    `gorm:"column:quote_hash;type:char(71);not null;uniqueIndex:uk_buyer_confirmation_quote,priority:2"`
+	OfferRef       string    `gorm:"column:offer_ref;type:varchar(128);uniqueIndex:uk_buyer_confirmation_offer,priority:2"`
+	QuoteHash      string    `gorm:"column:quote_hash;type:char(71);not null;index:idx_buyer_confirmation_quote,priority:2"`
 	AmountMinor    int64     `gorm:"column:amount_minor;not null"`
 	Currency       string    `gorm:"column:currency;type:varchar(16);not null"`
 	Accepted       bool      `gorm:"column:accepted;not null"`
@@ -120,7 +121,7 @@ func buyerConfirmationToModel(v *buyer.Confirmation) (*BuyerConfirmationModel, e
 	}
 	return &BuyerConfirmationModel{ConfirmationID: v.ConfirmationID, EpisodeID: v.EpisodeID, RequestID: v.RequestID,
 		RequesterDID: v.RequesterDID, MerchantDID: v.MerchantDID, CapabilityID: v.CapabilityID, ProductID: v.ProductID,
-		QuoteHash: v.QuoteHash, AmountMinor: v.AmountMinor, Currency: v.Currency, Accepted: v.Accepted,
+		OfferRef: v.OfferRef, QuoteHash: v.QuoteHash, AmountMinor: v.AmountMinor, Currency: v.Currency, Accepted: v.Accepted,
 		IdempotencyKey: v.IdempotencyKey, PayloadHash: v.PayloadHash, Signature: v.Signature,
 		ExpiresAt: v.ExpiresAt, CreatedAt: v.CreatedAt}, nil
 }
@@ -128,7 +129,7 @@ func buyerConfirmationToModel(v *buyer.Confirmation) (*BuyerConfirmationModel, e
 func modelToBuyerConfirmation(m BuyerConfirmationModel) (*buyer.Confirmation, error) {
 	v := &buyer.Confirmation{ConfirmationID: m.ConfirmationID, EpisodeID: m.EpisodeID, RequestID: m.RequestID,
 		RequesterDID: m.RequesterDID, MerchantDID: m.MerchantDID, CapabilityID: m.CapabilityID, ProductID: m.ProductID,
-		QuoteHash: m.QuoteHash, AmountMinor: m.AmountMinor, Currency: m.Currency, Accepted: m.Accepted,
+		OfferRef: m.OfferRef, QuoteHash: m.QuoteHash, AmountMinor: m.AmountMinor, Currency: m.Currency, Accepted: m.Accepted,
 		IdempotencyKey: m.IdempotencyKey, PayloadHash: m.PayloadHash, Signature: m.Signature,
 		ExpiresAt: m.ExpiresAt, CreatedAt: m.CreatedAt}
 	if err := v.Validate(); err != nil {

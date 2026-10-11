@@ -221,6 +221,14 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 		s.buyerConfirmation(w, r, episodeID)
 		return
 	}
+	if len(parts) == 3 && parts[1] == "buyer-offers" && parts[2] == "refresh" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")
+			return
+		}
+		s.refreshBuyerOffer(w, r, episodeID)
+		return
+	}
 	if len(parts) != 1 || r.Method != http.MethodGet {
 		writeError(w, http.StatusNotFound, "not_found", "episode route not found")
 		return
@@ -297,6 +305,7 @@ func (s *Server) statusValueFromEpisode(ctx context.Context, value *episode.Comm
 }
 
 type buyerConfirmationPayload struct {
+	OfferRef    string `json:"offer_ref"`
 	QuoteHash   string `json:"quote_hash"`
 	AmountMinor int64  `json:"amount_minor"`
 	Currency    string `json:"currency"`
@@ -315,7 +324,7 @@ func (s *Server) buyerConfirmation(w http.ResponseWriter, r *http.Request, episo
 		return
 	}
 	result, err := s.service.RecordBuyerConfirmation(r.Context(), application.BuyerConfirmationRequest{
-		EpisodeID: episodeID, QuoteHash: payload.QuoteHash, AmountMinor: payload.AmountMinor,
+		EpisodeID: episodeID, OfferRef: payload.OfferRef, QuoteHash: payload.QuoteHash, AmountMinor: payload.AmountMinor,
 		Currency: payload.Currency, Accepted: payload.Accepted, Signature: payload.Signature,
 		IdempotencyKey: key, TraceID: r.Header.Get("X-Trace-ID"),
 	})
@@ -331,6 +340,35 @@ func (s *Server) buyerConfirmation(w http.ResponseWriter, r *http.Request, episo
 		status = http.StatusOK
 	}
 	writeJSON(w, status, map[string]any{"episode": result.Episode, "buyer_confirmation": result.Confirmation, "replayed": result.Replayed})
+}
+
+func (s *Server) refreshBuyerOffer(w http.ResponseWriter, r *http.Request, episodeID string) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "missing_idempotency_key", "Idempotency-Key is required")
+		return
+	}
+	result, err := s.service.RefreshBuyerOffer(r.Context(), application.RefreshBuyerOfferRequest{
+		EpisodeID: episodeID, IdempotencyKey: key, TraceID: r.Header.Get("X-Trace-ID"),
+	})
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	if result.Requirement == nil {
+		writeError(w, http.StatusInternalServerError, "buyer_offer_unavailable", "persisted buyer offer is unavailable")
+		return
+	}
+	offer, err := s.service.GetBuyerOfferForRequirement(r.Context(), episodeID, result.Requirement.PaymentRequirementID)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	status := http.StatusOK
+	if !result.Replayed {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, map[string]any{"episode": result.Episode, "buyer_offer": offer, "replayed": result.Replayed})
 }
 
 type parentApprovalLister interface {
@@ -633,6 +671,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "buyer_confirmation_conflict"
 	case errors.Is(err, application.ErrBuyerQuoteValidatorUnavailable):
 		status, code = http.StatusServiceUnavailable, "buyer_quote_validation_unavailable"
+	case errors.Is(err, application.ErrBuyerQuoteRefreshUnavailable):
+		status, code = http.StatusServiceUnavailable, "buyer_quote_refresh_unavailable"
 	case errors.Is(err, application.ErrBuyerConfirmationRequired):
 		status, code = http.StatusForbidden, "buyer_confirmation_required"
 	case errors.Is(err, workflow.ErrDefinitionConflict), errors.Is(err, workflow.ErrWorkflowRequestConflict), errors.Is(err, workflow.ErrWorkflowVersionConflict), errors.Is(err, workflow.ErrWorkflowEventConflict):

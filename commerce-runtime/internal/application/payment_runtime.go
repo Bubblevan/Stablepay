@@ -52,6 +52,7 @@ type TrustedPaymentQuote struct {
 	Asset                 string
 	ResourceURL           string
 	ProductID             string
+	OfferRef              string
 	SkillDID              string
 	PaymentRequirementRef string
 }
@@ -171,17 +172,23 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 		return PaymentIntentResult{}, fmt.Errorf("decode episode contract snapshot: %w", err)
 	}
 	if acquire.Constraints.RequireBuyerConfirmation {
+		if request.Quote.OfferRef == "" {
+			return PaymentIntentResult{}, ErrBuyerConfirmationRequired
+		}
+		if request.Quote.OfferRef != current.CurrentPaymentRequirementID {
+			return PaymentIntentResult{}, ErrBuyerConfirmationInvalid
+		}
 		confirmations, ok := s.store.(repository.BuyerConfirmationRepository)
 		if !ok {
 			return PaymentIntentResult{}, repository.ErrRepositoryUnavailable
 		}
-		confirmation, err := confirmations.GetBuyerConfirmationByQuoteHash(ctx, current.EpisodeID, request.Quote.QuoteHash)
+		confirmation, err := confirmations.FindBuyerConfirmationByOfferRef(ctx, current.EpisodeID, request.Quote.OfferRef)
 		if err != nil {
 			return PaymentIntentResult{}, fmt.Errorf("%w: %v", ErrBuyerConfirmationRequired, err)
 		}
-		if !confirmation.Accepted || confirmation.RequestID != current.RequestID || confirmation.RequesterDID != request.Quote.RequesterDID ||
+		if request.Quote.OfferRef == "" || !confirmation.Accepted || confirmation.RequestID != current.RequestID || confirmation.RequesterDID != request.Quote.RequesterDID ||
 			confirmation.MerchantDID != request.Quote.MerchantDID || confirmation.CapabilityID != request.Quote.CapabilityID ||
-			confirmation.ProductID != request.Quote.ProductID || confirmation.QuoteHash != request.Quote.QuoteHash ||
+			confirmation.ProductID != request.Quote.ProductID || confirmation.OfferRef != request.Quote.OfferRef || confirmation.QuoteHash != request.Quote.QuoteHash ||
 			confirmation.AmountMinor != request.Quote.AmountMinor || !strings.EqualFold(confirmation.Currency, request.Quote.Currency) ||
 			!now.Before(confirmation.ExpiresAt) {
 			return PaymentIntentResult{}, ErrBuyerConfirmationInvalid
@@ -230,7 +237,7 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	}
 	intent := &payment.PaymentIntent{
 		IntentID: s.idGenerator("pi"), EpisodeID: current.EpisodeID, MerchantDID: request.Quote.MerchantDID,
-		CapabilityID: request.Quote.CapabilityID, PayeeDID: request.Quote.PayeeDID, QuoteHash: request.Quote.QuoteHash, AmountMinor: request.Quote.AmountMinor,
+		CapabilityID: request.Quote.CapabilityID, PayeeDID: request.Quote.PayeeDID, QuoteHash: request.Quote.QuoteHash, PaymentRequirementID: request.Quote.OfferRef, AmountMinor: request.Quote.AmountMinor,
 		Currency: strings.ToUpper(request.Quote.Currency), RequesterDID: request.Quote.RequesterDID,
 		EpisodeVersion: current.Version + 1, BudgetReservation: request.Quote.AmountMinor, IdempotencyKey: request.IdempotencyKey,
 		EconomicKey: economicKey, ExpiresAt: request.Quote.ExpiresAt, Status: payment.IntentCreated, CreatedAt: now, UpdatedAt: now,
@@ -248,6 +255,9 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	next.SelectedMerchantDID = request.Quote.MerchantDID
 	next.SelectedCapabilityID = request.Quote.CapabilityID
 	next.CurrentQuoteHash = request.Quote.QuoteHash
+	if request.Quote.OfferRef != "" {
+		next.CurrentPaymentRequirementID = request.Quote.OfferRef
+	}
 	next.Budget = projection.ToEpisodeBudget()
 	next.ActionCount++
 	if err := next.ApplyCommittedState(episode.StatePaying, now, ""); err != nil {
@@ -261,6 +271,11 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	event, err := s.newPaymentEvent(current, next, now, trace.ActionReserveBudget, request.IdempotencyKey, trace.Observation{Type: trace.ObservationQuoteValid, Code: request.Quote.QuoteHash}, proposalID, request.Actor, request.TraceID)
 	if err != nil {
 		return PaymentIntentResult{}, err
+	}
+	if acquire.Constraints.RequireBuyerConfirmation {
+		if err := s.validateBuyerOfferForQuote(ctx, current, request.Quote); err != nil {
+			return PaymentIntentResult{}, err
+		}
 	}
 	err = store.CommitFinanceTransition(ctx, repository.FinanceTransition{
 		EpisodeID: current.EpisodeID, ExpectedEpisodeVersion: current.Version, NextEpisode: next, Event: event,
@@ -333,7 +348,7 @@ func nextLedgerSequence(ctx context.Context, store repository.S2Store, episodeID
 }
 
 func intentMatchesQuote(intent *payment.PaymentIntent, episodeID string, quote TrustedPaymentQuote) bool {
-	return intent != nil && intent.EpisodeID == episodeID && intent.MerchantDID == quote.MerchantDID && intent.CapabilityID == quote.CapabilityID && intent.PayeeDID == quote.PayeeDID && intent.QuoteHash == quote.QuoteHash && intent.AmountMinor == quote.AmountMinor && strings.EqualFold(intent.Currency, quote.Currency) && intent.RequesterDID == quote.RequesterDID
+	return intent != nil && intent.EpisodeID == episodeID && intent.MerchantDID == quote.MerchantDID && intent.CapabilityID == quote.CapabilityID && intent.PayeeDID == quote.PayeeDID && intent.QuoteHash == quote.QuoteHash && intent.PaymentRequirementID == quote.OfferRef && intent.AmountMinor == quote.AmountMinor && strings.EqualFold(intent.Currency, quote.Currency) && intent.RequesterDID == quote.RequesterDID
 }
 
 func (s *Service) findExistingPaymentIntent(ctx context.Context, store repository.S2Store, episodeID string, request ReservePaymentIntentRequest, economicKey string) (PaymentIntentResult, bool, error) {

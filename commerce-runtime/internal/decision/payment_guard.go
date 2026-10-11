@@ -45,7 +45,7 @@ func (RuntimeGuard) CheckPayment(current *episode.CommerceEpisode, intent *payme
 	if current.Version != intent.EpisodeVersion {
 		return ErrStalePaymentIntent
 	}
-	if current.CurrentQuoteHash != intent.QuoteHash || current.SelectedMerchantDID != intent.MerchantDID || current.SelectedCapabilityID != intent.CapabilityID {
+	if current.CurrentQuoteHash != intent.QuoteHash || (intent.PaymentRequirementID != "" && current.CurrentPaymentRequirementID != intent.PaymentRequirementID) || current.SelectedMerchantDID != intent.MerchantDID || current.SelectedCapabilityID != intent.CapabilityID {
 		return ErrPaymentQuoteMismatch
 	}
 	if current.RequesterDID == "" || current.RequesterDID != intent.RequesterDID {

@@ -35,6 +35,7 @@ const (
 	ActionPaymentUnknown              ActionType = "PAYMENT_UNKNOWN"
 	ActionRequestBuyerConfirmation    ActionType = "REQUEST_BUYER_CONFIRMATION"
 	ActionRecordBuyerConfirmation     ActionType = "RECORD_BUYER_CONFIRMATION"
+	ActionRefreshBuyerOffer           ActionType = "REFRESH_BUYER_OFFER"
 )
 
 type ObservationType string
@@ -66,6 +67,7 @@ const (
 	ObservationBuyerConfirmationRequired ObservationType = "BUYER_CONFIRMATION_REQUIRED"
 	ObservationBuyerApproved             ObservationType = "BUYER_APPROVED"
 	ObservationBuyerRejected             ObservationType = "BUYER_REJECTED"
+	ObservationBuyerQuoteRefreshed       ObservationType = "BUYER_QUOTE_REFRESHED"
 )
 
 type Action struct {
@@ -147,7 +149,7 @@ func KnownAction(action ActionType) bool {
 		ActionSelectMerchant, ActionNegotiateAndPay, ActionPaymentSubmitted, ActionPaymentPending,
 		ActionPaymentStatusQueried, ActionPaymentAuthorizationChecked, ActionPaymentConfirmed,
 		ActionPaymentFailed, ActionPaymentUnknown, ActionRequestBuyerConfirmation,
-		ActionRecordBuyerConfirmation:
+		ActionRecordBuyerConfirmation, ActionRefreshBuyerOffer:
 		return true
 	default:
 		return false

@@ -68,7 +68,7 @@ func (r MerchantInvokeRequest) Validate() error {
 	if strings.TrimSpace(r.EpisodeID) == "" || strings.TrimSpace(r.RequesterDID) == "" || strings.TrimSpace(r.MerchantDID) == "" ||
 		strings.TrimSpace(r.CapabilityID) == "" || strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.CatalogSnapshotHash) == "" || strings.TrimSpace(r.CatalogSnapshotRef) == "" ||
 		strings.TrimSpace(r.RequesterDID) == "" || r.Attempt <= 0 || strings.TrimSpace(r.TraceID) == "" || strings.TrimSpace(r.IdempotencyKey) == "" ||
-		(r.Phase != invocation.PhaseInitial && r.Phase != invocation.PhaseDelivery) {
+		(r.Phase != invocation.PhaseInitial && r.Phase != invocation.PhaseQuoteRefresh && r.Phase != invocation.PhaseDelivery) {
 		return errors.New("invalid merchant invoke request")
 	}
 	if len(r.InputPayload) > invocation.MaxStoredPayloadBytes {

@@ -535,7 +535,7 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 			if !ok {
 				return repository.ErrRepositoryUnavailable
 			}
-			confirmation, findErr := confirmations.GetBuyerConfirmationByQuoteHash(ctx, current.EpisodeID, quote.QuoteHash)
+			confirmation, findErr := confirmations.FindBuyerConfirmationByOfferRef(ctx, current.EpisodeID, quote.OfferRef)
 			if errors.Is(findErr, repository.ErrNotFound) {
 				_, err = r.service.RequestBuyerConfirmation(ctx, current.EpisodeID, traceID+":buyer-confirmation")
 				return err
@@ -543,10 +543,17 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 			if findErr != nil {
 				return findErr
 			}
-			if !confirmation.Accepted || confirmation.RequesterDID != quote.RequesterDID || confirmation.MerchantDID != quote.MerchantDID ||
+			if !confirmation.Accepted || confirmation.OfferRef != quote.OfferRef || confirmation.RequesterDID != quote.RequesterDID || confirmation.MerchantDID != quote.MerchantDID ||
 				confirmation.CapabilityID != quote.CapabilityID || confirmation.ProductID != quote.ProductID || confirmation.QuoteHash != quote.QuoteHash ||
 				confirmation.AmountMinor != quote.AmountMinor || !strings.EqualFold(confirmation.Currency, quote.Currency) || !r.now().Before(confirmation.ExpiresAt) {
 				return application.ErrBuyerConfirmationInvalid
+			}
+			if err := r.service.ValidateCurrentBuyerOffer(ctx, current.EpisodeID); err != nil {
+				if errors.Is(err, application.ErrBuyerQuoteStale) {
+					_, requestErr := r.service.RequestBuyerConfirmation(ctx, current.EpisodeID, traceID+":buyer-reconfirmation")
+					return requestErr
+				}
+				return err
 			}
 		}
 		if threshold := acquire.Constraints.RequireParentConfirmationAboveMinor; threshold > 0 && quote.AmountMinor > threshold && current.RecoveryID == "" {
@@ -554,6 +561,9 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 			return err
 		}
 		_, err = r.service.ReservePaymentIntentForEpisode(ctx, application.ReservePaymentIntentForEpisodeRequest{EpisodeID: current.EpisodeID, Quote: quote, IdempotencyKey: "payment:" + current.EpisodeID + ":" + quote.QuoteHash, Actor: "runtime", TraceID: traceID + ":reserve"})
+		if errors.Is(err, application.ErrBuyerQuoteStale) {
+			_, err = r.service.RequestBuyerConfirmation(ctx, current.EpisodeID, traceID+":buyer-reconfirmation")
+		}
 		return err
 	case episode.StatePaying:
 		intent, err := r.currentPaymentIntent(ctx, current)
@@ -678,12 +688,10 @@ func (r *Runner) currentQuote(ctx context.Context, current *episode.CommerceEpis
 	if err != nil {
 		return application.TrustedPaymentQuote{}, err
 	}
-	key := "invoke:initial:" + current.EpisodeID + ":" + current.SelectedMerchantDID
-	invocationFact, err := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, key)
-	if err != nil {
-		return application.TrustedPaymentQuote{}, err
+	if strings.TrimSpace(current.CurrentPaymentRequirementID) == "" {
+		return application.TrustedPaymentQuote{}, repository.ErrFactNotFound
 	}
-	requirement, err := store.FindPaymentRequirementByInvocation(ctx, current.EpisodeID, invocationFact.InvocationID)
+	requirement, err := store.GetPaymentRequirementFact(ctx, current.CurrentPaymentRequirementID)
 	if err != nil {
 		return application.TrustedPaymentQuote{}, err
 	}
@@ -709,7 +717,7 @@ func (r *Runner) currentPaymentIntent(ctx context.Context, current *episode.Comm
 	}
 	for i := len(intents) - 1; i >= 0; i-- {
 		value := intents[i]
-		if value != nil && value.QuoteHash == current.CurrentQuoteHash && value.MerchantDID == current.SelectedMerchantDID && value.CapabilityID == current.SelectedCapabilityID && value.PayeeDID == capability.PayeeDID {
+		if value != nil && value.QuoteHash == current.CurrentQuoteHash && (value.PaymentRequirementID == "" || value.PaymentRequirementID == current.CurrentPaymentRequirementID) && value.MerchantDID == current.SelectedMerchantDID && value.CapabilityID == current.SelectedCapabilityID && value.PayeeDID == capability.PayeeDID {
 			return value, nil
 		}
 	}

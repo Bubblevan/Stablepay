@@ -70,6 +70,7 @@ func Reconstruct(initial *CommerceEpisode, events []*EpisodeEvent) (*CommerceEpi
 				result.SelectedCatalogSnapshotHash = event.Decision.Target.CatalogSnapshotHash
 				result.SelectedCatalogSnapshotRef = event.Decision.Target.CatalogSnapshotRef
 				result.CurrentQuoteHash = ""
+				result.CurrentPaymentRequirementID = ""
 				result.AttemptedMerchants = appendUnique(result.AttemptedMerchants, event.Decision.Target.MerchantDID)
 			}
 		}
