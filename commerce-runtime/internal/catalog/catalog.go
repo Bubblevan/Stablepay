@@ -600,6 +600,8 @@ func (s CandidateSet) FindCandidate(merchantDID, capabilityID string) (Candidate
 // It contains no free-form instruction that can override hard eligibility.
 type DiscoveryQuery struct {
 	TaskType                  string              `json:"task_type"`
+	RequiredMerchantDID       string              `json:"required_merchant_did,omitempty"`
+	RequiredCapabilityID      string              `json:"required_capability_id,omitempty"`
 	InputContentType          string              `json:"input_content_type"`
 	ExpectedOutputContentType string              `json:"expected_output_content_type"`
 	SupportedProtocolVersions []string            `json:"supported_protocol_versions"`
@@ -621,6 +623,7 @@ func FromAcquireCapabilityRequest(request contract.AcquireCapabilityRequest) (Di
 	semanticConstraints := append([]contract.KeyValue(nil), normalized.AcquisitionGoal.SemanticConstraints...)
 	semanticConstraints = append(semanticConstraints, normalized.ExpectedOutput.SemanticConstraints...)
 	return DiscoveryQuery{TaskType: normalized.AcquisitionGoal.TaskType, InputContentType: normalized.Input.ContentType,
+		RequiredMerchantDID: purchaseSelectionMerchant(normalized.PurchaseSelection), RequiredCapabilityID: purchaseSelectionCapability(normalized.PurchaseSelection),
 		ExpectedOutputContentType: expectedOutputContentType, SupportedProtocolVersions: append([]string(nil), normalized.Constraints.SupportedProtocolVersions...),
 		Currency: normalized.Constraints.Currency, BudgetLimitMinor: normalized.Constraints.BudgetLimitMinor, Deadline: normalized.Constraints.DeadlineAt,
 		SemanticConstraints: semanticConstraints}, nil
@@ -628,6 +631,8 @@ func FromAcquireCapabilityRequest(request contract.AcquireCapabilityRequest) (Di
 
 func (q DiscoveryQuery) Normalize() DiscoveryQuery {
 	q.TaskType = strings.ToLower(strings.TrimSpace(q.TaskType))
+	q.RequiredMerchantDID = strings.TrimSpace(q.RequiredMerchantDID)
+	q.RequiredCapabilityID = strings.ToLower(strings.TrimSpace(q.RequiredCapabilityID))
 	q.InputContentType = strings.ToLower(strings.TrimSpace(q.InputContentType))
 	q.ExpectedOutputContentType = strings.ToLower(strings.TrimSpace(q.ExpectedOutputContentType))
 	q.SupportedProtocolVersions = normalizeStrings(q.SupportedProtocolVersions, true)
@@ -639,10 +644,24 @@ func (q DiscoveryQuery) Normalize() DiscoveryQuery {
 
 func (q DiscoveryQuery) Validate() error {
 	q = q.Normalize()
-	if q.TaskType == "" || q.InputContentType == "" || q.ExpectedOutputContentType == "" || len(q.SupportedProtocolVersions) == 0 || q.Currency == "" || q.BudgetLimitMinor < 0 || q.Deadline.IsZero() {
+	if q.TaskType == "" || q.InputContentType == "" || q.ExpectedOutputContentType == "" || len(q.SupportedProtocolVersions) == 0 || q.Currency == "" || q.BudgetLimitMinor < 0 || q.Deadline.IsZero() || (q.RequiredMerchantDID == "") != (q.RequiredCapabilityID == "") {
 		return ErrInvalidDiscoveryQuery
 	}
 	return nil
+}
+
+func purchaseSelectionMerchant(selection *contract.PurchaseSelection) string {
+	if selection == nil {
+		return ""
+	}
+	return selection.MerchantDID
+}
+
+func purchaseSelectionCapability(selection *contract.PurchaseSelection) string {
+	if selection == nil {
+		return ""
+	}
+	return selection.CapabilityID
 }
 
 func (q DiscoveryQuery) CanonicalSnapshot() ([]byte, error) {

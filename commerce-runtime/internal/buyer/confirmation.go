@@ -84,3 +84,20 @@ func (c Confirmation) Clone() *Confirmation {
 	copy := c
 	return &copy
 }
+
+// SameIdempotentRequest compares the signed purchase intent rather than
+// server-generated confirmation identity/timestamps. A retry may race before
+// it can observe the first commit, so those server fields are expected to
+// differ while the buyer-authorized payload remains identical.
+func SameIdempotentRequest(left, right *Confirmation) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return left.EpisodeID == right.EpisodeID && left.RequestID == right.RequestID &&
+		left.RequesterDID == right.RequesterDID && left.MerchantDID == right.MerchantDID &&
+		left.CapabilityID == right.CapabilityID && left.ProductID == right.ProductID &&
+		left.OfferRef == right.OfferRef && left.QuoteHash == right.QuoteHash &&
+		left.AmountMinor == right.AmountMinor && strings.EqualFold(left.Currency, right.Currency) &&
+		left.Accepted == right.Accepted && left.IdempotencyKey == right.IdempotencyKey &&
+		left.PayloadHash == right.PayloadHash && left.ExpiresAt.UTC().Equal(right.ExpiresAt.UTC())
+}

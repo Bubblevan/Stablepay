@@ -11,6 +11,7 @@ import (
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
@@ -217,6 +218,58 @@ func TestCommittedCapabilitySnapshotSurvivesCandidateSetExpiry(t *testing.T) {
 func decisionProposalForS4(episodeID string, sequence uint64, setID string, candidate catalog.Candidate, now time.Time) decision.DecisionProposal {
 	return decision.DecisionProposal{ProposalID: "select-s4-proposal", EpisodeID: episodeID, BasedOnEventSequence: sequence, ProposedAction: trace.ActionSelectMerchant, CandidateSetID: setID, Target: &decision.ProposalTarget{MerchantDID: candidate.MerchantDID, CapabilityID: candidate.CapabilityID, CatalogVersion: candidate.CatalogVersion, CatalogSnapshotHash: candidate.CatalogSnapshotHash, CatalogSnapshotRef: candidate.CatalogSnapshotRef}, Confidence: 1, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 }
+
+func TestPurchaseSelectionRejectsDifferentX402ProductBeforePayment(t *testing.T) {
+	service, store, now := serviceFixture()
+	merchant := &s4FaultMerchant{}
+	service.merchantAdapter = merchant
+	request := requestFixture(now)
+	request.RequestID = "acr-s4-purchase-selection-mismatch"
+	request.Constraints.SupportedProtocolVersions = []string{"x402-v2"}
+	request.Constraints.RequireBuyerConfirmation = true
+	request.PurchaseSelection = &contract.PurchaseSelection{MerchantDID: "did:merchant:a", CapabilityID: "transcription", ProductID: "different-sku"}
+	created, err := service.CreateEpisode(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := "http://merchant.test/api/v1/products/transcription-1/execute"
+	price := int64(250)
+	capability := &catalog.MerchantCapability{MerchantDID: "did:merchant:a", CapabilityID: "transcription", PayeeDID: "did:solana:11111111111111111111111111111111", Name: "transcription", Description: "selected digital service", TaskTypes: []string{"transcription"}, SemanticTags: []string{"language=en"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: endpoint, Method: "GET"}, InputSchemaRef: "schema:input", OutputSchemaRef: "schema:output", InputContentTypes: []string{"audio/mpeg"}, OutputContentTypes: []string{"text/plain"}, SupportedProtocolVersions: []string{"x402-v2"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1", Source: "s4-test", ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour), CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)}
+	if err := service.RegisterCapabilityVersion(context.Background(), capability); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := service.DiscoverCapabilities(context.Background(), DiscoverCapabilitiesRequest{EpisodeID: created.Episode.EpisodeID, CandidateSetID: "cs-s4-purchase-selection-mismatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovered.CandidateSet.Candidates) != 1 {
+		t.Fatalf("the exact selected capability was not retained: %#v", discovered.CandidateSet.Candidates)
+	}
+	candidate := discovered.CandidateSet.Candidates[0]
+	selected, err := service.CommitMerchantSelection(context.Background(), SelectMerchantRequest{
+		Proposal:    decisionProposalForS4(created.Episode.EpisodeID, discovered.Episode.Version-1, discovered.CandidateSet.CandidateSetID, candidate, now),
+		Action:      trace.Action{Type: trace.ActionSelectMerchant, IdempotencyKey: "select-s4-purchase-selection-mismatch"},
+		Observation: trace.Observation{Type: trace.ObservationCandidatesFound}, Actor: "runtime", TraceID: "s4-purchase-selection-mismatch",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoked, err := service.InvokeSelectedMerchant(context.Background(), InvokeSelectedMerchantRequest{EpisodeID: selected.Episode.EpisodeID, TraceID: "s4-purchase-selection-mismatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ParsePaymentRequirement(context.Background(), ParsePaymentRequirementRequest{EpisodeID: selected.Episode.EpisodeID, InvocationID: invoked.Invocation.InvocationID, TraceID: "s4-purchase-selection-mismatch"}); !errors.Is(err, decision.ErrPaymentBindingMismatch) {
+		t.Fatalf("mismatched x402 product was not rejected: %v", err)
+	}
+	intents, err := store.ListPaymentIntents(context.Background(), selected.Episode.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intents) != 0 {
+		t.Fatalf("mismatched product created payment intents: %#v", intents)
+	}
+}
+
 func decisionProposalForRetry(current *episode.CommerceEpisode, now time.Time) decision.DecisionProposal {
 	return decision.DecisionProposal{ProposalID: "retry-s4-proposal", EpisodeID: current.EpisodeID, BasedOnEventSequence: current.Version - 1, ProposedAction: trace.ActionRetrySameMerchant, Confidence: 1, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 }

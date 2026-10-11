@@ -124,3 +124,55 @@ func TestValidatorOnlyAcceptsBuiltinReference(t *testing.T) {
 		t.Fatalf("expected invalid validator, got %v", request.Validate())
 	}
 }
+
+func TestPurchaseSelectionIsNormalizedAndRequiresBuyerGate(t *testing.T) {
+	request := validRequest()
+	request.Constraints.RequireBuyerConfirmation = true
+	request.PurchaseSelection = &PurchaseSelection{MerchantDID: " did:merchant:Acme ", CapabilityID: " TRANSCRIPTION-PRO ", ProductID: " sku:Transcript-01 "}
+	normalized, err := request.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := normalized.PurchaseSelection; got == nil || got.MerchantDID != "did:merchant:Acme" || got.CapabilityID != "transcription-pro" || got.ProductID != "sku:Transcript-01" {
+		t.Fatalf("purchase selection was not normalized: %#v", got)
+	}
+
+	withoutBuyerGate := request
+	withoutBuyerGate.Constraints.RequireBuyerConfirmation = false
+	if !errors.Is(withoutBuyerGate.Validate(), ErrInvalidPurchaseSelection) {
+		t.Fatalf("selection without buyer confirmation was accepted: %v", withoutBuyerGate.Validate())
+	}
+	withFallback := request
+	withFallback.Constraints.AllowCrossMerchantSwitch = true
+	if !errors.Is(withFallback.Validate(), ErrInvalidPurchaseSelection) {
+		t.Fatalf("exact purchase with merchant fallback was accepted: %v", withFallback.Validate())
+	}
+	missingSKU := request
+	selection := *request.PurchaseSelection
+	selection.ProductID = " "
+	missingSKU.PurchaseSelection = &selection
+	if !errors.Is(missingSKU.Validate(), ErrInvalidPurchaseSelection) {
+		t.Fatalf("selection without a product ID was accepted: %v", missingSKU.Validate())
+	}
+}
+
+func TestPurchaseSelectionChangesIdempotencySnapshot(t *testing.T) {
+	first := validRequest()
+	first.Constraints.RequireBuyerConfirmation = true
+	first.PurchaseSelection = &PurchaseSelection{MerchantDID: "did:merchant:one", CapabilityID: "service", ProductID: "sku-one"}
+	second := first
+	selection := *first.PurchaseSelection
+	selection.ProductID = "sku-two"
+	second.PurchaseSelection = &selection
+	firstHash, err := first.SnapshotHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondHash, err := second.SnapshotHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHash == secondHash {
+		t.Fatal("changed selected SKU did not conflict at the immutable request hash")
+	}
+}

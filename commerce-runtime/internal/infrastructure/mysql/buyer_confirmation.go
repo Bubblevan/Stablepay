@@ -3,7 +3,6 @@ package mysql
 import (
 	"context"
 	"errors"
-	"reflect"
 
 	"github.com/stablepay/commerce-runtime/internal/buyer"
 	"github.com/stablepay/commerce-runtime/internal/episode"
@@ -89,7 +88,7 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 		lookup := tx.Where("episode_id = ? AND idempotency_key = ?", t.EpisodeID, t.Confirmation.IdempotencyKey).First(&byKey).Error
 		if lookup == nil {
 			previous, decodeErr := modelToBuyerConfirmation(byKey)
-			if decodeErr == nil && reflect.DeepEqual(previous, t.Confirmation) {
+			if decodeErr == nil && buyer.SameIdempotentRequest(previous, t.Confirmation) {
 				return repository.ErrIdempotentReplay
 			}
 			return repository.ErrBuyerConfirmationConflict
@@ -101,7 +100,7 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 		lookup = tx.Where("episode_id = ? AND offer_ref = ?", t.EpisodeID, t.Confirmation.OfferRef).First(&byQuote).Error
 		if lookup == nil {
 			previous, decodeErr := modelToBuyerConfirmation(byQuote)
-			if decodeErr == nil && reflect.DeepEqual(previous, t.Confirmation) {
+			if decodeErr == nil && buyer.SameIdempotentRequest(previous, t.Confirmation) {
 				return repository.ErrIdempotentReplay
 			}
 			return repository.ErrBuyerConfirmationConflict
@@ -137,6 +136,9 @@ func (s *Store) CommitBuyerConfirmationTransition(ctx context.Context, t reposit
 		return tx.Create(eventModel).Error
 	})
 	if isDuplicateKey(err) {
+		if previous, lookupErr := s.FindBuyerConfirmationByIdempotencyKey(ctx, t.EpisodeID, t.Confirmation.IdempotencyKey); lookupErr == nil && buyer.SameIdempotentRequest(previous, t.Confirmation) {
+			return repository.ErrIdempotentReplay
+		}
 		return repository.ErrBuyerConfirmationConflict
 	}
 	return err

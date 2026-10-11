@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 
 	"github.com/stablepay/commerce-runtime/internal/buyer"
@@ -90,14 +89,14 @@ func (s *InMemoryStore) CommitBuyerConfirmationTransition(ctx context.Context, t
 	defer s.mu.Unlock()
 	byKey := buyerConfirmationKey(transition.EpisodeID, transition.Confirmation.IdempotencyKey)
 	if existingID, ok := s.buyerConfirmationByKey[byKey]; ok {
-		if reflect.DeepEqual(s.buyerConfirmations[existingID], transition.Confirmation) {
+		if buyer.SameIdempotentRequest(s.buyerConfirmations[existingID], transition.Confirmation) {
 			return ErrIdempotentReplay
 		}
 		return ErrBuyerConfirmationConflict
 	}
 	byOffer := buyerConfirmationKey(transition.EpisodeID, transition.Confirmation.OfferRef)
 	if existingID, ok := s.buyerConfirmationByOffer[byOffer]; ok {
-		if reflect.DeepEqual(s.buyerConfirmations[existingID], transition.Confirmation) {
+		if buyer.SameIdempotentRequest(s.buyerConfirmations[existingID], transition.Confirmation) {
 			return ErrIdempotentReplay
 		}
 		return ErrBuyerConfirmationConflict

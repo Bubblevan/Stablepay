@@ -1,12 +1,20 @@
 -- Read-only audit for the deterministic M1 Runtime/MySQL mock E2E.
 -- Use only against the isolated stablepay_commerce_m1_test database.
-SET @episode_id = 'ce_115a0f277682ff112c635ed4dea0b009';
+SET @episode_id = 'ce_1e91123fc8c5d6a9cfa4a5bc0cc6d6cd';
 
 -- Episode state and budget projection.
 SELECT episode_id, request_id, contract_snapshot_hash, state,
        current_payment_requirement_id, current_quote_hash,
        budget_limit_minor, reserved_amount, settled_amount, consumed_amount,
        available_budget, sunk_cost
+FROM commerce_episodes
+WHERE episode_id = @episode_id;
+
+-- The shopping decision must remain bound to the exact Runtime catalog target
+-- and x402 product (SKU) in the immutable request snapshot.
+SELECT JSON_UNQUOTE(JSON_EXTRACT(contract_snapshot, '$.purchase_selection.merchant_did')) AS selected_merchant_did,
+       JSON_UNQUOTE(JSON_EXTRACT(contract_snapshot, '$.purchase_selection.capability_id')) AS selected_capability_id,
+       JSON_UNQUOTE(JSON_EXTRACT(contract_snapshot, '$.purchase_selection.product_id')) AS selected_product_id
 FROM commerce_episodes
 WHERE episode_id = @episode_id;
 

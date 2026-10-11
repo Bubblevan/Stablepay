@@ -34,6 +34,9 @@ func BuildCandidateSet(candidateSetID, episodeID, requestID string, query Discov
 		if err := normalized.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: catalog entry %s/%s: %v", ErrInvalidCapability, normalized.MerchantDID, normalized.CapabilityID, err)
 		}
+		if query.RequiredMerchantDID != "" && (normalized.MerchantDID != query.RequiredMerchantDID || normalized.CapabilityID != query.RequiredCapabilityID) {
+			continue
+		}
 		facts, rank := evaluate(normalized, query, generatedAt)
 		if !facts.Eligible() {
 			continue

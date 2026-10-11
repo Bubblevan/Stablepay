@@ -76,6 +76,7 @@ type apiMerchant struct {
 	deliveryCalls            atomic.Int32
 	invalidFirst             bool
 	transientInitialFailures int32
+	refreshedProductID       string
 }
 
 func (m *apiMerchant) Invoke(_ context.Context, request adapters.MerchantInvokeRequest) (adapters.MerchantInvokeResult, error) {
@@ -90,7 +91,11 @@ func (m *apiMerchant) Invoke(_ context.Context, request adapters.MerchantInvokeR
 		}
 		if request.Phase == invocation.PhaseQuoteRefresh {
 			m.refreshCalls.Add(1)
-			challenge := []byte(`{"x402Version":2,"resource":{"url":"https://merchant.test/execute"},"accepts":[{"scheme":"exact","network":"devnet","amount":"250000","asset":"USDC","payTo":"did:payee:test","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"api-test-revised"}}]}`)
+			productID := m.refreshedProductID
+			if productID == "" {
+				productID = "api-test-revised"
+			}
+			challenge := []byte(strings.Replace(`{"x402Version":2,"resource":{"url":"https://merchant.test/execute"},"accepts":[{"scheme":"exact","network":"devnet","amount":"250000","asset":"USDC","payTo":"did:payee:test","maxTimeoutSeconds":300,"extra":{"currency":"USDC","productId":"api-test-revised"}}]}`, "api-test-revised", productID, 1))
 			return adapters.MerchantInvokeResult{HTTPStatus: http.StatusPaymentRequired, ContentType: "application/json", Headers: map[string]string{"PAYMENT-REQUIRED": base64.StdEncoding.EncodeToString(challenge)}, Body: challenge, PayloadHash: invocation.PayloadHash(challenge), PayloadRef: "merchant-response://challenge-refresh", OccurredAt: now}, nil
 		}
 		{
@@ -212,7 +217,7 @@ func TestExternalHTTPAndMCPDriveDurableEpisode(t *testing.T) {
 
 	mcpBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	mcp := doJSON(t, server.URL+"/mcp", http.MethodPost, "s10-test-token", "", mcpBody)
-	if mcp.Code != http.StatusOK || !strings.Contains(mcp.Body.String(), "stablepay.acquire") || !strings.Contains(mcp.Body.String(), "stablepay.status") || !strings.Contains(mcp.Body.String(), "parent_session_id") || !strings.Contains(mcp.Body.String(), "budget_limit_minor") {
+	if mcp.Code != http.StatusOK || !strings.Contains(mcp.Body.String(), "stablepay.acquire") || !strings.Contains(mcp.Body.String(), "stablepay.status") || !strings.Contains(mcp.Body.String(), "parent_session_id") || !strings.Contains(mcp.Body.String(), "budget_limit_minor") || !strings.Contains(mcp.Body.String(), "purchase_selection") {
 		t.Fatalf("MCP tools/list failed: %s", mcp.Body.String())
 	}
 	mcpAcquireArgs, _ := json.Marshal(request)
@@ -270,7 +275,7 @@ func runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T, store repo
 	if !ok {
 		t.Fatal("test store does not support payment intent reads")
 	}
-	merchant := &apiMerchant{}
+	merchant := &apiMerchant{refreshedProductID: "api-test"}
 	paymentAdapter := &apiPayment{}
 	quoteValidator := &currentBuyerQuote{}
 	service := application.NewService(store,
@@ -288,6 +293,7 @@ func runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T, store repo
 	request := testAcquireRequest(requestID, now)
 	request.RequesterDID = requesterDID
 	request.Constraints.RequireBuyerConfirmation = true
+	request.PurchaseSelection = &contract.PurchaseSelection{MerchantDID: "did:merchant:test", CapabilityID: "api-test", ProductID: "api-test"}
 	body, err := json.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
@@ -371,7 +377,7 @@ func runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T, store repo
 	if err := json.Unmarshal(refreshed.Body.Bytes(), &refreshedBody); err != nil || refreshedBody.BuyerOffer == nil {
 		t.Fatalf("refreshed offer missing: %#v err=%v body=%s", refreshedBody.BuyerOffer, err, refreshed.Body.String())
 	}
-	if refreshedBody.BuyerOffer.QuoteHash == statusBody.BuyerOffer.QuoteHash || refreshedBody.BuyerOffer.ProductID != "api-test-revised" {
+	if refreshedBody.BuyerOffer.QuoteHash == statusBody.BuyerOffer.QuoteHash || refreshedBody.BuyerOffer.ProductID != "api-test" || refreshedBody.BuyerOffer.AmountMinor == statusBody.BuyerOffer.AmountMinor {
 		t.Fatalf("quote refresh did not expose changed merchant terms: old=%#v new=%#v", statusBody.BuyerOffer, refreshedBody.BuyerOffer)
 	}
 	replayedRefresh := doJSON(t, refreshPath, http.MethodPost, "buyer-confirmation-token", "buyer-quote-refresh-1", nil)
@@ -402,8 +408,9 @@ func runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T, store repo
 		t.Fatal(err)
 	}
 	quoteValidator.staleAt.Store(quoteValidator.calls.Load() + 3)
+	longConfirmationKey := strings.Repeat("k", 128)
 	confirmed := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
-		"buyer-confirmation-token", "buyer-confirmation-2", newConfirmationBody)
+		"buyer-confirmation-token", longConfirmationKey, newConfirmationBody)
 	if confirmed.Code != http.StatusAccepted {
 		t.Fatalf("buyer confirmation status=%d body=%s", confirmed.Code, confirmed.Body.String())
 	}

@@ -730,6 +730,16 @@ func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capab
 	if current == nil || capability == nil {
 		return decision.ErrPaymentBindingMismatch
 	}
+	if len(current.ContractSnapshot) > 0 {
+		var acquire contract.AcquireCapabilityRequest
+		if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
+			return fmt.Errorf("decode episode contract snapshot: %w", err)
+		}
+		if selection := acquire.PurchaseSelection; selection != nil &&
+			(selection.MerchantDID != current.SelectedMerchantDID || selection.CapabilityID != current.SelectedCapabilityID || selection.ProductID != parsed.ProductID) {
+			return decision.ErrPaymentBindingMismatch
+		}
+	}
 	if parsed.Scheme != "exact" || !protocolSupported(capability.SupportedProtocolVersions, parsed.ProtocolVersion) || !strings.EqualFold(parsed.Currency, current.Budget.Currency) || parsed.BusinessAmountMinor > current.Budget.AvailableBudget {
 		return decision.ErrPaymentBindingMismatch
 	}

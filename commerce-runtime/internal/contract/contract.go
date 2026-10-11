@@ -18,14 +18,15 @@ const DefaultProtocolVersion = "x402-v1"
 var sha256Pattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 var (
-	ErrInvalidRequest        = errors.New("invalid acquire capability request")
-	ErrInvalidMoney          = errors.New("budget limit must be a non-negative minor-unit amount")
-	ErrInvalidDeadline       = errors.New("deadline must be in the future")
-	ErrInvalidAttempts       = errors.New("attempt limits must be positive and bounded")
-	ErrInvalidValidator      = errors.New("validator must be a versioned builtin reference")
-	ErrInvalidProtocol       = errors.New("at least one supported protocol version is required")
-	ErrInvalidInputChecksum  = errors.New("input sha256 must be a 64-character hexadecimal digest")
-	ErrInvalidValidationTime = errors.New("validation time must be provided for deadline validation")
+	ErrInvalidRequest           = errors.New("invalid acquire capability request")
+	ErrInvalidMoney             = errors.New("budget limit must be a non-negative minor-unit amount")
+	ErrInvalidDeadline          = errors.New("deadline must be in the future")
+	ErrInvalidAttempts          = errors.New("attempt limits must be positive and bounded")
+	ErrInvalidValidator         = errors.New("validator must be a versioned builtin reference")
+	ErrInvalidProtocol          = errors.New("at least one supported protocol version is required")
+	ErrInvalidInputChecksum     = errors.New("input sha256 must be a 64-character hexadecimal digest")
+	ErrInvalidValidationTime    = errors.New("validation time must be provided for deadline validation")
+	ErrInvalidPurchaseSelection = errors.New("purchase selection requires an exact merchant, capability, and product with buyer confirmation")
 )
 
 // KeyValue is used instead of map[string]any in the contract so its canonical
@@ -80,20 +81,46 @@ type ValidatorRef struct {
 	Config  []KeyValue `json:"config,omitempty"`
 }
 
+// PurchaseSelection pins a shopping decision to one exact Runtime catalog
+// candidate and one x402 ProductID (the merchant's stable SKU/product key).
+// It is an immutable request fact, not a payment authorization; the buyer
+// still signs the fresh Runtime offer before any payment intent is reserved.
+type PurchaseSelection struct {
+	MerchantDID  string `json:"merchant_did"`
+	CapabilityID string `json:"capability_id"`
+	ProductID    string `json:"product_id"`
+}
+
+func (s PurchaseSelection) Normalize() PurchaseSelection {
+	s.MerchantDID = strings.TrimSpace(s.MerchantDID)
+	s.CapabilityID = strings.ToLower(strings.TrimSpace(s.CapabilityID))
+	s.ProductID = strings.TrimSpace(s.ProductID)
+	return s
+}
+
+func (s PurchaseSelection) Validate() error {
+	s = s.Normalize()
+	if s.MerchantDID == "" || s.CapabilityID == "" || s.ProductID == "" {
+		return ErrInvalidPurchaseSelection
+	}
+	return nil
+}
+
 type AcquireCapabilityRequest struct {
-	RequestID       string          `json:"request_id"`
-	ParentSessionID string          `json:"parent_session_id,omitempty"`
-	ParentEpisodeID string          `json:"parent_episode_id,omitempty"`
-	WorkflowID      string          `json:"workflow_id,omitempty"`
-	WorkflowVersion string          `json:"workflow_version,omitempty"`
-	WorkflowRunID   string          `json:"workflow_run_id,omitempty"`
-	WorkflowStepID  string          `json:"workflow_step_id,omitempty"`
-	RequesterDID    string          `json:"requester_did"`
-	AcquisitionGoal AcquisitionGoal `json:"acquisition_goal"`
-	Input           Input           `json:"input"`
-	Constraints     Constraints     `json:"constraints"`
-	ExpectedOutput  ExpectedOutput  `json:"expected_output"`
-	Validator       ValidatorRef    `json:"validator"`
+	RequestID         string             `json:"request_id"`
+	ParentSessionID   string             `json:"parent_session_id,omitempty"`
+	ParentEpisodeID   string             `json:"parent_episode_id,omitempty"`
+	WorkflowID        string             `json:"workflow_id,omitempty"`
+	WorkflowVersion   string             `json:"workflow_version,omitempty"`
+	WorkflowRunID     string             `json:"workflow_run_id,omitempty"`
+	WorkflowStepID    string             `json:"workflow_step_id,omitempty"`
+	RequesterDID      string             `json:"requester_did"`
+	AcquisitionGoal   AcquisitionGoal    `json:"acquisition_goal"`
+	Input             Input              `json:"input"`
+	Constraints       Constraints        `json:"constraints"`
+	ExpectedOutput    ExpectedOutput     `json:"expected_output"`
+	Validator         ValidatorRef       `json:"validator"`
+	PurchaseSelection *PurchaseSelection `json:"purchase_selection,omitempty"`
 }
 
 func (r AcquireCapabilityRequest) Validate() error {
@@ -166,6 +193,14 @@ func (r AcquireCapabilityRequest) validateStructure() error {
 	if err := r.Validator.Validate(); err != nil {
 		return err
 	}
+	if r.PurchaseSelection != nil {
+		if !r.Constraints.RequireBuyerConfirmation || r.Constraints.AllowCrossMerchantSwitch {
+			return ErrInvalidPurchaseSelection
+		}
+		if err := r.PurchaseSelection.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -236,6 +271,10 @@ func (r AcquireCapabilityRequest) normalizeFields() AcquireCapabilityRequest {
 	r.Validator.Name = strings.TrimSpace(r.Validator.Name)
 	r.Validator.Version = strings.TrimSpace(r.Validator.Version)
 	r.Validator.Config = normalizeKeyValues(r.Validator.Config)
+	if r.PurchaseSelection != nil {
+		selection := r.PurchaseSelection.Normalize()
+		r.PurchaseSelection = &selection
+	}
 	return r
 }
 

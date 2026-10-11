@@ -61,6 +61,34 @@ func TestBuildCandidateSetFiltersHardConstraintsAndRanksDeterministically(t *tes
 	}
 }
 
+func TestBuildCandidateSetPinsExplicitPurchaseSelection(t *testing.T) {
+	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
+	selected := testCapability("did:merchant:buyer-choice", "audio-transcription-pro", "did:solana:selected-payee", "transcription", 8, "v4", now)
+	otherMerchant := testCapability("did:merchant:other", "audio-transcription-pro", "did:solana:other-payee", "transcription", 7, "v2", now)
+	otherCapability := testCapability("did:merchant:buyer-choice", "transcription-basic", "did:solana:basic-payee", "transcription", 6, "v1", now)
+	query := testQuery(now)
+	query.RequiredMerchantDID = selected.MerchantDID
+	query.RequiredCapabilityID = selected.CapabilityID
+	set, err := BuildCandidateSet("cs-selected", "episode-selected", "request-selected", query,
+		[]*MerchantCapability{otherCapability, otherMerchant, selected}, now, now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(set.Candidates) != 1 || set.Candidates[0].MerchantDID != selected.MerchantDID || set.Candidates[0].CapabilityID != selected.CapabilityID {
+		t.Fatalf("explicit shopping selection did not constrain the candidate set: %#v", set.Candidates)
+	}
+	changed := query
+	changed.RequiredCapabilityID = "not-listed"
+	changedSet, err := BuildCandidateSet("cs-selected-2", "episode-selected", "request-selected", changed,
+		[]*MerchantCapability{selected}, now, now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changedSet.Candidates) != 0 {
+		t.Fatalf("candidate set ignored an exact capability mismatch: %#v", changedSet.Candidates)
+	}
+}
+
 func TestCapabilityCanonicalSnapshotSeparatesCapabilityAndPayee(t *testing.T) {
 	now := time.Date(2099, 9, 15, 12, 0, 0, 0, time.UTC)
 	capability := testCapability("did:merchant:acme", "transcription-premium", "did:solana:payee-wallet", "transcription", 8, "v1", now)

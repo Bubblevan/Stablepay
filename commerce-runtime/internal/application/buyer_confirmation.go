@@ -362,7 +362,12 @@ func (s *Service) RecordBuyerConfirmation(ctx context.Context, request BuyerConf
 	if err := next.ApplyCommittedState(to, confirmation.CreatedAt, "buyer rejected purchase"); err != nil {
 		return BuyerConfirmationResult{}, err
 	}
-	key := "buyer-confirmation:" + request.IdempotencyKey
+	// episode_events.idempotency_key is globally unique and varchar(128), while
+	// the public buyer key is Episode-scoped and can itself be 128 characters.
+	// Hash both parts into a bounded durable key so cross-Episode reuse remains
+	// distinct without exceeding the event column width.
+	keyDigest := sha256.Sum256([]byte(current.EpisodeID + "\x00" + request.IdempotencyKey))
+	key := "buyer-confirmation:" + hex.EncodeToString(keyDigest[:])
 	event, err := episode.NewEvent(s.idGenerator("evt"), current.EpisodeID, current.Version, confirmation.CreatedAt,
 		current.State, trace.Action{Type: trace.ActionRecordBuyerConfirmation, IdempotencyKey: key, InputRef: "buyer-confirmation://" + confirmation.ConfirmationID, InputHash: confirmation.PayloadHash},
 		trace.Observation{Type: observation, Code: confirmation.QuoteHash, FactsRef: "buyer-confirmation://" + confirmation.ConfirmationID, PayloadHash: confirmation.PayloadHash},
