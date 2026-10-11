@@ -19,7 +19,7 @@
 - 商品质量仍有缺口：当前 GPT-6 Luna 生成挑战集未经人工复核，候选与标签来自同一合成目录，已记录的高方案率/Recall 仅是诊断，按证据规范不列作简历指标；目标商品 Recall@5 `94.2%` 和独立有效方案率 `72.6%→91.8%` 尚无合格 holdout 证据。Recall@20 不能替代目标 Recall@5。
 - 另有 500-query 公共 ESCI judged-candidate 对照：当前排序器 Exact Recall@5 为 `88.51% macro / 87.19% micro`，BM25 为 `86.96% / 85.35%`；该候选池结果低于 94.2%，且不覆盖 StablePay 全目录、商品可行性或方案生成，故只作面试补充，不填入 Bullet 2 的目标数字。
 - Minikube 的六个节点运行于一台 Docker Desktop 主机；ACK 是单独的实习部署经历，不把本地集群说成六台物理机。
-- Labubu 场景依据用户提供的实习经历陈述；若面试需要量化结果，应补充可公开的脱敏项目记录，不补造交易量或转化率。
+- Labubu 场景依据用户提供的实习经历陈述；仓库可见的 `pay_small_item_v2.json` 与 `merchant_labubu_0_2_clean.json` 只是任务/后端状态模板，没有对应执行回执，不能当作本地或链上运行证据。若面试需要量化结果，应补充实习期可公开的脱敏记录，不补造交易量或转化率。
 
 ## 证据索引
 
@@ -29,4 +29,4 @@
 - Bullet 3 沙盒购买回放：`.local-run/agent-shopping/lifecycle-evaluations/lifecycle-20261011T085605.852589900Z-purchase-replay-35649dd6f5292547/`。
 - Bullet 4 崩溃恢复：`.local-run/resume-benchmark/e4-local-20260923T165522Z-8087/full/`。
 - Bullet 5 k6：`.local-run/resume-benchmark/e3-steady-state-final/`；Minikube Devnet 验收：`benchmarks/minikube-six-node-devnet/acceptance-report.md`。
-- Bullet 6 的 9 场景回归日志：`.local-run/agent-shopping/integration-evaluations/mysql-http-fresh-consent-20261011T081248Z/go-test.jsonl`；Labubu 演示为用户提供的实习经历事实。
+- Bullet 6 的 9 场景回归日志：`.local-run/agent-shopping/integration-evaluations/mysql-http-fresh-consent-20261011T081248Z/go-test.jsonl`；Labubu 实习演示为用户提供的经历事实，现存本地引用仅为 `.local-run/agentpay-source-6d4b751/value-test/agentic/{tasks/samples/pay_small_item_v2.json,fixtures/backend_state/templates/merchant_labubu_0_2_clean.json}` 模板。
