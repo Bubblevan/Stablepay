@@ -23,12 +23,13 @@ import (
 )
 
 var (
-	ErrBuyerConfirmationRequired      = errors.New("buyer confirmation is required before payment")
-	ErrBuyerConfirmationPending       = errors.New("buyer confirmation is not pending")
-	ErrBuyerConfirmationInvalid       = errors.New("buyer confirmation does not match the current quote")
-	ErrBuyerQuoteValidatorUnavailable = errors.New("live buyer quote validation is not configured")
-	ErrBuyerQuoteStale                = errors.New("buyer quote or availability changed; reconfirmation is required")
-	ErrBuyerQuoteRefreshUnavailable   = errors.New("merchant could not provide a refreshed buyer quote")
+	ErrBuyerConfirmationRequired       = errors.New("buyer confirmation is required before payment")
+	ErrBuyerConfirmationPending        = errors.New("buyer confirmation is not pending")
+	ErrBuyerConfirmationInvalid        = errors.New("buyer confirmation does not match the current quote")
+	ErrBuyerQuoteValidatorUnavailable  = errors.New("live buyer quote validation is not configured")
+	ErrBuyerQuoteValidationUnavailable = errors.New("live buyer quote could not be verified")
+	ErrBuyerQuoteStale                 = errors.New("buyer quote or availability changed; reconfirmation is required")
+	ErrBuyerQuoteRefreshUnavailable    = errors.New("merchant could not provide a refreshed buyer quote")
 )
 
 // BuyerQuoteValidator must compare the displayed offer with a live merchant
@@ -430,6 +431,9 @@ func (s *Service) validateBuyerOffer(ctx context.Context, offer BuyerOffer) erro
 		return ErrBuyerQuoteValidatorUnavailable
 	}
 	if err := s.buyerQuoteValidator.ValidateBuyerOffer(ctx, offer); err != nil {
+		if errors.Is(err, ErrBuyerQuoteValidationUnavailable) {
+			return fmt.Errorf("%w: %v", ErrBuyerQuoteValidatorUnavailable, err)
+		}
 		return fmt.Errorf("%w: %v", ErrBuyerQuoteStale, err)
 	}
 	return nil

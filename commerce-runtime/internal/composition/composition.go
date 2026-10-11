@@ -110,12 +110,14 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 		return nil, fmt.Errorf("configure payment-service client: %w", err)
 	}
 	kitexPayment := &adapters.KitexPaymentAdapter{Client: paymentClient, Credentials: credential}
-	merchant := adapters.NewHTTPMerchantAdapter(&http.Client{Timeout: cfg.MerchantTimeout})
+	merchantHTTPClient := &http.Client{Timeout: cfg.MerchantTimeout}
+	merchant := adapters.NewHTTPMerchantAdapter(merchantHTTPClient)
 	verification := adapters.NewStablePayVerificationEntitlement(cfg.GatewayBaseURL, cfg.GatewayAPIKey)
 	validatorRegistry := validator.NewBuiltinRegistry()
 	serviceOptions := []application.Option{
 		application.WithRuntimeVersion(cfg.RuntimeVersion),
 		application.WithMerchantAdapter(merchant),
+		application.WithBuyerQuoteValidator(NewHTTPBuyerQuoteValidator(merchantHTTPClient)),
 		application.WithSettlementPolicy(application.SettlementPolicy{Network: network, Assets: assets}),
 		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Status: kitexPayment, Entitlement: verification}),
 		application.WithPersistentEvidenceStore(store),
