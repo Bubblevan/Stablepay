@@ -12,20 +12,20 @@ import (
 	"github.com/stablepay/commerce-runtime/benchmarks/agentshopping"
 )
 
-func TestHashChallengeScoringSourcesResolvesFromRepositoryRoot(t *testing.T) {
+func TestHashChallengeEvaluationSourcesResolvesFromRepositoryRoot(t *testing.T) {
 	_, sourcePath, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller did not return this test source path")
 	}
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(sourcePath), "..", "..", ".."))
-	hashes, err := hashChallengeScoringSources(repositoryRoot)
+	hashes, err := hashChallengeEvaluationSources(repositoryRoot)
 	if err != nil {
-		t.Fatalf("hash repository scoring sources before model invocation: %v", err)
+		t.Fatalf("hash repository evaluation sources before model invocation: %v", err)
 	}
-	if len(hashes) != len(challengeScoringSourceNames) {
-		t.Fatalf("expected all scoring source files to be hash-bound: got %d, want %d", len(hashes), len(challengeScoringSourceNames))
+	if len(hashes) != len(challengeEvaluationSourceNames) {
+		t.Fatalf("expected all evaluation source files to be hash-bound: got %d, want %d", len(hashes), len(challengeEvaluationSourceNames))
 	}
-	for _, name := range challengeScoringSourceNames {
+	for _, name := range challengeEvaluationSourceNames {
 		if !strings.HasPrefix(hashes[name], "sha256:") || len(hashes[name]) != len("sha256:")+64 {
 			t.Errorf("missing/invalid scoring source digest for %s: %q", name, hashes[name])
 		}

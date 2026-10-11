@@ -41,7 +41,7 @@ type challengeRunManifest struct {
 	SourceManifest               string                                  `json:"source_manifest"`
 	Hashes                       agentshopping.ChallengeEvaluationHashes `json:"hashes"`
 	ArtifactsSHA256              map[string]string                       `json:"artifacts_sha256"`
-	ScoringSourceSHA256          map[string]string                       `json:"scoring_source_sha256"`
+	EvaluationSourceSHA256       map[string]string                       `json:"evaluation_source_sha256"`
 	Provider                     string                                  `json:"provider"`
 	Model                        string                                  `json:"model"`
 	Reasoning                    string                                  `json:"reasoning"`
@@ -213,9 +213,9 @@ func evaluateChallenge(args []string) error {
 	}
 	// Validate and hash the scoring implementation before any model batches run.
 	// localRunRoot is the .local-run directory; source paths are repository-relative.
-	scoringSourceHashes, err := hashChallengeScoringSources(filepath.Dir(localRunRoot))
+	evaluationSourceHashes, err := hashChallengeEvaluationSources(filepath.Dir(localRunRoot))
 	if err != nil {
-		return fmt.Errorf("hash challenge scoring sources: %w", err)
+		return fmt.Errorf("hash challenge evaluation sources: %w", err)
 	}
 	bundleReal := ""
 	if *requireHumanReview {
@@ -420,8 +420,8 @@ func evaluateChallenge(args []string) error {
 		HumanReviewAuditSHA256: reviewAuditDigest,
 		TaskCount:              len(tasks), RecallCutoff: *cutoff, DiscoveryWindow: metrics.DiscoveryCandidateWindow, ScenarioCounts: scenarioCounts,
 		SourceManifest: filepath.ToSlash(filepath.Join(".local-run", "simulated-merchants", filepath.Base(manifestAbs))), Hashes: hashes,
-		ScoringSourceSHA256: scoringSourceHashes,
-		Provider:            provider, Model: model, Reasoning: usage.Reasoning,
+		EvaluationSourceSHA256: evaluationSourceHashes,
+		Provider:               provider, Model: model, Reasoning: usage.Reasoning,
 		Temperature: temperature, TopP: topP, MaxTokens: maxTokens,
 		PromptTemplateSHA256: usage.TemplateSHA256, PromptSHA256: usage.PromptSHA256, ResponseSHA256: usage.ResponseSHA256,
 		UsageStatus: usage.UsageStatus, APICallsStatus: usage.APICallsStatus, Usage: usage,
@@ -713,18 +713,21 @@ var challengeRunArtifactNames = []string{
 	"model-responses.jsonl", "model-streams.jsonl",
 }
 
-var challengeScoringSourceNames = []string{
+var challengeEvaluationSourceNames = []string{
 	"commerce-runtime/benchmarks/agentshopping/challenge_evaluation.go",
+	"commerce-runtime/benchmarks/agentshopping/challenge_parser.go",
 	"commerce-runtime/benchmarks/agentshopping/evaluation.go",
+	"commerce-runtime/benchmarks/agentshopping/hermes_batch.go",
+	"commerce-runtime/benchmarks/agentshopping/hermes_intent.go",
 	"commerce-runtime/benchmarks/agentshopping/retrieval.go",
 	"commerce-runtime/benchmarks/agentshopping/substitution.go",
 	"commerce-runtime/benchmarks/agentshopping/attributes.go",
 	"commerce-runtime/cmd/agentshopping-sim/evaluate_challenge.go",
 }
 
-func hashChallengeScoringSources(repositoryRoot string) (map[string]string, error) {
-	hashes := make(map[string]string, len(challengeScoringSourceNames))
-	for _, name := range challengeScoringSourceNames {
+func hashChallengeEvaluationSources(repositoryRoot string) (map[string]string, error) {
+	hashes := make(map[string]string, len(challengeEvaluationSourceNames))
+	for _, name := range challengeEvaluationSourceNames {
 		path := filepath.Join(repositoryRoot, filepath.FromSlash(name))
 		info, err := os.Lstat(path)
 		if err != nil {
