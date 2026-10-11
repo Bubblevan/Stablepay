@@ -88,16 +88,18 @@ func NewProductAppService(
 // ProductListItem is the Application-layer read model returned by product list
 // use cases. Adapter DTOs can map from this model without exposing Domain Entity.
 type ProductListItem struct {
-	ID          string   `json:"id"`
-	SKUID       string   `json:"sku_id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	ImageURL    string   `json:"image_url,omitempty"`
-	Price       string   `json:"price"`
-	Currency    string   `json:"currency"`
-	Author      string   `json:"author,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Status      string   `json:"status"`
+	ID          string    `json:"id"`
+	SKUID       string    `json:"sku_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	ImageURL    string    `json:"image_url,omitempty"`
+	Price       string    `json:"price"`
+	Currency    string    `json:"currency"`
+	Author      string    `json:"author,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ListProducts queries active products and returns a stable read model.
@@ -338,6 +340,8 @@ func productToListItem(p *entity.Product) *ProductListItem {
 		Author:      p.Author,
 		Tags:        append([]string(nil), p.Tags...),
 		Status:      string(p.Status),
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
 	}
 }
 

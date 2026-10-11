@@ -1,0 +1,27 @@
+{
+  "schema_version": "stablepay.merchant-capability-manifest.v1",
+  "sources": [
+    {
+      "source_id": "merchant-a",
+      "merchant_did": "did:example:merchant-a",
+      "payee_did": "did:example:payee-a",
+      "product_api_url": "https://merchant.example/api/v1/products",
+      "capabilities": [
+        {
+          "sku_id": "sku-transcribe",
+          "capability_id": "media.transcribe",
+          "metadata_version": 1,
+          "task_types": ["transcription"],
+          "semantic_tags": ["audio", "speech-to-text"],
+          "input_schema_ref": "schema://media/transcription/input-v1",
+          "output_schema_ref": "schema://media/transcription/output-v1",
+          "input_content_types": ["audio/mpeg"],
+          "output_content_types": ["text/plain"],
+          "supported_protocol_versions": ["x402-v2"],
+          "supported_currencies": ["USDC"],
+          "pricing_model": "fixed"
+        }
+      ]
+    }
+  ]
+}

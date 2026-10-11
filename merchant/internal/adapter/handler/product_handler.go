@@ -215,6 +215,8 @@ func mapProductItem(item *appSvc.ProductListItem) dto.ProductItem {
 		Tags:        append([]string(nil), item.Tags...),
 		Status:      item.Status,
 		ImageURL:    item.ImageURL,
+		CreatedAt:   item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:   item.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

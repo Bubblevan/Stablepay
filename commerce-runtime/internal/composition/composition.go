@@ -132,6 +132,19 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 		serviceOptions = append(serviceOptions, application.WithMemoryStore(store))
 	}
 	service := application.NewService(store, serviceOptions...)
+	if manifestPath := strings.TrimSpace(cfg.MerchantCatalogManifestPath); manifestPath != "" {
+		manifest, err := LoadMerchantCatalogManifest(manifestPath)
+		if err != nil {
+			return nil, fmt.Errorf("load Merchant catalog manifest: %w", err)
+		}
+		reader, err := NewHTTPMerchantCatalogReader(merchantHTTPClient, manifest)
+		if err != nil {
+			return nil, fmt.Errorf("configure Merchant catalog reader: %w", err)
+		}
+		if err := SyncMerchantCatalog(ctx, store, reader, manifest); err != nil {
+			return nil, fmt.Errorf("sync Merchant capability catalog: %w", err)
+		}
+	}
 	runner := runtime.NewRunner(service, store, runtime.WithMaxSteps(cfg.MaxRunnerSteps), runtime.WithCredentialProvider(credential), runtime.WithRootContext(ctx), runtime.WithScanInterval(cfg.SupervisorInterval), runtime.WithRetryBackoff(250*time.Millisecond, cfg.RunnerRetryMax))
 	workflowRunner := workflowruntime.NewManager(store, service, store, runner, workflowruntime.Config{RootContext: ctx, ScanInterval: cfg.SupervisorInterval})
 	closeOnError = false

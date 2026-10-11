@@ -73,6 +73,7 @@ type ProductItem struct {
 	Tags        []string `json:"tags,omitempty"`
 	Status      string   `json:"status"`
 	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
 }
 
 // ProductListResp is returned by GET /api/v1/products.
@@ -139,9 +140,9 @@ type X402AcceptV1 struct {
 // PaymentRequiredRespV1 is the x402 v1 402 body format.
 // Included alongside the v2 response for backward compatibility.
 type PaymentRequiredRespV1 struct {
-	X402Version int              `json:"x402Version"`
-	Error       string           `json:"error"`
-	Accepts     []X402AcceptV1   `json:"accepts"`
+	X402Version int            `json:"x402Version"`
+	Error       string         `json:"error"`
+	Accepts     []X402AcceptV1 `json:"accepts"`
 }
 
 // -------------------- 购买执行结果 --------------------
