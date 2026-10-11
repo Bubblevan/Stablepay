@@ -32,14 +32,16 @@ const (
 var (
 	ErrUnsafeDatabaseTarget = errors.New("refusing non-isolated shopping simulation database target")
 	ErrDatasetAlreadyExists = errors.New("simulation dataset already exists")
+	ErrIntentAlreadyParsed  = errors.New("shopping task intent is no longer pending")
 )
 
 // MySQLStore can connect only to the dedicated loopback simulation schema.
 // Its credentials are supplied independently from every StablePay .env/DSN.
 type MySQLStore struct {
-	db     *gorm.DB
-	tenant string
-	now    func() time.Time
+	db                    *gorm.DB
+	tenant                string
+	now                   func() time.Time
+	mockFulfillmentFaults map[string]MockFulfillmentFaultPlan
 }
 
 func OpenLocalMySQLStore(password string) (*MySQLStore, error) {
@@ -148,6 +150,7 @@ func (s *MySQLStore) Migrate(ctx context.Context) error {
 		&MerchantRecord{}, &ProductRecord{}, &InventoryRecord{}, &BuyerRecord{},
 		&ShoppingTaskRecord{}, &QuoteRecord{}, &BuyerConfirmationRecord{}, &BuyerConfirmationAttemptRecord{},
 		&OrderRecord{}, &InventoryReservationRecord{}, &InventoryAdjustmentRecord{}, &MockPaymentRecord{},
+		&MockFulfillmentRecord{}, &MockFulfillmentAttemptRecord{}, &MockRefundRecord{},
 		&SimulationAuditRecord{}, &IntentParseTraceRecord{}, &DatasetRunRecord{},
 	)
 }
@@ -230,19 +233,22 @@ func (s *MySQLStore) SeedDataset(ctx context.Context, seed SimulationSeed) error
 }
 
 type Candidate struct {
-	Product   Product      `json:"product"`
-	Inventory OverlayEntry `json:"inventory"`
+	Product            Product      `json:"product"`
+	Inventory          OverlayEntry `json:"inventory"`
+	MatchType          string       `json:"match_type"`
+	SubstitutionNotice string       `json:"substitution_notice,omitempty"`
 }
 
 type Taxonomy struct {
-	Categories     []string            `json:"categories"`
-	Items          []string            `json:"items"`
-	Formats        []string            `json:"formats"`
-	Styles         []string            `json:"styles"`
-	Regions        []string            `json:"regions"`
-	ItemCategories map[string][]string `json:"item_categories,omitempty"`
-	FormatAliases  map[string][]string `json:"format_aliases,omitempty"`
-	StyleAliases   map[string][]string `json:"style_aliases,omitempty"`
+	Categories              []string                       `json:"categories"`
+	Items                   []string                       `json:"items"`
+	Formats                 []string                       `json:"formats"`
+	Styles                  []string                       `json:"styles"`
+	Regions                 []string                       `json:"regions"`
+	ItemCategories          map[string][]string            `json:"item_categories,omitempty"`
+	CategoryAttributeValues map[string]map[string][]string `json:"category_attribute_values,omitempty"`
+	FormatAliases           map[string][]string            `json:"format_aliases,omitempty"`
+	StyleAliases            map[string][]string            `json:"style_aliases,omitempty"`
 }
 
 func (s *MySQLStore) ReadTaxonomy(ctx context.Context) (Taxonomy, error) {
@@ -272,6 +278,24 @@ func (s *MySQLStore) ReadTaxonomy(ctx context.Context) (Taxonomy, error) {
 	for _, row := range itemCategoryRows {
 		taxonomy.ItemCategories[row.Item] = append(taxonomy.ItemCategories[row.Item], row.Category)
 	}
+	var attributeRows []struct {
+		Category       string
+		Status         string
+		AttributesJSON []byte
+	}
+	if err := s.db.WithContext(ctx).Model(&ProductRecord{}).Where("tenant_id = ? AND status = ?", s.tenant, "active").
+		Select("category, status, attributes_json").Scan(&attributeRows).Error; err != nil {
+		return Taxonomy{}, err
+	}
+	products := make([]Product, 0, len(attributeRows))
+	for _, row := range attributeRows {
+		var attributes map[string]any
+		if err := json.Unmarshal(row.AttributesJSON, &attributes); err != nil {
+			return Taxonomy{}, fmt.Errorf("decode active product attribute taxonomy: %w", err)
+		}
+		products = append(products, Product{Category: row.Category, Status: row.Status, Attributes: attributes})
+	}
+	taxonomy.CategoryAttributeValues = CategoryAttributeValues(products)
 	taxonomy.FormatAliases, taxonomy.StyleAliases = IntentAliasHints()
 	taxonomy.Regions = append([]string(nil), Regions...)
 	sort.Strings(taxonomy.Regions)
@@ -370,7 +394,7 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	var rows []struct {
+	var productRows []struct {
 		SKUID       string `gorm:"column:sku_id"`
 		MerchantID  string
 		Category    string
@@ -384,48 +408,88 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 		Item        string
 		Format      string
 		Style       string
-		Region      string
-		OnHand      int
-		Reserved    int
-		Eligible    bool
-		PriceMinor  int64
-		Revision    int64
 	}
-	err := s.db.WithContext(ctx).Table("sim_products AS p").
-		Select("p.sku_id, p.merchant_id, p.category, p.title, p.description, p.image_url, p.base_price AS price, p.currency, p.tags_json, p.attributes_json AS attributes, p.item, p.format, p.style, i.region, i.on_hand, i.reserved, i.eligible, i.price_minor, i.revision").
-		Joins("JOIN sim_inventory AS i ON i.tenant_id = p.tenant_id AND i.merchant_id = p.merchant_id AND i.sku_id = p.sku_id").
-		Where("p.tenant_id = ? AND i.tenant_id = ? AND p.status = 'active' AND p.currency = ? AND p.category = ? AND p.item = ? AND p.format = ? AND i.region = ? AND i.price_minor <= ? AND i.eligible = ? AND i.on_hand > i.reserved",
-			s.tenant, s.tenant, "USDC", intent.Category, intent.Item, intent.RequiredFormat, intent.Region, intent.MaxPriceMinor, true).
-		Scan(&rows).Error
-	if err != nil {
+	if err := s.db.WithContext(ctx).Table("sim_products").
+		Select("sku_id, merchant_id, category, title, description, image_url, base_price AS price, currency, tags_json, attributes_json AS attributes, item, format, style").
+		Where("tenant_id = ? AND status = 'active' AND currency = ? AND category = ? AND format = ?",
+			s.tenant, "USDC", intent.Category, intent.RequiredFormat).Scan(&productRows).Error; err != nil {
 		return nil, err
 	}
-	result := make([]Candidate, 0, len(rows))
-	for _, row := range rows {
+	products := make([]Product, 0, len(productRows))
+	for _, row := range productRows {
 		var tags []string
+		if len(row.TagsJSON) > 0 {
+			if err := json.Unmarshal(row.TagsJSON, &tags); err != nil {
+				return nil, fmt.Errorf("decode product tags for %s/%s: %w", row.MerchantID, row.SKUID, err)
+			}
+		}
 		var attributes map[string]any
-		_ = json.Unmarshal(row.TagsJSON, &tags)
-		_ = json.Unmarshal(row.Attributes, &attributes)
-		result = append(result, Candidate{
-			Product: Product{ID: StableID("product", row.MerchantID, row.SKUID), SKUID: row.SKUID, MerchantID: row.MerchantID,
-				Category: row.Category, Title: row.Title, Description: row.Description, ImageURL: row.ImageURL,
-				Price: FormatMinorUnits(row.Price), PriceMinor: row.Price, Currency: row.Currency, Tags: tags,
-				Attributes: attributes, Item: row.Item, Format: row.Format, Style: row.Style},
+		if len(row.Attributes) > 0 {
+			if err := json.Unmarshal(row.Attributes, &attributes); err != nil {
+				return nil, fmt.Errorf("decode product attributes for %s/%s: %w", row.MerchantID, row.SKUID, err)
+			}
+		}
+		group, _ := attributes["substitution_group"].(string)
+		products = append(products, Product{ID: StableID("product", row.MerchantID, row.SKUID), SKUID: row.SKUID, MerchantID: row.MerchantID,
+			Category: row.Category, Title: row.Title, Description: row.Description, ImageURL: row.ImageURL,
+			Price: FormatMinorUnits(row.Price), PriceMinor: row.Price, Currency: row.Currency, Tags: tags,
+			Attributes: attributes, Item: row.Item, Format: row.Format, Style: row.Style, Status: "active", SubstitutionGroup: group})
+	}
+	discovery := rankDiscoveryProducts(products, intent, DefaultDiscoveryCandidateWindow)
+	if len(discovery) == 0 {
+		return []Candidate{}, nil
+	}
+	productByKey := make(map[string]Product, len(discovery))
+	discoveryOrder := make(map[string]int, len(discovery))
+	skuSet := make(map[string]bool, len(discovery))
+	for index, product := range discovery {
+		key := catalogProductKey(product.MerchantID, product.SKUID)
+		productByKey[key] = product
+		discoveryOrder[key] = index
+		skuSet[product.SKUID] = true
+	}
+	skuIDs := make([]string, 0, len(skuSet))
+	for skuID := range skuSet {
+		skuIDs = append(skuIDs, skuID)
+	}
+	sort.Strings(skuIDs)
+	var inventoryRows []struct {
+		SKUID      string `gorm:"column:sku_id"`
+		MerchantID string `gorm:"column:merchant_id"`
+		Region     string `gorm:"column:region"`
+		OnHand     int    `gorm:"column:on_hand"`
+		Reserved   int    `gorm:"column:reserved"`
+		Eligible   bool   `gorm:"column:eligible"`
+		PriceMinor int64  `gorm:"column:price_minor"`
+		Revision   int64  `gorm:"column:revision"`
+	}
+	if err := s.db.WithContext(ctx).Table("sim_inventory").
+		Select("sku_id, merchant_id, region, on_hand, reserved, eligible, price_minor, revision").
+		Where("tenant_id = ? AND region = ? AND sku_id IN ?", s.tenant, intent.Region, skuIDs).
+		Scan(&inventoryRows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]Candidate, 0, len(discovery))
+	for _, row := range inventoryRows {
+		key := catalogProductKey(row.MerchantID, row.SKUID)
+		product, ok := productByKey[key]
+		if !ok || !row.Eligible || row.OnHand-row.Reserved < 1 || row.PriceMinor > intent.MaxPriceMinor {
+			continue
+		}
+		matchType := candidateMatchType(product, intent)
+		if matchType == "" {
+			continue
+		}
+		candidate := Candidate{Product: product,
 			Inventory: OverlayEntry{MerchantID: row.MerchantID, SKUID: row.SKUID, Region: row.Region,
 				OnHand: row.OnHand, Eligible: row.Eligible, PriceMinor: row.PriceMinor, Revision: row.Revision},
-		})
+			MatchType: matchType}
+		if matchType == MatchTypeSubstitute {
+			candidate.SubstitutionNotice = substitutionNotice(intent.Item, product.Item)
+		}
+		result = append(result, candidate)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		leftScore := stylePreferenceScore(result[i].Product, intent.PreferredStyle)
-		rightScore := stylePreferenceScore(result[j].Product, intent.PreferredStyle)
-		if leftScore != rightScore {
-			return leftScore > rightScore
-		}
-		if result[i].Inventory.PriceMinor != result[j].Inventory.PriceMinor {
-			return result[i].Inventory.PriceMinor < result[j].Inventory.PriceMinor
-		}
-		return result[i].Product.SKUID < result[j].Product.SKUID
-	})
+	sortCandidatesByDiscoveryOrder(result, discoveryOrder)
 	if len(result) > limit {
 		result = result[:limit]
 	}
@@ -435,15 +499,40 @@ func (s *MySQLStore) FindCandidates(ctx context.Context, intent Intent, limit in
 // FindCandidatesFromMerchantCatalog uses the Merchant HTTP snapshot as the
 // product source of truth and the isolated MySQL tenant only for inventory,
 // regional eligibility, and synthetic product enrichment.
+type merchantInventoryKey struct {
+	merchantID string
+	skuID      string
+}
+
+func merchantInventoryPairPredicate(keys []merchantInventoryKey) (string, []any) {
+	if len(keys) == 0 {
+		return "", nil
+	}
+	var tuples strings.Builder
+	tuples.Grow(len(keys) * len("(?,?)"))
+	args := make([]any, 0, len(keys)*2)
+	for index, key := range keys {
+		if index > 0 {
+			tuples.WriteByte(',')
+		}
+		tuples.WriteString("(?,?)")
+		args = append(args, key.merchantID, key.skuID)
+	}
+	return "(i.merchant_id, i.sku_id) IN (" + tuples.String() + ")", args
+}
+
 func (s *MySQLStore) FindCandidatesFromMerchantCatalog(ctx context.Context, catalog []Product, intent Intent, limit int) ([]Candidate, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	productsByMerchant := make(map[string]map[string]Product)
-	for _, product := range catalog {
-		if !catalogProductMatchesIntent(product, intent) {
-			continue
-		}
+	discoveryOrder := make(map[string]int, len(catalog))
+	// Search first over merchant-owned listing facts. Hard attributes and live
+	// inventory/price are deliberately deferred until the bounded discovery
+	// window has been selected, so a miss at this boundary is measurable.
+	discovery := rankDiscoveryProducts(catalog, intent, DefaultDiscoveryCandidateWindow)
+	for index, product := range discovery {
+		discoveryOrder[catalogProductKey(product.MerchantID, product.SKUID)] = index
 		if productsByMerchant[product.MerchantID] == nil {
 			productsByMerchant[product.MerchantID] = make(map[string]Product)
 		}
@@ -464,13 +553,13 @@ func (s *MySQLStore) FindCandidatesFromMerchantCatalog(ctx context.Context, cata
 		Revision   int64  `gorm:"column:revision"`
 		Attributes []byte `gorm:"column:attributes"`
 	}
-	const catalogInventoryBatchSize = 500
 	merchantIDs := make([]string, 0, len(productsByMerchant))
 	for merchantID := range productsByMerchant {
 		merchantIDs = append(merchantIDs, merchantID)
 	}
 	sort.Strings(merchantIDs)
-	result := make([]Candidate, 0)
+	productByKey := make(map[string]Product, len(discovery))
+	inventoryKeys := make([]merchantInventoryKey, 0, len(discovery))
 	for _, merchantID := range merchantIDs {
 		products := productsByMerchant[merchantID]
 		skuIDs := make([]string, 0, len(products))
@@ -478,66 +567,93 @@ func (s *MySQLStore) FindCandidatesFromMerchantCatalog(ctx context.Context, cata
 			skuIDs = append(skuIDs, skuID)
 		}
 		sort.Strings(skuIDs)
-		for start := 0; start < len(skuIDs); start += catalogInventoryBatchSize {
-			end := start + catalogInventoryBatchSize
-			if end > len(skuIDs) {
-				end = len(skuIDs)
-			}
-			var rows []inventoryCandidateRow
-			err := s.db.WithContext(ctx).Table("sim_inventory AS i").
-				Select("i.sku_id, i.merchant_id, i.region, i.on_hand, i.reserved, i.eligible, i.price_minor, i.revision, p.attributes_json AS attributes").
-				Joins("JOIN sim_products AS p ON p.tenant_id = i.tenant_id AND p.merchant_id = i.merchant_id AND p.sku_id = i.sku_id").
-				Where("i.tenant_id = ? AND p.tenant_id = ? AND p.status = 'active' AND i.merchant_id = ? AND i.sku_id IN ? AND i.region = ? AND i.eligible = ? AND i.on_hand > i.reserved AND i.price_minor <= ?",
-					s.tenant, s.tenant, merchantID, skuIDs[start:end], intent.Region, true, intent.MaxPriceMinor).
-				Scan(&rows).Error
-			if err != nil {
-				return nil, err
-			}
-			for _, row := range rows {
-				product, ok := products[row.SKUID]
-				if !ok {
-					return nil, fmt.Errorf("Merchant catalog inventory returned an unknown SKU %s/%s", merchantID, row.SKUID)
-				}
-				var attributes map[string]any
-				if len(row.Attributes) > 0 {
-					if err := json.Unmarshal(row.Attributes, &attributes); err != nil {
-						return nil, fmt.Errorf("decode synthetic attributes for %s/%s: %w", merchantID, row.SKUID, err)
-					}
-				}
-				product.Tags = append([]string(nil), product.Tags...)
-				product.Attributes = attributes
-				result = append(result, Candidate{
-					Product: product,
-					Inventory: OverlayEntry{MerchantID: merchantID, SKUID: row.SKUID, Region: row.Region,
-						OnHand: row.OnHand, Eligible: row.Eligible, PriceMinor: row.PriceMinor, Revision: row.Revision},
-				})
-			}
+		for _, skuID := range skuIDs {
+			productByKey[catalogProductKey(merchantID, skuID)] = products[skuID]
+			inventoryKeys = append(inventoryKeys, merchantInventoryKey{merchantID: merchantID, skuID: skuID})
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		leftScore := stylePreferenceScore(result[i].Product, intent.PreferredStyle)
-		rightScore := stylePreferenceScore(result[j].Product, intent.PreferredStyle)
-		if leftScore != rightScore {
-			return leftScore > rightScore
+	pairPredicate, pairArgs := merchantInventoryPairPredicate(inventoryKeys)
+	if pairPredicate == "" {
+		return []Candidate{}, nil
+	}
+	queryArgs := make([]any, 0, len(pairArgs)+5)
+	queryArgs = append(queryArgs, s.tenant, s.tenant)
+	queryArgs = append(queryArgs, pairArgs...)
+	queryArgs = append(queryArgs, intent.Region, true, intent.MaxPriceMinor)
+	var rows []inventoryCandidateRow
+	if err := s.db.WithContext(ctx).Table("sim_inventory AS i").
+		Select("i.sku_id, i.merchant_id, i.region, i.on_hand, i.reserved, i.eligible, i.price_minor, i.revision, p.attributes_json AS attributes").
+		Joins("JOIN sim_products AS p ON p.tenant_id = i.tenant_id AND p.merchant_id = i.merchant_id AND p.sku_id = i.sku_id").
+		Where("i.tenant_id = ? AND p.tenant_id = ? AND p.status = 'active' AND "+pairPredicate+" AND i.region = ? AND i.eligible = ? AND i.on_hand > i.reserved AND i.price_minor <= ?", queryArgs...).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]Candidate, 0)
+	for _, row := range rows {
+		key := catalogProductKey(row.MerchantID, row.SKUID)
+		product, ok := productByKey[key]
+		if !ok {
+			return nil, fmt.Errorf("Merchant catalog inventory returned an unknown SKU %s/%s", row.MerchantID, row.SKUID)
 		}
-		if result[i].Inventory.PriceMinor != result[j].Inventory.PriceMinor {
-			return result[i].Inventory.PriceMinor < result[j].Inventory.PriceMinor
+		var attributes map[string]any
+		if len(row.Attributes) > 0 {
+			if err := json.Unmarshal(row.Attributes, &attributes); err != nil {
+				return nil, fmt.Errorf("decode synthetic attributes for %s/%s: %w", row.MerchantID, row.SKUID, err)
+			}
 		}
-		if result[i].Product.MerchantID != result[j].Product.MerchantID {
-			return result[i].Product.MerchantID < result[j].Product.MerchantID
+		product.Tags = append([]string(nil), product.Tags...)
+		product.Attributes = attributes
+		matchType := candidateMatchType(product, intent)
+		if matchType == "" {
+			continue
 		}
-		return result[i].Product.SKUID < result[j].Product.SKUID
-	})
+		candidate := Candidate{Product: product, MatchType: matchType,
+			Inventory: OverlayEntry{MerchantID: row.MerchantID, SKUID: row.SKUID, Region: row.Region,
+				OnHand: row.OnHand, Eligible: row.Eligible, PriceMinor: row.PriceMinor, Revision: row.Revision},
+		}
+		if matchType == MatchTypeSubstitute {
+			candidate.SubstitutionNotice = substitutionNotice(intent.Item, product.Item)
+		}
+		result = append(result, candidate)
+	}
+	sortCandidatesByDiscoveryOrder(result, discoveryOrder)
 	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
 }
 
+// sortCandidatesByDiscoveryOrder restores the product relevance order after
+// the unordered MySQL inventory overlay lookup. Price and SKU are not allowed
+// to silently replace the ranker's BM25/hard-attribute ordering.
+func sortCandidatesByDiscoveryOrder(candidates []Candidate, discoveryOrder map[string]int) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftKey := catalogProductKey(candidates[i].Product.MerchantID, candidates[i].Product.SKUID)
+		rightKey := catalogProductKey(candidates[j].Product.MerchantID, candidates[j].Product.SKUID)
+		leftRank, leftFound := discoveryOrder[leftKey]
+		rightRank, rightFound := discoveryOrder[rightKey]
+		if leftFound != rightFound {
+			return leftFound
+		}
+		if leftFound && leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if candidates[i].MatchType != candidates[j].MatchType {
+			return matchTypePriority(candidates[i].MatchType) > matchTypePriority(candidates[j].MatchType)
+		}
+		if candidates[i].Inventory.PriceMinor != candidates[j].Inventory.PriceMinor {
+			return candidates[i].Inventory.PriceMinor < candidates[j].Inventory.PriceMinor
+		}
+		if candidates[i].Product.MerchantID != candidates[j].Product.MerchantID {
+			return candidates[i].Product.MerchantID < candidates[j].Product.MerchantID
+		}
+		return candidates[i].Product.SKUID < candidates[j].Product.SKUID
+	})
+}
+
 func catalogProductMatchesIntent(product Product, intent Intent) bool {
 	return product.Status == "active" && product.Currency == "USDC" &&
-		product.Category == intent.Category && product.Item == intent.Item &&
-		product.Format == intent.RequiredFormat
+		candidateMatchType(product, intent) != ""
 }
 
 // ValidateMerchantCatalogSnapshot rejects a mixed catalog where candidate
@@ -643,7 +759,8 @@ type PersistentQuoteRequest struct {
 }
 
 func (s *MySQLStore) IssueQuote(ctx context.Context, request PersistentQuoteRequest) (Quote, error) {
-	if request.TaskID == "" || request.BuyerID == "" || request.MerchantID == "" || request.SKUID == "" || request.Region == "" || request.Currency != "USDC" || request.IdempotencyKey == "" {
+	if request.TaskID == "" || request.BuyerID == "" || request.MerchantID == "" || request.SKUID == "" || request.Region == "" ||
+		request.MaxMinor <= 0 || request.Currency != "USDC" || request.IdempotencyKey == "" {
 		return Quote{}, ErrInvalidSimulationData
 	}
 	requestHash := hashValue(request.TaskID, request.BuyerID, request.MerchantID, request.SKUID, request.Region, strconv.FormatInt(request.MaxMinor, 10), request.Currency)
@@ -663,6 +780,21 @@ func (s *MySQLStore) IssueQuote(ctx context.Context, request PersistentQuoteRequ
 		if err := tx.Where("task_id = ? AND tenant_id = ? AND buyer_id = ?", request.TaskID, s.tenant, request.BuyerID).First(&task).Error; err != nil {
 			return ErrNotFound
 		}
+		var intent Intent
+		if err := json.Unmarshal(task.IntentJSON, &intent); err != nil || intent.ClarificationRequired || intent.Item == "" || intent.Category == "" ||
+			intent.RequiredFormat == "" || intent.MaxPriceMinor <= 0 {
+			return ErrCandidateNotAllowed
+		}
+		if request.Region != intent.Region {
+			return ErrCandidateNotAllowed
+		}
+		if request.MaxMinor > intent.MaxPriceMinor {
+			return ErrBudgetExceeded
+		}
+		var buyer BuyerRecord
+		if err := tx.Where("tenant_id = ? AND buyer_id = ?", s.tenant, request.BuyerID).First(&buyer).Error; err != nil {
+			return ErrNotFound
+		}
 		var inventory InventoryRecord
 		key := map[string]any{"tenant_id": s.tenant, "merchant_id": request.MerchantID, "sku_id": request.SKUID, "region": request.Region}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(key).First(&inventory).Error; err != nil {
@@ -671,12 +803,27 @@ func (s *MySQLStore) IssueQuote(ctx context.Context, request PersistentQuoteRequ
 		if !inventory.Eligible || inventory.OnHand-inventory.Reserved < 1 {
 			return ErrUnavailable
 		}
-		if inventory.Currency != request.Currency || inventory.PriceMinor > request.MaxMinor {
+		if inventory.Currency != request.Currency || inventory.PriceMinor > request.MaxMinor || inventory.PriceMinor > buyer.BudgetMinor {
 			return ErrBudgetExceeded
 		}
 		var product ProductRecord
 		if err := tx.Where("tenant_id = ? AND merchant_id = ? AND sku_id = ? AND status = ?", s.tenant, request.MerchantID, request.SKUID, "active").First(&product).Error; err != nil {
 			return ErrNotFound
+		}
+		var attributes map[string]any
+		if err := json.Unmarshal(product.AttributesJSON, &attributes); err != nil {
+			return ErrCandidateNotAllowed
+		}
+		group, _ := attributes["substitution_group"].(string)
+		selected := Product{SKUID: product.SKUID, Category: product.Category, Item: product.Item, Format: product.Format,
+			Status: product.Status, Currency: product.Currency, Title: product.Title, Attributes: attributes, SubstitutionGroup: group}
+		matchType := candidateMatchType(selected, intent)
+		if matchType == "" {
+			return ErrCandidateNotAllowed
+		}
+		notice := ""
+		if matchType == MatchTypeSubstitute {
+			notice = substitutionNotice(intent.Item, selected.Item)
 		}
 		var version int64
 		if err := tx.Model(&QuoteRecord{}).Select("COALESCE(MAX(version), 0)").Where("tenant_id = ? AND merchant_id = ? AND sku_id = ? AND region = ?", s.tenant, request.MerchantID, request.SKUID, request.Region).Scan(&version).Error; err != nil {
@@ -687,10 +834,13 @@ func (s *MySQLStore) IssueQuote(ctx context.Context, request PersistentQuoteRequ
 		expires := now.Add(15 * time.Minute)
 		quoteID := StableID("quote", s.tenant, request.TaskID, request.MerchantID, request.SKUID, request.Region, strconv.FormatInt(version, 10))
 		snapshotHash := hashValue(quoteID, request.TaskID, request.BuyerID, request.MerchantID, request.SKUID,
+			intent.Item, selected.Item, selected.Title, matchType, notice,
 			request.Region, strconv.FormatInt(version, 10), strconv.FormatInt(inventory.PriceMinor, 10),
 			request.Currency, strconv.FormatInt(inventory.Revision, 10), expires.UTC().Format(time.RFC3339Nano))
 		row := QuoteRecord{QuoteID: quoteID, TenantID: s.tenant, TaskID: request.TaskID, BuyerID: request.BuyerID,
-			MerchantID: request.MerchantID, SKUID: request.SKUID, Region: request.Region, Version: version,
+			MerchantID: request.MerchantID, SKUID: request.SKUID, RequestedItem: intent.Item,
+			ProductItem: selected.Item, ProductTitle: selected.Title, MatchType: matchType, SubstitutionNotice: notice,
+			Region: request.Region, Version: version,
 			AmountMinor: inventory.PriceMinor, Currency: request.Currency, StockRevision: inventory.Revision,
 			SnapshotHash: snapshotHash, IdempotencyKey: request.IdempotencyKey, RequestHash: requestHash,
 			ExpiresAt: expires, CreatedAt: now, DataOrigin: syntheticOrigin}
@@ -724,10 +874,11 @@ type PersistentConfirmRequest struct {
 	Accepted       bool
 	AmountMinor    int64
 	IdempotencyKey string
+	ConfirmationID string
 }
 
 func (s *MySQLStore) ConfirmBuyer(ctx context.Context, request PersistentConfirmRequest) (Confirmation, error) {
-	if request.BuyerID == "" || request.QuoteID == "" || request.IdempotencyKey == "" {
+	if request.BuyerID == "" || request.QuoteID == "" || request.IdempotencyKey == "" || len(request.ConfirmationID) > 96 {
 		return Confirmation{}, ErrInvalidSimulationData
 	}
 	requestHash := hashValue(request.BuyerID, request.QuoteID, strconv.FormatBool(request.Accepted), strconv.FormatInt(request.AmountMinor, 10))
@@ -809,7 +960,10 @@ func (s *MySQLStore) ConfirmBuyer(ctx context.Context, request PersistentConfirm
 				return nil
 			}
 		}
-		confirmationID := StableID("confirmation", s.tenant, request.IdempotencyKey)
+		confirmationID := request.ConfirmationID
+		if confirmationID == "" {
+			confirmationID = StableID("confirmation", s.tenant, request.IdempotencyKey)
+		}
 		row := BuyerConfirmationRecord{ConfirmationID: confirmationID, TenantID: s.tenant, BuyerID: request.BuyerID,
 			QuoteID: quote.QuoteID, QuoteVersion: quote.Version, QuoteHash: quote.SnapshotHash,
 			AmountMinor: request.AmountMinor, Accepted: request.Accepted, IdempotencyKey: request.IdempotencyKey,
@@ -1078,7 +1232,8 @@ func (s *MySQLStore) Counts(ctx context.Context) (map[string]int64, error) {
 		{"buyers", &BuyerRecord{}}, {"tasks", &ShoppingTaskRecord{}}, {"quotes", &QuoteRecord{}},
 		{"confirmations", &BuyerConfirmationRecord{}}, {"confirmation_attempts", &BuyerConfirmationAttemptRecord{}},
 		{"orders", &OrderRecord{}}, {"reservations", &InventoryReservationRecord{}}, {"inventory_adjustments", &InventoryAdjustmentRecord{}},
-		{"simulated_payments", &MockPaymentRecord{}}, {"audit_events", &SimulationAuditRecord{}}, {"intent_parse_traces", &IntentParseTraceRecord{}},
+		{"simulated_payments", &MockPaymentRecord{}}, {"simulated_fulfillment_attempts", &MockFulfillmentAttemptRecord{}},
+		{"audit_events", &SimulationAuditRecord{}}, {"intent_parse_traces", &IntentParseTraceRecord{}},
 	}
 	counts := make(map[string]int64, len(models))
 	for _, entry := range models {
@@ -1092,6 +1247,19 @@ func (s *MySQLStore) Counts(ctx context.Context) (map[string]int64, error) {
 }
 
 func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotencyKey string, clarifiesTaskIDs ...string) (ShoppingTaskRecord, error) {
+	return s.createTask(ctx, nil, buyerID, prompt, idempotencyKey, clarifiesTaskIDs...)
+}
+
+func (s *MySQLStore) createTaskForKnownBuyer(ctx context.Context, buyer BuyerRecord, prompt, idempotencyKey string,
+	clarifiesTaskIDs ...string) (ShoppingTaskRecord, error) {
+	if buyer.TenantID != s.tenant || buyer.BuyerID == "" {
+		return ShoppingTaskRecord{}, ErrNotFound
+	}
+	return s.createTask(ctx, &buyer, buyer.BuyerID, prompt, idempotencyKey, clarifiesTaskIDs...)
+}
+
+func (s *MySQLStore) createTask(ctx context.Context, knownBuyer *BuyerRecord, buyerID, prompt, idempotencyKey string,
+	clarifiesTaskIDs ...string) (ShoppingTaskRecord, error) {
 	if buyerID == "" || strings.TrimSpace(prompt) == "" || idempotencyKey == "" || len(prompt) > 8000 || len(clarifiesTaskIDs) > 1 {
 		return ShoppingTaskRecord{}, ErrInvalidSimulationData
 	}
@@ -1099,21 +1267,25 @@ func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotenc
 	if len(clarifiesTaskIDs) == 1 {
 		clarifiesTaskID = strings.TrimSpace(clarifiesTaskIDs[0])
 	}
-	var buyer BuyerRecord
-	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND buyer_id = ?", s.tenant, buyerID).First(&buyer).Error; err != nil {
+	if knownBuyer == nil {
+		var buyer BuyerRecord
+		if err := s.db.WithContext(ctx).Where("tenant_id = ? AND buyer_id = ?", s.tenant, buyerID).First(&buyer).Error; err != nil {
+			return ShoppingTaskRecord{}, ErrNotFound
+		}
+	} else if knownBuyer.TenantID != s.tenant || knownBuyer.BuyerID != buyerID {
 		return ShoppingTaskRecord{}, ErrNotFound
 	}
 	requestHash := hashValue(buyerID, prompt, clarifiesTaskID)
-	var existing ShoppingTaskRecord
-	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&existing).Error; err == nil {
-		if existing.BuyerID == buyerID && hashValue(existing.BuyerID, existing.Prompt, existing.ClarifiesTaskID) == requestHash {
-			return existing, nil
-		}
-		return ShoppingTaskRecord{}, ErrIdempotencyConflict
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return ShoppingTaskRecord{}, err
-	}
 	if clarifiesTaskID != "" {
+		var existing ShoppingTaskRecord
+		if err := s.db.WithContext(ctx).Where("tenant_id = ? AND idempotency_key = ?", s.tenant, idempotencyKey).First(&existing).Error; err == nil {
+			if existing.BuyerID == buyerID && hashValue(existing.BuyerID, existing.Prompt, existing.ClarifiesTaskID) == requestHash {
+				return existing, nil
+			}
+			return ShoppingTaskRecord{}, ErrIdempotencyConflict
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return ShoppingTaskRecord{}, err
+		}
 		var parent ShoppingTaskRecord
 		if err := s.db.WithContext(ctx).Where("tenant_id = ? AND task_id = ?", s.tenant, clarifiesTaskID).First(&parent).Error; err != nil {
 			return ShoppingTaskRecord{}, ErrNotFound
@@ -1142,6 +1314,19 @@ func (s *MySQLStore) CreateTask(ctx context.Context, buyerID, prompt, idempotenc
 }
 
 func (s *MySQLStore) SaveParsedIntent(ctx context.Context, taskID, provider, model string, intent Intent, latency time.Duration, parseErr error, usage ParseUsage) error {
+	return s.saveParsedIntent(ctx, nil, taskID, provider, model, intent, latency, parseErr, usage)
+}
+
+func (s *MySQLStore) saveParsedIntentForKnownTask(ctx context.Context, task ShoppingTaskRecord, provider, model string,
+	intent Intent, latency time.Duration, parseErr error, usage ParseUsage) error {
+	if task.TenantID != s.tenant || task.TaskID == "" || task.Status != TaskStatusIntentPending {
+		return ErrIntentAlreadyParsed
+	}
+	return s.saveParsedIntent(ctx, &task, task.TaskID, provider, model, intent, latency, parseErr, usage)
+}
+
+func (s *MySQLStore) saveParsedIntent(ctx context.Context, knownTask *ShoppingTaskRecord, taskID, provider, model string,
+	intent Intent, latency time.Duration, parseErr error, usage ParseUsage) error {
 	var output []byte
 	if parseErr == nil {
 		var err error
@@ -1168,8 +1353,13 @@ func (s *MySQLStore) SaveParsedIntent(ctx context.Context, taskID, provider, mod
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var task ShoppingTaskRecord
-		if err := tx.Where("tenant_id = ? AND task_id = ?", s.tenant, taskID).First(&task).Error; err != nil {
+		if knownTask != nil {
+			task = *knownTask
+		} else if err := tx.Where("tenant_id = ? AND task_id = ?", s.tenant, taskID).First(&task).Error; err != nil {
 			return ErrNotFound
+		}
+		if task.TenantID != s.tenant || task.TaskID != taskID || task.Status != TaskStatusIntentPending {
+			return ErrIntentAlreadyParsed
 		}
 		inputHash := hashValue(task.Prompt)
 		traceID := StableID("intent-parse", taskID, provider, model, strconv.FormatInt(s.now().UnixNano(), 10))
@@ -1184,17 +1374,29 @@ func (s *MySQLStore) SaveParsedIntent(ctx context.Context, taskID, provider, mod
 			trace.ErrorCode = TaskStatusIntentParseFailed
 			task.Status = TaskStatusIntentParseFailed
 		} else {
-			task.IntentJSON = output
-			task.Provider = provider
-			task.Model = model
 			if intent.ClarificationRequired {
 				task.Status = TaskStatusClarificationRequired
 			} else {
 				task.Status = TaskStatusDiscovered
 			}
 		}
-		if err := tx.Save(&task).Error; err != nil {
-			return err
+		updates := map[string]any{"status": task.Status}
+		if parseErr == nil {
+			updates["intent_json"] = output
+			updates["provider"] = provider
+			updates["model"] = model
+		}
+		updated := tx.Model(&ShoppingTaskRecord{}).
+			Where("tenant_id = ? AND task_id = ? AND status = ?", s.tenant, taskID, TaskStatusIntentPending).
+			Updates(updates)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return ErrIntentAlreadyParsed
+		}
+		if task.ClarifiesTaskID != "" && task.BuyerID == "" {
+			return ErrInvalidSimulationData
 		}
 		if parseErr == nil && !intent.ClarificationRequired && task.ClarifiesTaskID != "" {
 			var parent ShoppingTaskRecord
@@ -1225,6 +1427,27 @@ func (s *MySQLStore) GetBuyer(ctx context.Context, buyerID string) (BuyerRecord,
 		return BuyerRecord{}, ErrNotFound
 	}
 	return row, err
+}
+
+// SnapshotBuyerProfiles loads the immutable synthetic buyer profiles for an
+// API startup snapshot. The simulation API has no buyer-profile mutation
+// endpoint; if the tenant changes after startup, HTTPAPI falls back to MySQL.
+func (s *MySQLStore) SnapshotBuyerProfiles(ctx context.Context) (map[string]BuyerRecord, error) {
+	var rows []BuyerRecord
+	if err := s.db.WithContext(ctx).Where("tenant_id = ?", s.tenant).Order("buyer_id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	profiles := make(map[string]BuyerRecord, len(rows))
+	for _, row := range rows {
+		if row.TenantID != s.tenant || row.BuyerID == "" {
+			return nil, errors.New("buyer-profile snapshot contains an invalid or cross-tenant row")
+		}
+		if _, exists := profiles[row.BuyerID]; exists {
+			return nil, errors.New("buyer-profile snapshot contains a duplicate buyer ID")
+		}
+		profiles[row.BuyerID] = row
+	}
+	return profiles, nil
 }
 
 func (s *MySQLStore) GetTask(ctx context.Context, taskID string) (ShoppingTaskRecord, error) {
@@ -1273,7 +1496,9 @@ func auditTx(tx *gorm.DB, tenant, taskID, entityID, action string, at time.Time)
 
 func quoteFromRecord(row QuoteRecord) Quote {
 	return Quote{ID: row.QuoteID, TenantID: row.TenantID, TaskID: row.TaskID, BuyerID: row.BuyerID,
-		Version: row.Version, MerchantID: row.MerchantID, SKUID: row.SKUID, Region: row.Region,
+		Version: row.Version, MerchantID: row.MerchantID, SKUID: row.SKUID,
+		RequestedItem: row.RequestedItem, ProductItem: row.ProductItem, ProductTitle: row.ProductTitle,
+		MatchType: row.MatchType, SubstitutionNotice: row.SubstitutionNotice, Region: row.Region,
 		AmountMinor: row.AmountMinor, Currency: row.Currency, StockRevision: row.StockRevision,
 		SnapshotHash: row.SnapshotHash, CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt}
 }

@@ -16,3 +16,10 @@ func TestSourceModifiedAtBuildPrefersRunnerSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceRevisionPrefersRunnerSnapshot(t *testing.T) {
+	t.Setenv("STABLEPAY_SOURCE_REVISION", "abc123")
+	if got := sourceRevision(); got != "abc123" {
+		t.Fatalf("sourceRevision() = %q, want %q", got, "abc123")
+	}
+}

@@ -1,0 +1,15 @@
+# Strategic-merge patch fragment; apply with kubectl patch, not kubectl apply.
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: stablepay-six-m06
+      containers:
+        - name: nameserver
+          resources:
+            requests:
+              cpu: 200m
+              memory: 900Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,21 @@ func TestDecodeHermesIntentBatchStrictJSON(t *testing.T) {
 	}
 	if _, err := decodeHermesIntentBatch([]byte("[] trailing")); err == nil {
 		t.Fatal("trailing output must fail closed")
+	}
+}
+
+func TestDecodeHermesIntentBatchExtractsOneArrayFromPreamble(t *testing.T) {
+	output := []byte("A short preamble before the requested output.\n" +
+		`[{"task_id":"shop-0002","category":"coffee","item":"beans","required_format":"bag","preferred_style":"","region":"CN-EAST","max_price_minor":1200,"allow_substitution":true}]`)
+	rows, err := decodeHermesIntentBatch(output)
+	if err != nil {
+		t.Fatalf("decode array after preamble: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TaskID != "shop-0002" {
+		t.Fatalf("unexpected decoded rows: %+v", rows)
+	}
+	if _, err := decodeHermesIntentBatch([]byte("no JSON array here")); !errors.Is(err, errMalformedHermesIntentJSON) {
+		t.Fatalf("malformed model output should be classified for per-batch accounting: %v", err)
 	}
 }
 
@@ -72,6 +88,66 @@ func TestValidateParsedBatchIntentEnforcesTaxonomyAndBuyerBudget(t *testing.T) {
 	row.MaxPriceMinor = 15001
 	if _, _, err := validateParsedBatchIntent(row, "CN-EAST", 15000, taxonomy); err == nil {
 		t.Fatal("budget above the buyer cap must be rejected")
+	}
+}
+
+func TestValidateParsedBatchIntentAllowsUnstatedOptionalStyle(t *testing.T) {
+	allow := true
+	row := hermesBatchIntentResponse{TaskID: "shop-no-style", Category: "coffee", Item: "beans", RequiredFormat: "bag",
+		Region: "CN-EAST", MaxPriceMinor: 1200, AllowSubstitution: &allow}
+	taxonomy := Taxonomy{Regions: []string{"CN-EAST"}, Categories: []string{"coffee"},
+		Items: []string{"beans"}, Formats: []string{"bag"}, Styles: []string{"floral"}}
+	intent, _, err := validateParsedBatchIntent(row, "CN-EAST", 1500, taxonomy)
+	if err != nil {
+		t.Fatalf("an unstated optional style must not invalidate an otherwise complete intent: %v", err)
+	}
+	if intent.PreferredStyle != "" || intent.ClarificationRequired {
+		t.Fatalf("unstated optional style was invented or treated as blocking: %+v", intent)
+	}
+}
+
+func TestValidateParsedBatchIntentChecksHardAttributesAgainstCategoryWhitelist(t *testing.T) {
+	allow := false
+	row := hermesBatchIntentResponse{TaskID: "attr-1", Category: "coffee", Item: "beans", RequiredFormat: "bag",
+		PreferredStyle: "floral", RequiredAttributes: map[string]string{"roast_level": "light"},
+		Region: "CN-EAST", MaxPriceMinor: 1200, AllowSubstitution: &allow}
+	taxonomy := Taxonomy{Regions: []string{"CN-EAST"}, Categories: []string{"coffee"}, Items: []string{"beans"},
+		Formats: []string{"bag"}, Styles: []string{"floral"},
+		CategoryAttributeValues: map[string]map[string][]string{"coffee": {"roast_level": {"light", "medium"}}}}
+	if _, _, err := validateParsedBatchIntent(row, "CN-EAST", 1500, taxonomy); err != nil {
+		t.Fatalf("allowed hard attribute rejected: %v", err)
+	}
+	row.RequiredAttributes["roast_level"] = "extra-dark"
+	if _, _, err := validateParsedBatchIntent(row, "CN-EAST", 1500, taxonomy); err == nil {
+		t.Fatal("non-canonical hard attribute must fail closed")
+	}
+	row.RequiredAttributes = map[string]string{"unknown_key": "light"}
+	if _, _, err := validateParsedBatchIntent(row, "CN-EAST", 1500, taxonomy); err == nil {
+		t.Fatal("unknown attribute key must fail closed")
+	}
+}
+
+func TestNormalizePartialChallengeIntentRequiresRealMissingFieldsAndKnownValues(t *testing.T) {
+	taxonomy := Taxonomy{Regions: []string{"CN-EAST"}, Categories: []string{"coffee"},
+		Items: []string{"beans"}, Formats: []string{"bag"}, Styles: []string{"floral"}}
+	request := BatchIntentRequest{TaskID: "ambiguous-1", DefaultRegion: "CN-EAST", BuyerBudgetMinor: 2000}
+	partial := Intent{Category: "coffee", RequiredFormat: "bag", PreferredStyle: "floral", MaxPriceMinor: 0}
+	intent, canonicalized, err := normalizePartialChallengeIntent(partial, request, taxonomy)
+	if err != nil {
+		t.Fatalf("valid partial clarification rejected: %v", err)
+	}
+	if !intent.ClarificationRequired || intent.Item != "" || intent.Region != "CN-EAST" || intent.MaxPriceMinor != 2000 ||
+		!intent.ConfirmationNeeded || strings.TrimSpace(intent.ClarificationQuestion) == "" || len(canonicalized) != 0 {
+		t.Fatalf("partial clarification was not normalized safely: %+v canonicalized=%v", intent, canonicalized)
+	}
+
+	partial.Item = "unknown-product"
+	if _, _, err := normalizePartialChallengeIntent(partial, request, taxonomy); err == nil {
+		t.Fatal("unknown non-empty field must not be converted into a clarification")
+	}
+	partial.Item = "beans"
+	if _, _, err := normalizePartialChallengeIntent(partial, request, taxonomy); err == nil {
+		t.Fatal("a complete intent must not be relabeled as a clarification")
 	}
 }
 

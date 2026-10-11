@@ -141,7 +141,7 @@ function requestBody(id) {
       max_delivery_attempts: 3,
     },
     expected_output: { schema: 'text', content_type: 'text/plain' },
-    validator: { kind: 'builtin', name: 'text', version: 'v1' },
+    validator: { kind: 'builtin', name: 'non-empty', version: 'v1' },
   });
 }
 

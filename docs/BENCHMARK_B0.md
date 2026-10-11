@@ -29,10 +29,20 @@ From `D:\MyLab\projects\Stablepay`:
 .\scripts\benchmark-e2-guard.ps1
 .\scripts\benchmark-e1-recovery.ps1
 .\scripts\benchmark-e1-recovery.ps1 -RunDeepSeek
-.\scripts\benchmark-e3-load.ps1
+$e3RunDir = Join-Path .\.local-run\resume-benchmark\e3-load ("run-" + [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"))
+.\scripts\benchmark-e3-load.ps1 -OutputRoot $e3RunDir -ConfirmDeterministicLocalDependencies -StopOnThresholdFailure -RuntimeDatabasePlacement isolated-kubernetes -KubernetesProfile stablepay-six
 .\scripts\benchmark-e4-chaos.ps1
-python .\scripts\summarize-benchmark-evidence.py
+python .\scripts\summarize-benchmark-evidence.py --e4-run .\.local-run\resume-benchmark\e4-local-20260923T165522Z-8087 --shopping-purchase-run .\.local-run\agent-shopping\lifecycle-evaluations\lifecycle-20261010T233527.056652900Z-purchase-replay-29c86a9579fc4f6d --output resume-safe-summary-20261011.json
 ```
+
+The summary command requires an explicit E4 run, optionally accepts one
+explicit 300-order shopping purchase replay, never auto-selects a `latest`
+artifact, and refuses to overwrite an existing summary. The shopping replay
+is included only after the saved manifest, all 300 trial rows, metrics, and
+audit summary reconcile; it remains explicitly simulation-only. The 500-task
+shopping quality targets are always marked not resume-eligible until an
+independent, human-reviewed holdout and a frozen paired baseline/treatment
+evaluation exist.
 
 E1 freezes 120 scenarios (12 families × 10 deterministic variants), runs the
 Rule control once per scenario, and—when real provider configuration is
@@ -40,11 +50,15 @@ present—runs DeepSeek three times per scenario. E2 freezes 300 cases with 150
 valid and 150 invalid proposals and calls the production guard. E3 uses Docker
 `grafana/k6` on the Runtime HTTP boundary at concurrency 1/10/25/50/100/200
 with warmup and a 60-second measurement. Its manifest records the Docker
-version, k6 tag/digest, network mode, and container-visible URL. E4 kills only a Runtime process started by the harness
+version, k6 tag/digest, network mode, container-visible URL, and (when
+specified) database placement and Kubernetes profile. E4 kills only a Runtime process started by the harness
 after a persisted target state is observed, then restarts the same command.
 
 E3 and E4 intentionally withhold claims when k6, a safe local Runtime target,
 an explicit chaos command, or economic side-effect audit evidence is missing.
+E3 now requires an explicit operator confirmation that the target uses
+deterministic local dependencies, never pulls k6 unless `-PullK6Image` is
+passed, and refuses to overwrite a non-empty output directory.
 
 ## E4 concrete setup
 

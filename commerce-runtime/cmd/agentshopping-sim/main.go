@@ -34,6 +34,14 @@ func main() {
 		err = evaluate(os.Args[2:])
 	case "evaluate-intents":
 		err = evaluateIntents(os.Args[2:])
+	case "evaluate-challenge":
+		err = evaluateChallenge(os.Args[2:])
+	case "generate-challenge-draft":
+		err = generateChallengeDraft(os.Args[2:])
+	case "prepare-challenge-review":
+		err = prepareChallengeReview(os.Args[2:])
+	case "finalize-challenge-review":
+		err = finalizeChallengeReview(os.Args[2:])
 	case "serve":
 		err = serve(os.Args[2:])
 	case "help", "-h", "--help":
@@ -55,11 +63,16 @@ func usage() {
   agentshopping-sim.exe seed [--manifest path] [--seed 20261010] [--buyers 2000] [--tasks 500]
   agentshopping-sim.exe evaluate [--manifest path] [--seed 20261010] [--tasks 500] [--cutoff 20]
   agentshopping-sim.exe evaluate-intents [--manifest path] [--seed 20261010]
+  agentshopping-sim.exe evaluate-challenge --tasks <explicit-suite.jsonl> [--manifest path] [--seed 20261010] [--cutoff 20] [--oracle-intents | --replay-parse-results <prior-run/parse-results.jsonl> | --require-human-review --review-bundle <bundle-dir> | --allow-unreviewed-diagnostic-model-run]
+  agentshopping-sim.exe generate-challenge-draft [--manifest path] [--seed 20261010] [--tasks 500] [--mixed-decisions] [--out-dir .local-run/agent-shopping/challenge-suites/draft-auto-v1]
+  agentshopping-sim.exe prepare-challenge-review --prompts <master-prompts.jsonl> --manifest .local-run/simulated-merchants/manifest.json --out-dir <new-packet-dir>
+  agentshopping-sim finalize-challenge-review --prompts <master-prompts.jsonl> --reviewer-a-prompts <reviewer-a-prompts.jsonl> --reviewer-b-prompts <reviewer-b-prompts.jsonl> --reviewer-catalog <reviewer-catalog.jsonl> --packet-manifest <packet-manifest.json> --reviewer-a <reviewer-a.jsonl> --reviewer-b <reviewer-b.jsonl> --adjudications <adjudications.jsonl> --out-dir <new-bundle-dir>
   agentshopping-sim.exe serve
 
 Environment (loaded explicitly by the local runner; no StablePay .env is read):
   SHOP_SIM_DB_PASSWORD  Password for 127.0.0.1:13327/stablepay_shopping_sim only
   SHOP_SIM_API_KEY      Local simulation HTTP bearer secret (never written to evidence)
+  SHOP_SIM_BUYER_APPROVAL_KEY Independent local credential used only by the human approval script
   SHOP_SIM_HTTP_ADDR    Optional loopback bind address; defaults to 127.0.0.1:18090
   SHOP_SIM_MERCHANT_MANIFEST Optional manifest; loads products from its loopback Merchant HTTP APIs
   SHOP_SIM_HERMES_BIN   Optional Hermes executable path; defaults to hermes`)
@@ -163,6 +176,13 @@ func serve(args []string) error {
 	if len(apiKey) < 32 {
 		return errors.New("SHOP_SIM_API_KEY must contain at least 32 characters")
 	}
+	buyerApprovalKey := os.Getenv("SHOP_SIM_BUYER_APPROVAL_KEY")
+	if len(buyerApprovalKey) < 32 {
+		return errors.New("SHOP_SIM_BUYER_APPROVAL_KEY must contain at least 32 characters")
+	}
+	if err := os.Unsetenv("SHOP_SIM_BUYER_APPROVAL_KEY"); err != nil {
+		return errors.New("could not remove the buyer-approval key from the child-process environment")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	store, err := openStore(ctx)
@@ -187,9 +207,9 @@ func serve(args []string) error {
 		if loadErr != nil {
 			return fmt.Errorf("load or validate Merchant HTTP catalog snapshot: %w", loadErr)
 		}
-		api, err = agentshopping.NewHTTPAPIWithMerchantCatalog(store, parser, apiKey, catalog)
+		api, err = agentshopping.NewHTTPAPIWithMerchantCatalog(store, parser, apiKey, catalog, buyerApprovalKey)
 	} else {
-		api, err = agentshopping.NewHTTPAPI(store, parser, apiKey)
+		api, err = agentshopping.NewHTTPAPI(store, parser, apiKey, buyerApprovalKey)
 	}
 	if err != nil {
 		return err

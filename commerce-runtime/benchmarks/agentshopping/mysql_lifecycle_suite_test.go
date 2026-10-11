@@ -467,6 +467,38 @@ func cloneLifecycleTenant(ctx context.Context, store *MySQLStore, sourceTenant, 
 	return catalog, buyers, nil
 }
 
+func seedLifecycleTenantFromMerchantSnapshot(ctx context.Context, store *MySQLStore, sourceTenant, targetTenant string,
+	catalog ImportedCatalog, seed int64) (ImportedCatalog, []BuyerRecord, error) {
+	if len(catalog.Merchants) != 12 || len(catalog.Products) != 24000 || len(catalog.ProductRows) != 24000 ||
+		len(catalog.Inventory) != 96000 || len(catalog.InventoryRows) != 96000 {
+		return ImportedCatalog{}, nil, fmt.Errorf("current Merchant snapshot dimensions are invalid: merchants=%d products=%d product_rows=%d inventory=%d inventory_rows=%d",
+			len(catalog.Merchants), len(catalog.Products), len(catalog.ProductRows), len(catalog.Inventory), len(catalog.InventoryRows))
+	}
+	var buyers []BuyerRecord
+	if err := store.db.WithContext(ctx).Where("tenant_id = ?", sourceTenant).Order("buyer_id").Find(&buyers).Error; err != nil {
+		return ImportedCatalog{}, nil, fmt.Errorf("read isolated buyers for fresh lifecycle tenant: %w", err)
+	}
+	if len(buyers) != 2000 {
+		return ImportedCatalog{}, nil, fmt.Errorf("isolated buyer source has %d rows, want 2000", len(buyers))
+	}
+	oldTenant := store.tenant
+	store.tenant = targetTenant
+	err := store.SeedDataset(ctx, SimulationSeed{
+		DatasetID: StableID("lifecycle-dataset", targetTenant, fmt.Sprint(seed)),
+		Seed:      seed,
+		Manifest:  "fresh isolated tenant from current loopback Merchant HTTP snapshot: " + catalog.ManifestPath,
+		Merchants: append([]MerchantRecord(nil), catalog.Merchants...),
+		Products:  append([]ProductRecord(nil), catalog.ProductRows...),
+		Inventory: append([]InventoryRecord(nil), catalog.InventoryRows...),
+		Buyers:    append([]BuyerRecord(nil), buyers...),
+	})
+	if err != nil {
+		store.tenant = oldTenant
+		return ImportedCatalog{}, nil, fmt.Errorf("seed fresh isolated lifecycle tenant from Merchant HTTP snapshot: %w", err)
+	}
+	return catalog, buyers, nil
+}
+
 func readLifecycleSuite(path string) ([]Task, error) {
 	file, err := os.Open(path)
 	if err != nil {

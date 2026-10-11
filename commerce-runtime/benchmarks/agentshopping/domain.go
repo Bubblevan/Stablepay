@@ -49,23 +49,24 @@ type Merchant struct {
 }
 
 type Product struct {
-	ID          string         `json:"id"`
-	SKUID       string         `json:"sku_id"`
-	MerchantID  string         `json:"merchant_id"`
-	Category    string         `json:"category"`
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	ImageURL    string         `json:"image_url,omitempty"`
-	Price       string         `json:"price"`
-	PriceMinor  int64          `json:"price_minor"`
-	Currency    string         `json:"currency"`
-	Author      string         `json:"author,omitempty"`
-	Tags        []string       `json:"tags,omitempty"`
-	Attributes  map[string]any `json:"attributes,omitempty"`
-	Status      string         `json:"status"`
-	Item        string         `json:"item"`
-	Format      string         `json:"format"`
-	Style       string         `json:"style"`
+	ID                string         `json:"id"`
+	SKUID             string         `json:"sku_id"`
+	MerchantID        string         `json:"merchant_id"`
+	Category          string         `json:"category"`
+	Title             string         `json:"title"`
+	Description       string         `json:"description"`
+	ImageURL          string         `json:"image_url,omitempty"`
+	Price             string         `json:"price"`
+	PriceMinor        int64          `json:"price_minor"`
+	Currency          string         `json:"currency"`
+	Author            string         `json:"author,omitempty"`
+	Tags              []string       `json:"tags,omitempty"`
+	Attributes        map[string]any `json:"attributes,omitempty"`
+	Status            string         `json:"status"`
+	Item              string         `json:"item"`
+	Format            string         `json:"format"`
+	Style             string         `json:"style"`
+	SubstitutionGroup string         `json:"substitution_group,omitempty"`
 }
 
 type OverlayEntry struct {
@@ -79,16 +80,26 @@ type OverlayEntry struct {
 }
 
 type Intent struct {
-	Category              string `json:"category"`
-	Item                  string `json:"item"`
-	RequiredFormat        string `json:"required_format"`
-	PreferredStyle        string `json:"preferred_style"`
-	Region                string `json:"region"`
-	MaxPriceMinor         int64  `json:"max_price_minor"`
-	AllowSubstitution     bool   `json:"allow_substitution"`
-	ConfirmationNeeded    bool   `json:"confirmation_required"`
-	ClarificationRequired bool   `json:"clarification_required,omitempty"`
-	ClarificationQuestion string `json:"clarification_question,omitempty"`
+	Category              string            `json:"category"`
+	Item                  string            `json:"item"`
+	RequiredFormat        string            `json:"required_format"`
+	PreferredStyle        string            `json:"preferred_style"`
+	RequiredAttributes    map[string]string `json:"required_attributes,omitempty"`
+	Region                string            `json:"region"`
+	MaxPriceMinor         int64             `json:"max_price_minor"`
+	AllowSubstitution     bool              `json:"allow_substitution"`
+	ConfirmationNeeded    bool              `json:"confirmation_required"`
+	ClarificationRequired bool              `json:"clarification_required,omitempty"`
+	ClarificationQuestion string            `json:"clarification_question,omitempty"`
+	searchText            string
+	discoveryDocs         map[string]catalogDiscoveryDocument
+}
+
+// WithSearchText attaches the original buyer wording for discovery ranking.
+// The text is transient and intentionally excluded from persisted JSON.
+func (i Intent) WithSearchText(text string) Intent {
+	i.searchText = text
+	return i
 }
 
 type Task struct {
@@ -153,7 +164,8 @@ func TaxonomyFromProducts(products []Product) Taxonomy {
 	return Taxonomy{
 		Regions: append([]string(nil), Regions...), Categories: sortedStringSet(categories),
 		Items: sortedStringSet(items), Formats: sortedStringSet(formats), Styles: sortedStringSet(styles),
-		ItemCategories: categoryByItem, FormatAliases: formatAliases, StyleAliases: styleAliases,
+		ItemCategories: categoryByItem, CategoryAttributeValues: CategoryAttributeValues(products),
+		FormatAliases: formatAliases, StyleAliases: styleAliases,
 	}
 }
 
@@ -419,7 +431,7 @@ func Matches(product Product, intent Intent) bool {
 func RankCandidates(products []Product, intent Intent, state map[string]OverlayEntry, stockAware bool, limit int) []Product {
 	candidates := make([]Product, 0, 32)
 	for _, product := range products {
-		if !Matches(product, intent) || product.Currency != "USDC" {
+		if candidateMatchType(product, intent) == "" || product.Currency != "USDC" {
 			continue
 		}
 		offer, ok := state[OverlayKey(product.SKUID, intent.Region)]
@@ -433,6 +445,10 @@ func RankCandidates(products []Product, intent Intent, state map[string]OverlayE
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		left, right := state[OverlayKey(candidates[i].SKUID, intent.Region)], state[OverlayKey(candidates[j].SKUID, intent.Region)]
+		leftMatch, rightMatch := candidateMatchType(candidates[i], intent), candidateMatchType(candidates[j], intent)
+		if leftMatch != rightMatch {
+			return matchTypePriority(leftMatch) > matchTypePriority(rightMatch)
+		}
 		leftPreferred := candidates[i].Style == intent.PreferredStyle
 		rightPreferred := candidates[j].Style == intent.PreferredStyle
 		if leftPreferred != rightPreferred {

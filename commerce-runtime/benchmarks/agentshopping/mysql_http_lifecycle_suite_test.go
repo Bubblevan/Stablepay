@@ -101,6 +101,18 @@ func (c *lifecycleHTTPClient) do(t *testing.T, method, path string, body any) my
 	return response
 }
 
+func (c *lifecycleHTTPClient) doBuyerApproved(t *testing.T, method, path string, body any) mysqlIntegrationResponse {
+	t.Helper()
+	response, err := c.api.doRawWithHeaders(method, path, body,
+		map[string]string{"X-Simulation-Buyer-Approval-Key": mysqlIntegrationBuyerApprovalKey})
+	if err != nil {
+		t.Fatalf("HTTP %s %s: %v", method, path, err)
+	}
+	c.requests++
+	c.statusCounts[response.status]++
+	return response
+}
+
 func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	if os.Getenv("SHOP_SIM_MYSQL_HTTP_LIFECYCLE") != "1" {
 		t.Skip("set SHOP_SIM_MYSQL_HTTP_LIFECYCLE=1 to run the recorded GPT-6 Luna 500-task HTTP lifecycle against isolated MySQL")
@@ -163,7 +175,22 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	sourceTenant := store.tenant
 	suffix := mysqlIntegrationSuffix(t)
 	tenantID := "shopping-http-" + suffix
-	catalog, buyers, err := cloneLifecycleTenant(ctx, store, sourceTenant, tenantID, 20261010)
+	merchantCatalog, err := LoadMerchantCatalog(ctx, sourceManifestPath, nil)
+	if err != nil {
+		t.Fatalf("load the live Merchant HTTP catalog snapshot: %v", err)
+	}
+	legacySeedMatchesHTTP := store.ValidateMerchantCatalogSnapshot(ctx, merchantCatalog) == nil
+	useCurrentMerchantSnapshot := os.Getenv("SHOP_SIM_HTTP_LIFECYCLE_CATALOG_SOURCE") == "current_merchant_http"
+	var catalog ImportedCatalog
+	var buyers []BuyerRecord
+	if useCurrentMerchantSnapshot {
+		catalog, buyers, err = seedLifecycleTenantFromMerchantSnapshot(ctx, store, sourceTenant, tenantID, merchantCatalog, 20261010)
+	} else {
+		if !legacySeedMatchesHTTP {
+			t.Fatal("live Merchant HTTP snapshot differs from the locked MySQL seed; use SHOP_SIM_HTTP_LIFECYCLE_CATALOG_SOURCE=current_merchant_http to seed a new isolated tenant instead of overwriting the existing seed")
+		}
+		catalog, buyers, err = cloneLifecycleTenant(ctx, store, sourceTenant, tenantID, 20261010)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,30 +219,35 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	if err := ValidateLockedSuite(catalog, tasks); err != nil {
 		t.Fatalf("locked suite validation: %v", err)
 	}
+	structuredReport, _, err := EvaluateStructuredTasks(catalog, tasks, DefaultRecallCutoff, 2000, 20261010)
+	if err != nil {
+		t.Fatalf("re-evaluate structured B0/B1 ranking on the selected catalog snapshot: %v", err)
+	}
 	hashes, err := ComputeEvaluationHashes(catalog, tasks, manifestBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hashes != intentRun.Hashes {
+	if useCurrentMerchantSnapshot {
+		if hashes.OverlaySHA256 != intentRun.Hashes.OverlaySHA256 || hashes.TasksSHA256 != intentRun.Hashes.TasksSHA256 ||
+			hashes.ManifestSHA256 != intentRun.Hashes.ManifestSHA256 {
+			t.Fatalf("current-snapshot replay must retain locked overlay/task/manifest hashes: current=%+v source=%+v", hashes, intentRun.Hashes)
+		}
+	} else if hashes != intentRun.Hashes {
 		t.Fatalf("intent replay input hashes differ from locked catalog/suite: current=%+v source=%+v", hashes, intentRun.Hashes)
 	}
-	merchantCatalog, err := LoadMerchantCatalog(ctx, sourceManifestPath, nil)
-	if err != nil {
-		t.Fatalf("load the live Merchant HTTP catalog snapshot: %v", err)
-	}
 	if err := store.ValidateMerchantCatalogSnapshot(ctx, merchantCatalog); err != nil {
-		t.Fatalf("live Merchant HTTP snapshot differs from the isolated MySQL seed: %v", err)
+		t.Fatalf("live Merchant HTTP snapshot differs from the isolated lifecycle tenant: %v", err)
 	}
 	merchantHashes, err := ComputeEvaluationHashes(merchantCatalog, tasks, manifestBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if merchantHashes != hashes {
-		t.Fatalf("live Merchant HTTP snapshot differs from the isolated MySQL seed: live=%+v mysql=%+v", merchantHashes, hashes)
+		t.Fatalf("live Merchant HTTP snapshot differs from the isolated lifecycle tenant: live=%+v mysql=%+v", merchantHashes, hashes)
 	}
 	parser := replayLifecycleIntents(t, tasks, intentTrials, intentRun.PromptTemplateSHA256)
 	store.tenant = tenantID
-	api, err := NewHTTPAPIWithMerchantCatalog(store, parser, mysqlIntegrationAPIKey, merchantCatalog)
+	api, err := NewHTTPAPIWithMerchantCatalog(store, parser, mysqlIntegrationAPIKey, merchantCatalog, mysqlIntegrationBuyerApprovalKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +274,15 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 	manifest := map[string]any{"schema_version": "stablepay.agent-shopping-http-lifecycle.v1", "run_id": runID,
 		"status": "RUNNING", "database": SimulationDatabaseName, "tenant_id": tenantID,
 		"source_tenant_id": sourceTenant, "seed": 20261010, "hashes": hashes,
-		"catalog_source": "merchant_http_snapshot", "catalog_merchants": len(merchantCatalog.Merchants),
+		"catalog_seed_policy":                                      map[bool]string{true: "new_isolated_tenant_seeded_from_current_merchant_http_snapshot", false: "clone_of_locked_mysql_seed"}[useCurrentMerchantSnapshot],
+		"legacy_seed_matches_current_http_snapshot":                legacySeedMatchesHTTP,
+		"intent_replay_source_catalog_sha256":                      intentRun.Hashes.CatalogSHA256,
+		"current_catalog_sha256":                                   hashes.CatalogSHA256,
+		"intent_replay_catalog_changed":                            hashes.CatalogSHA256 != intentRun.Hashes.CatalogSHA256,
+		"structured_search_metrics_recomputed_on_current_snapshot": true,
+		"structured_search_metric_boundary":                        "same recorded gold intents and task labels; synthetic catalog feasibility/ranking only; no independent product relevance labels or new model calls",
+		"structured_search_report":                                 structuredReport,
+		"catalog_source":                                           "merchant_http_snapshot", "catalog_merchants": len(merchantCatalog.Merchants),
 		"catalog_products":     len(merchantCatalog.Products),
 		"catalog_boundary":     "product discovery and taxonomy from loopback Merchant HTTP snapshot; stock, regional eligibility, and transaction state from isolated MySQL",
 		"intent_source":        "recorded GPT-6 Luna parsed intents; replayed through the HTTP API; no model call in this run",
@@ -258,8 +298,8 @@ func TestMySQLShoppingLocked500HTTPLifecycle(t *testing.T) {
 
 	metrics := lifecycleSuiteMetrics{RunID: runID, TenantID: tenantID, Database: SimulationDatabaseName,
 		Seed: 20261010, Hashes: hashes, TaskCount: len(tasks), ModelCalls: 0,
-		TokenUsage: "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY", StructuredB0ValidPlans: intentRun.Metrics.DownstreamBaseline.ValidPlans,
-		StructuredB1ValidPlans: intentRun.Metrics.DownstreamTreatment.ValidPlans}
+		TokenUsage: "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY", StructuredB0ValidPlans: structuredReport.Baseline.ValidPlans,
+		StructuredB1ValidPlans: structuredReport.Treatment.ValidPlans}
 	byRegion := make(map[string][]BuyerRecord)
 	for _, buyer := range buyers {
 		byRegion[buyer.HomeRegion] = append(byRegion[buyer.HomeRegion], buyer)
@@ -423,7 +463,7 @@ func replayLifecycleIntents(t *testing.T, tasks []Task, trials []IntentParseTria
 	for _, task := range tasks {
 		trial, ok := byTask[task.TaskID]
 		if !ok || !trial.ParseValid || !trial.ExactIntentMatch || trial.RawIntent == nil ||
-			*trial.RawIntent != task.Intent || trial.ParsedIntent != task.Intent {
+			!sameChallengeIntent(*trial.RawIntent, task.Intent) || !sameChallengeIntent(trial.ParsedIntent, task.Intent) {
 			t.Fatalf("recorded GPT-6 Luna parse does not exactly match locked intent for %s", task.TaskID)
 		}
 		if _, exists := intents[task.Prompt]; exists {
@@ -483,7 +523,7 @@ func runHTTPShoppingLifecycleTask(t *testing.T, client *lifecycleHTTPClient, tas
 	if err := json.Unmarshal(parsed.body, &parseResult); err != nil {
 		t.Fatal(err)
 	}
-	if parseResult.TaskID == "" || parseResult.TaskStatus != TaskStatusDiscovered || parseResult.Intent != task.Intent ||
+	if parseResult.TaskID == "" || parseResult.TaskStatus != TaskStatusDiscovered || !sameChallengeIntent(parseResult.Intent, task.Intent) ||
 		parseResult.Provider != "openai-codex" || parseResult.Model != "gpt-6-luna" || !parseResult.BuyerConfirmationRequired ||
 		len(parseResult.Candidates) == 0 {
 		t.Fatalf("HTTP parse/discovery result violates locked intent contract for %s: %+v", task.TaskID, parseResult)
@@ -633,7 +673,7 @@ func confirmHTTPLifecycle(t *testing.T, client *lifecycleHTTPClient, quote Quote
 	errorCode    string
 } {
 	t.Helper()
-	response := client.do(t, http.MethodPost, "/v1/quotes/"+quote.ID+"/confirm", map[string]any{
+	response := client.doBuyerApproved(t, http.MethodPost, "/v1/quotes/"+quote.ID+"/confirm", map[string]any{
 		"buyer_id": quote.BuyerID, "accepted": true, "amount_minor": quote.AmountMinor, "idempotency_key": key,
 	})
 	if response.status != expectedStatus {

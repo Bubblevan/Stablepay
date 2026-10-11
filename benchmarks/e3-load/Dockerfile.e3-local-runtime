@@ -1,0 +1,5 @@
+FROM scratch
+COPY e4-local-runtime /e4-local-runtime
+USER 10001:10001
+EXPOSE 8090
+ENTRYPOINT ["/e4-local-runtime"]

@@ -51,11 +51,14 @@ func (v RuntimeVariant) WithHash() RuntimeVariant {
 // promoted into observed configuration.
 func (v RuntimeVariant) Validate() error {
 	v = v.Normalize()
-	if v.RuntimeVersion == "" || (v.MemoryMode != "on" && v.MemoryMode != "off") || (v.RecoveryProvider != "llm" && v.RecoveryProvider != "rule") || v.ConfigHash == "" {
+	if v.RuntimeVersion == "" || (v.MemoryMode != "on" && v.MemoryMode != "off") || (v.RecoveryProvider != "llm" && v.RecoveryProvider != "rule" && v.RecoveryProvider != "baseline_stop") || v.ConfigHash == "" {
 		return fmt.Errorf("incomplete runtime variant")
 	}
 	if v.RecoveryProvider == "llm" && (v.LLMProvider == "" || v.ModelRef == "") {
 		return fmt.Errorf("LLM runtime variant is missing provider/model")
+	}
+	if v.RecoveryProvider == "baseline_stop" && v.LLMProvider != "none" {
+		return fmt.Errorf("benchmark stop baseline must not declare an LLM provider")
 	}
 	withoutHash := v
 	withoutHash.ConfigHash = ""

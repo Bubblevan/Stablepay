@@ -60,27 +60,36 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if llmMode == "" {
 		llmMode = "rule"
 	}
-	if llmMode != "rule" && llmMode != "local" {
-		return nil, errors.New("live-local LLM mode must be rule or local")
+	if llmMode != "rule" && llmMode != "local" && llmMode != "stop" {
+		return nil, errors.New("live-local decision mode must be rule, local, or stop")
 	}
 	store := repository.NewInMemoryStore()
 	fault := &faultController{}
 	merchant := &localMerchant{calls: map[string]int{}, fault: fault}
+	localPayments := &localPayment{fault: fault, committed: map[string]payment.PaymentOutcome{}}
 	serviceOptions := []application.Option{
 		application.WithRuntimeVersion("s11-live-local"),
 		application.WithIDGenerator(localIDGenerator()),
 		application.WithMerchantAdapter(merchant),
 		application.WithSettlementPolicy(application.SettlementPolicy{Network: "devnet", Assets: map[string]string{"USDC": "local-usdc-mint"}}),
 		application.WithValidatorRegistry(validator.NewBuiltinRegistry()),
-		application.WithPaymentAdapters(application.PaymentDependencies{DID: localDID{}, Payment: localPayment{}, Status: localPayment{}, Entitlement: localEntitlement{}}),
-		application.WithRuleRecoveryFallback(true),
+		application.WithPaymentAdapters(application.PaymentDependencies{DID: localDID{}, Payment: localPayments, Status: localPayments, Entitlement: localEntitlement{}}),
 		application.WithInputPayloadResolver(workflowartifact.NewResolver(store, store)),
+	}
+	if llmMode != "stop" {
+		serviceOptions = append(serviceOptions, application.WithRuleRecoveryFallback(true))
 	}
 	if memoryMode == "on" {
 		serviceOptions = append(serviceOptions, application.WithMemoryStore(store))
 	}
-	if llmMode == "local" {
-		provider := llm.NewLLMDecisionProvider(&localDecisionClient{calls: map[string]int{}, fault: fault}, llm.WithProviderName("local"), llm.WithModelRef("s11-local-adversarial"), llm.WithProviderMaxAttempts(1), llm.WithProviderTTL(time.Minute))
+	if llmMode == "local" || llmMode == "stop" {
+		client := &localDecisionClient{calls: map[string]int{}, fault: fault}
+		providerName, modelRef := "local", "s11-local-adversarial"
+		if llmMode == "stop" {
+			client.policy = "stop"
+			providerName, modelRef = "benchmark_policy", "stop-after-invalid-delivery-v1"
+		}
+		provider := llm.NewLLMDecisionProvider(client, llm.WithProviderName(providerName), llm.WithModelRef(modelRef), llm.WithProviderMaxAttempts(1), llm.WithProviderTTL(time.Minute))
 		serviceOptions = append(serviceOptions, application.WithLLMDecisionProvider(provider))
 	}
 	service := application.NewService(store, serviceOptions...)
@@ -104,6 +113,8 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	providerName, modelRef, recoveryProvider := "none", "rule-recovery", "rule"
 	if llmMode == "local" {
 		providerName, modelRef, recoveryProvider = "local", "s11-local-adversarial", "llm"
+	} else if llmMode == "stop" {
+		providerName, modelRef, recoveryProvider = "none", "stop-after-invalid-delivery-v1", "baseline_stop"
 	}
 	variant := observability.RuntimeVariant{RuntimeVersion: "s11-live-local", MemoryMode: memoryMode, RecoveryProvider: recoveryProvider, LLMProvider: providerName, ModelRef: modelRef}.WithHash()
 	return &Runtime{Store: store, Service: service, Runner: runner, Workflow: workflowRunner, Handler: apiServer(service, store, runner, workflowRunner, variant, fault), Variant: variant, Fault: fault}, nil
@@ -353,16 +364,41 @@ func (localDID) AuthorizePayment(_ context.Context, request adapters.Authorizati
 	return adapters.AuthorizationResult{Allowed: true, RequesterDID: request.Intent.RequesterDID, MerchantDID: request.Intent.MerchantDID, CapabilityID: request.Intent.CapabilityID, PayeeDID: request.PayeeDID, QuoteHash: request.Intent.QuoteHash, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency, AuthorizationRef: "local-authorization:" + request.Intent.IntentID}, nil
 }
 
-type localPayment struct{}
+var errLocalPaymentResponseLost = errors.New("deterministic local payment committed but submit response was lost")
 
-func (localPayment) Submit(_ context.Context, request adapters.PaymentSubmitRequest) (payment.PaymentOutcome, error) {
-	tx := "local-tx:" + request.Intent.IntentID
-	return payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: request.Intent.IntentID, TxID: tx, TxHash: tx, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency}, nil
+type localPayment struct {
+	mu        sync.Mutex
+	committed map[string]payment.PaymentOutcome
+	fault     *faultController
 }
 
-func (localPayment) Query(_ context.Context, request adapters.PaymentQuery) (payment.PaymentOutcome, error) {
-	tx := "local-tx:" + request.Intent.IntentID
-	return payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: request.Intent.IntentID, TxID: tx, TxHash: tx, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency}, nil
+func (p *localPayment) Submit(_ context.Context, request adapters.PaymentSubmitRequest) (payment.PaymentOutcome, error) {
+	p.mu.Lock()
+	if p.committed == nil {
+		p.committed = map[string]payment.PaymentOutcome{}
+	}
+	outcome, exists := p.committed[request.Intent.IntentID]
+	if !exists {
+		tx := "local-tx:" + request.Intent.IntentID
+		outcome = payment.PaymentOutcome{Status: payment.OutcomeConfirmed, IntentID: request.Intent.IntentID, TxID: tx, TxHash: tx, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency}
+		p.committed[request.Intent.IntentID] = outcome
+	}
+	p.mu.Unlock()
+
+	if p.fault != nil && p.fault.Observe("payment_transient", true) {
+		return payment.PaymentOutcome{Status: payment.OutcomeUnknown, IntentID: request.Intent.IntentID, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency, Reason: errLocalPaymentResponseLost.Error()}, errLocalPaymentResponseLost
+	}
+	return outcome, nil
+}
+
+func (p *localPayment) Query(_ context.Context, request adapters.PaymentQuery) (payment.PaymentOutcome, error) {
+	p.mu.Lock()
+	outcome, exists := p.committed[request.Intent.IntentID]
+	p.mu.Unlock()
+	if !exists {
+		return payment.PaymentOutcome{Status: payment.OutcomeUnknown, IntentID: request.Intent.IntentID, AmountMinor: request.Intent.AmountMinor, Currency: request.Intent.Currency, Reason: "mock transaction not committed"}, nil
+	}
+	return outcome, nil
 }
 
 type localEntitlement struct{}
@@ -372,9 +408,10 @@ func (localEntitlement) Verify(_ context.Context, query adapters.EntitlementQuer
 }
 
 type localDecisionClient struct {
-	mu    sync.Mutex
-	calls map[string]int
-	fault *faultController
+	mu     sync.Mutex
+	calls  map[string]int
+	fault  *faultController
+	policy string
 }
 
 func (c *localDecisionClient) GenerateDecision(_ context.Context, request llm.LLMDecisionRequest) (llm.LLMDecisionResponse, error) {
@@ -399,6 +436,10 @@ func (c *localDecisionClient) GenerateDecision(_ context.Context, request llm.LL
 		return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(`{"malformed":true}`), ResponseReceivedAt: time.Now().UTC()}, nil
 	}
 	evidence := firstCapture(request.Prompt.User, `(recovery://[^"[:space:]]+)`)
+	if c.policy == "stop" {
+		body := fmt.Sprintf(`{"proposed_action":"STOP","evidence_refs":[%q],"rationale":"benchmark stop-after-invalid-delivery control","confidence":1}`, evidence)
+		return llm.LLMDecisionResponse{Provider: "benchmark_policy", ModelRef: "stop-after-invalid-delivery-v1", RawJSON: []byte(body), ResponseReceivedAt: time.Now().UTC()}, nil
+	}
 	body := fmt.Sprintf(`{"proposed_action":"RETRY_SAME_MERCHANT","evidence_refs":[%q],"rationale":"deterministic local retry","confidence":0.8}`, evidence)
 	return llm.LLMDecisionResponse{Provider: "local", ModelRef: "s11-local-adversarial", RawJSON: []byte(body), ResponseReceivedAt: time.Now().UTC()}, nil
 }
@@ -427,7 +468,7 @@ func hashHex(value []byte) string {
 
 var _ adapters.MerchantAdapter = (*localMerchant)(nil)
 var _ adapters.DIDAdapter = localDID{}
-var _ adapters.PaymentAdapter = localPayment{}
-var _ adapters.PaymentStatusAdapter = localPayment{}
+var _ adapters.PaymentAdapter = (*localPayment)(nil)
+var _ adapters.PaymentStatusAdapter = (*localPayment)(nil)
 var _ adapters.EntitlementAdapter = localEntitlement{}
 var _ llm.LLMClient = (*localDecisionClient)(nil)

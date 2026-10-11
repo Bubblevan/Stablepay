@@ -1,0 +1,19 @@
+# Strategic-merge patch fragment; apply with kubectl patch, not kubectl apply.
+spec:
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: stablepay-six-m05
+      containers:
+        - name: verification-service
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

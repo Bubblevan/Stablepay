@@ -15,6 +15,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $stateRoot = Join-Path $repoRoot '.local-run\agent-shopping'
 $secretPath = Join-Path $stateRoot 'secrets.env'
 $dataPath = Join-Path $stateRoot 'mysql-data'
+$buyerApprovalKeyPath = Join-Path $stateRoot 'buyer-approval.key'
 $apiStatePath = Join-Path $stateRoot 'api-process.json'
 $containerName = 'stablepay-agent-shopping-sim-20261010'
 $mysqlImage = 'mysql:8.0'
@@ -77,6 +78,20 @@ function Get-SimulationSecrets {
         throw 'Local simulation credentials do not match the isolated database configuration.'
     }
     return $values
+}
+
+function Get-SimulationBuyerApprovalKey {
+    $resolvedPath = Assert-RepoLocalPath $buyerApprovalKeyPath (Join-Path $repoRoot '.local-run')
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+        $keyBytes = New-Object byte[] 32
+        $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+        $key = [BitConverter]::ToString($keyBytes).Replace('-', '').ToLowerInvariant()
+        [IO.File]::WriteAllText($resolvedPath, $key, [Text.UTF8Encoding]::new($false))
+    }
+    $key = [IO.File]::ReadAllText($resolvedPath).Trim()
+    if ($key.Length -lt 32) { throw 'Local buyer-approval key must contain at least 32 characters.' }
+    return $key
 }
 
 function Invoke-Docker([string[]]$arguments) {
@@ -202,13 +217,15 @@ function Start-SimulationAPI {
     $listener = Get-NetTCPConnection -State Listen -LocalPort 18090 -ErrorAction SilentlyContinue
     if ($listener) { throw '127.0.0.1:18090 is already listening; no API process was started.' }
     $secrets = Get-SimulationSecrets
+    $buyerApprovalKey = Get-SimulationBuyerApprovalKey
     $stdoutPath = Join-Path $stateRoot 'api.stdout.log'
     $stderrPath = Join-Path $stateRoot 'api.stderr.log'
     $usagePath = Assert-RepoLocalPath (Join-Path $stateRoot 'model-usage') (Join-Path $repoRoot '.local-run')
-    $oldDbPassword, $oldApiKey, $oldHttpAddr, $oldUsageDir, $oldMerchantManifest = $env:SHOP_SIM_DB_PASSWORD, $env:SHOP_SIM_API_KEY, $env:SHOP_SIM_HTTP_ADDR, $env:SHOP_SIM_USAGE_DIR, $env:SHOP_SIM_MERCHANT_MANIFEST
+    $oldDbPassword, $oldApiKey, $oldBuyerApprovalKey, $oldHttpAddr, $oldUsageDir, $oldMerchantManifest = $env:SHOP_SIM_DB_PASSWORD, $env:SHOP_SIM_API_KEY, $env:SHOP_SIM_BUYER_APPROVAL_KEY, $env:SHOP_SIM_HTTP_ADDR, $env:SHOP_SIM_USAGE_DIR, $env:SHOP_SIM_MERCHANT_MANIFEST
     try {
         $env:SHOP_SIM_DB_PASSWORD = $secrets['SHOP_SIM_DB_PASSWORD']
         $env:SHOP_SIM_API_KEY = $secrets['SHOP_SIM_API_KEY']
+        $env:SHOP_SIM_BUYER_APPROVAL_KEY = $buyerApprovalKey
         $env:SHOP_SIM_HTTP_ADDR = $apiAddr
         $env:SHOP_SIM_USAGE_DIR = $usagePath
         if ($UseMerchantHTTPSource) { $env:SHOP_SIM_MERCHANT_MANIFEST = $manifestPath }
@@ -218,6 +235,7 @@ function Start-SimulationAPI {
     } finally {
         $env:SHOP_SIM_DB_PASSWORD = $oldDbPassword
         $env:SHOP_SIM_API_KEY = $oldApiKey
+        $env:SHOP_SIM_BUYER_APPROVAL_KEY = $oldBuyerApprovalKey
         $env:SHOP_SIM_HTTP_ADDR = $oldHttpAddr
         $env:SHOP_SIM_USAGE_DIR = $oldUsageDir
         $env:SHOP_SIM_MERCHANT_MANIFEST = $oldMerchantManifest

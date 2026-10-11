@@ -141,13 +141,14 @@ func LoadMerchantCatalog(ctx context.Context, manifestPath string, client *http.
 					Description: source.Description, ImageURL: source.ImageURL, Price: source.Price,
 					PriceMinor: price, Currency: source.Currency, Tags: append([]string(nil), source.Tags...),
 					Status: source.Status, Item: item, Format: format, Style: style}
+				applyBenchmarkSubstitutionMetadata(&product)
+				attributesJSON, err := attachSyntheticAttributes(&product, manifest.Seed)
+				if err != nil {
+					return ImportedCatalog{}, fmt.Errorf("build synthetic attributes for %s/%s: %w", merchant.MerchantID, source.SKUID, err)
+				}
 				catalog.Products = append(catalog.Products, product)
 				productByKey[merchant.MerchantID+"\x00"+source.SKUID] = product
 				tagsJSON, _ := json.Marshal(product.Tags)
-				attributesJSON, err := json.Marshal(BuildSyntheticAttributes(product, manifest.Seed))
-				if err != nil {
-					return ImportedCatalog{}, err
-				}
 				catalog.ProductRows = append(catalog.ProductRows, ProductRecord{TenantID: SimulationTenantID, SKUID: product.SKUID,
 					MerchantID: product.MerchantID, Category: product.Category, Item: product.Item, Format: product.Format,
 					Style: product.Style, Title: product.Title, Description: product.Description, ImageURL: product.ImageURL,
@@ -198,10 +199,10 @@ func BuildSyntheticAttributes(product Product, seed int64) map[string]any {
 	}
 	switch product.Category {
 	case "coffee":
-		attributes["origin"] = choice(0, "Ethiopia / Yirgacheffe", "Colombia / Huila", "Yunnan / Baoshan", "Brazil / Cerrado")
+		attributes["origin"] = coffeeOriginForItem(product.Item)
 		attributes["net_weight_g"] = count(1, 100, 500)
 		attributes["roast_level"] = choice(2, "light", "medium", "medium-dark")
-		attributes["grind_options"] = []string{"whole bean", "filter", "espresso"}
+		attributes["grind_options"] = coffeeGrindOptions(product.Format)
 		attributes["tasting_notes"] = []string{product.Style, choice(3, "citrus", "cocoa", "stone fruit", "caramel")}
 		attributes["best_before_days"] = count(4, 90, 270)
 	case "books":
@@ -217,7 +218,7 @@ func BuildSyntheticAttributes(product Product, seed int64) map[string]any {
 		attributes["captions"] = []string{"zh-CN", "en-US"}
 		attributes["access_days"] = count(3, 30, 365)
 	case "design-assets":
-		attributes["file_formats"] = []string{"FIG", "SVG", "PNG"}
+		attributes["file_formats"] = designAssetFormats(product.Format)
 		attributes["color_profiles"] = []string{"sRGB"}
 		attributes["asset_count"] = count(0, 24, 480)
 		attributes["license"] = choice(1, "personal-demo", "team-demo")
@@ -230,12 +231,12 @@ func BuildSyntheticAttributes(product Product, seed int64) map[string]any {
 		attributes["duration_seconds"] = count(0, 15, 900)
 		attributes["sample_rate_hz"] = choice(1, "44100", "48000", "96000")
 		attributes["bit_depth"] = choice(2, "16", "24")
-		attributes["file_formats"] = []string{"WAV", "MP3"}
+		attributes["file_formats"] = audioFormats(product.Format)
 		attributes["license"] = "demo-creator-use"
 	case "stock-media":
 		attributes["resolution"] = choice(0, "1920x1080", "3840x2160", "6000x4000")
 		attributes["aspect_ratio"] = choice(1, "16:9", "3:2", "1:1")
-		attributes["file_formats"] = []string{"JPG", "PNG", "MP4"}
+		attributes["file_formats"] = stockMediaFormats(product.Format)
 		attributes["license"] = "demo-project-only"
 	case "templates":
 		attributes["compatible_apps"] = []string{"Notion", "Markdown", "CSV"}
@@ -244,10 +245,10 @@ func BuildSyntheticAttributes(product Product, seed int64) map[string]any {
 		attributes["license"] = "personal-use-demo"
 	case "wellness-guides":
 		attributes["page_count"] = count(0, 8, 96)
-		attributes["content_type"] = choice(1, "general wellness education", "habit tracking", "light exercise guide")
+		attributes["content_type"] = wellnessContentType(product.Item)
 		attributes["medical_disclaimer"] = "Not medical advice; fictional simulation content."
 	case "game-collectibles":
-		attributes["asset_type"] = choice(0, "avatar", "wallpaper", "sound pack", "badge artwork")
+		attributes["asset_type"] = gameCollectibleType(product.Item)
 		attributes["resolution"] = choice(1, "1024x1024", "2048x2048", "3840x2160")
 		attributes["license"] = "non-transferable-demo-license; not an NFT or game entitlement"
 	case "cloud-tools":
@@ -255,12 +256,131 @@ func BuildSyntheticAttributes(product Product, seed int64) map[string]any {
 		attributes["quota_units"] = count(1, 100, 20000)
 		attributes["data_residency"] = "simulation-only"
 	case "travel-guides":
-		attributes["destination_code"] = choice(0, "CN-DEMO-001", "CN-DEMO-002", "CN-DEMO-003")
+		attributes["destination_code"] = travelDestinationCode(product.Item)
 		attributes["page_count"] = count(1, 6, 64)
 		attributes["last_reviewed"] = choice(2, "2025-10-01", "2026-04-01", "2026-09-01")
 		attributes["travel_disclaimer"] = "Fictional demo guide; check official sources before travel."
 	default:
 		attributes["specification"] = map[string]any{"item": product.Item, "format": product.Format, "style": product.Style}
 	}
+	if group := curatedSubstitutionGroup(product.Category, product.Item, product.Format); group != "" {
+		attributes["substitution_group"] = group
+		attributes["substitution_policy"] = "benchmark-curated-v1; buyer must explicitly reconfirm"
+	}
 	return attributes
+}
+
+func coffeeOriginForItem(item string) string {
+	switch item {
+	case "耶加雪菲":
+		return "Ethiopia / Yirgacheffe"
+	case "曼特宁":
+		return "Indonesia / Sumatra"
+	case "哥伦比亚":
+		return "Colombia / Huila"
+	case "危地马拉":
+		return "Guatemala / Huehuetenango"
+	case "云南日晒":
+		return "Yunnan / Baoshan"
+	case "巴西黄波旁":
+		return "Brazil / Cerrado"
+	default:
+		return "unknown / synthetic origin"
+	}
+}
+
+func coffeeGrindOptions(format string) []string {
+	switch format {
+	case "挂耳装":
+		return []string{"filter"}
+	case "冷萃包":
+		return []string{"coarse-ground"}
+	default:
+		return []string{"whole bean", "filter", "espresso"}
+	}
+}
+
+func designAssetFormats(format string) []string {
+	switch format {
+	case "Figma 文件":
+		return []string{"FIG"}
+	case "SVG 素材":
+		return []string{"SVG"}
+	case "PNG 套件":
+		return []string{"PNG"}
+	default:
+		return []string{"FIG", "SVG", "PNG"}
+	}
+}
+
+func audioFormats(format string) []string {
+	switch format {
+	case "WAV 套装":
+		return []string{"WAV"}
+	case "MP3 合集":
+		return []string{"MP3"}
+	default:
+		return []string{"WAV", "MP3"}
+	}
+}
+
+func stockMediaFormats(format string) []string {
+	switch format {
+	case "短视频片段":
+		return []string{"MP4"}
+	case "高清图片包":
+		return []string{"JPG", "PNG"}
+	default:
+		return []string{"JPG", "PNG", "MP4"}
+	}
+}
+
+func wellnessContentType(item string) string {
+	switch item {
+	case "轻运动计划", "户外步行路线":
+		return "light exercise guide"
+	case "饮食记录指南":
+		return "habit tracking"
+	default:
+		return "general wellness education"
+	}
+}
+
+func gameCollectibleType(item string) string {
+	switch item {
+	case "角色头像集":
+		return "avatar"
+	case "桌面壁纸":
+		return "wallpaper"
+	case "音乐纪念包":
+		return "sound pack"
+	case "像素徽章":
+		return "badge artwork"
+	default:
+		return "digital artwork"
+	}
+}
+
+func travelDestinationCode(item string) string {
+	switch item {
+	case "海滨步行指南", "亲子周末计划":
+		return "CN-DEMO-001"
+	case "古镇路线图", "城市咖啡地图":
+		return "CN-DEMO-002"
+	default:
+		return "CN-DEMO-003"
+	}
+}
+
+func attachSyntheticAttributes(product *Product, seed int64) ([]byte, error) {
+	if product == nil {
+		return nil, fmt.Errorf("cannot attach synthetic attributes to a nil product")
+	}
+	attributes := BuildSyntheticAttributes(*product, seed)
+	encoded, err := json.Marshal(attributes)
+	if err != nil {
+		return nil, err
+	}
+	product.Attributes = attributes
+	return encoded, nil
 }

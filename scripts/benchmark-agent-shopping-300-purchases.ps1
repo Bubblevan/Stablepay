@@ -1,4 +1,7 @@
-param()
+param(
+    [switch]$UseExistingMySQL,
+    [switch]$UseLockedMySQLCatalogSnapshot
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -50,11 +53,14 @@ function Get-MerchantHealthCount {
 
 function Get-MerchantListenerCount {
     $manifest = Get-Content -LiteralPath $merchantManifest -Raw -Encoding UTF8 | ConvertFrom-Json
-    $ports = @($manifest.merchants | ForEach-Object { [int]$_.port })
-    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-        Where-Object { $ports -contains $_.LocalPort } |
-        Select-Object -ExpandProperty LocalPort -Unique)
-    return $listeners.Count
+    $listeners = 0
+    foreach ($merchant in $manifest.merchants) {
+        if (Test-NetConnection -ComputerName '127.0.0.1' -Port ([int]$merchant.port) `
+            -InformationLevel Quiet -WarningAction SilentlyContinue) {
+            $listeners++
+        }
+    }
+    return $listeners
 }
 
 $environmentNames = @(
@@ -63,9 +69,12 @@ $environmentNames = @(
     'SHOP_SIM_LOCKED_SUITE_PATH',
     'SHOP_SIM_INTENT_METRICS_PATH',
     'SHOP_SIM_SOURCE_MANIFEST_PATH',
+    'SHOP_SIM_PURCHASE_REPLAY_CATALOG_SOURCE',
     'SHOP_SIM_REPO_ROOT',
     'GOCACHE',
-    'GOFLAGS'
+    'GOFLAGS',
+    'GOPROXY',
+    'GOMAXPROCS'
 )
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -75,28 +84,38 @@ foreach ($name in $environmentNames) {
 $merchantsStartedByThisRun = $false
 $testExit = 1
 try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $simulationRunner -StartMySQL
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not start or verify the labeled isolated MySQL container (exit $LASTEXITCODE)."
+    if ($UseExistingMySQL) {
+        if (-not (Test-NetConnection 127.0.0.1 -Port 13327 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+            throw 'The existing MySQL endpoint at 127.0.0.1:13327 is unavailable; refusing to start Docker or pull an image.'
+        }
+        Write-Output 'Using the existing loopback MySQL endpoint. The Go store enforces stablepay_sim@stablepay_shopping_sim and verifies the selected database name.'
+    } else {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $simulationRunner -StartMySQL
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not start or verify the labeled isolated MySQL container (exit $LASTEXITCODE)."
+        }
     }
 
-    $listeners = Get-MerchantListenerCount
-    if ($listeners -eq 0) {
-        if (Test-Path -LiteralPath $merchantState -PathType Leaf) {
-            throw 'A simulated Merchant process-state file exists but no APIs are healthy; inspect it before starting or stopping processes.'
+    if ($UseLockedMySQLCatalogSnapshot) {
+        Write-Output 'Using the catalog cloned from the locked MySQL seed; no Merchant services will be started or stopped.'
+    } else {
+        $listeners = Get-MerchantListenerCount
+        if ($listeners -eq 0) {
+            if (Test-Path -LiteralPath $merchantState -PathType Leaf) {
+                throw 'A simulated Merchant process-state file exists but no APIs are healthy; inspect it before starting or stopping processes.'
+            }
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $merchantRunner
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not start the isolated simulated Merchant fixtures (exit $LASTEXITCODE)."
+            }
+            $merchantsStartedByThisRun = $true
+        } elseif ($listeners -ne 12) {
+            throw "Expected zero or twelve Merchant listeners; observed $listeners. Refusing to start or stop a partial set."
         }
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $merchantRunner
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not start the isolated simulated Merchant fixtures (exit $LASTEXITCODE)."
+        $healthy = Get-MerchantHealthCount
+        if ($healthy -ne 12) {
+            throw "Expected all 12 Merchant fixtures healthy; observed $healthy."
         }
-        $merchantsStartedByThisRun = $true
-    }
-	elseif ($listeners -ne 12) {
-		throw "Expected zero or twelve Merchant listeners; observed $listeners. Refusing to start or stop a partial set."
-	}
-	$healthy = Get-MerchantHealthCount
-    if ($healthy -ne 12) {
-        throw "Expected all 12 Merchant fixtures healthy; observed $healthy."
     }
 
     $env:SHOP_SIM_DB_PASSWORD = $dbPassword
@@ -104,9 +123,16 @@ try {
     $env:SHOP_SIM_LOCKED_SUITE_PATH = Join-Path $intentRun 'suite.jsonl'
     $env:SHOP_SIM_INTENT_METRICS_PATH = Join-Path $intentRun 'intent-metrics.json'
     $env:SHOP_SIM_SOURCE_MANIFEST_PATH = $merchantManifest
+    if ($UseLockedMySQLCatalogSnapshot) {
+        $env:SHOP_SIM_PURCHASE_REPLAY_CATALOG_SOURCE = 'locked_mysql_snapshot'
+    } else {
+        $env:SHOP_SIM_PURCHASE_REPLAY_CATALOG_SOURCE = 'merchant_http_snapshot'
+    }
     $env:SHOP_SIM_REPO_ROOT = $repoRoot
-    $env:GOCACHE = Join-Path $repoRoot '.local-run\codex-go-build-cache'
-    $env:GOFLAGS = '-buildvcs=false'
+    $env:GOCACHE = Join-Path $repoRoot '.local-run\go-cache-business-e2e'
+    $env:GOFLAGS = '-mod=readonly -buildvcs=false -p=2'
+    $env:GOPROXY = 'off'
+    $env:GOMAXPROCS = '2'
 
     Push-Location $runtimeModule
     try {
@@ -136,4 +162,4 @@ finally {
 if ($testExit -ne 0) {
     throw "The 300-attempt isolated purchase/replay benchmark failed (exit $testExit)."
 }
-Write-Output '300 isolated mock purchase/replay trials passed; MySQL remains available and its data was preserved.'
+Write-Output '300 isolated mock purchase/replay/fulfillment trials passed; MySQL remains available and its data was preserved.'

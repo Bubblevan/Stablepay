@@ -17,14 +17,25 @@ var (
 	ErrConfirmationRequired  = errors.New("explicit buyer confirmation is required")
 	ErrIdempotencyConflict   = errors.New("idempotency key was already used for a different confirmation")
 	ErrClarificationNotOpen  = errors.New("shopping task is not awaiting clarification from this buyer")
+	ErrCandidateNotAllowed   = errors.New("selected product is not an exact match or an explicitly allowed substitute")
+	ErrOrderNotReady         = errors.New("order is not eligible for simulated fulfillment")
 	ErrInvalidSimulationData = errors.New("invalid benchmark simulation data")
 )
 
 const (
-	OrderPaid         = "PAID"
-	OrderPaymentError = "PAYMENT_FAILED"
-	PaymentSettled    = "SETTLED"
-	PaymentDeclined   = "DECLINED"
+	OrderPaid                          = "PAID"
+	OrderPaymentError                  = "PAYMENT_FAILED"
+	OrderFulfilled                     = "FULFILLED"
+	OrderRefunded                      = "REFUNDED"
+	PaymentSettled                     = "SETTLED"
+	PaymentDeclined                    = "DECLINED"
+	FulfillmentDelivered               = "DELIVERED"
+	FulfillmentCompensated             = "FAILED_COMPENSATED"
+	FulfillmentRetryPending            = "RETRY_PENDING"
+	FulfillmentAttemptRetryableFailure = "RETRYABLE_FAILURE"
+	FulfillmentAttemptDelivered        = "DELIVERED"
+	FulfillmentAttemptPermanentFailure = "PERMANENT_FAILURE"
+	RefundCompleted                    = "REFUNDED"
 )
 
 type Inventory struct {
@@ -52,20 +63,25 @@ type QuoteRequest struct {
 // Quote is an immutable snapshot. Repricing never edits an issued quote; it
 // changes inventory revision and requires a new quote plus new consent.
 type Quote struct {
-	ID            string    `json:"quote_id"`
-	TenantID      string    `json:"tenant_id"`
-	TaskID        string    `json:"task_id"`
-	BuyerID       string    `json:"buyer_id"`
-	Version       int64     `json:"version"`
-	MerchantID    string    `json:"merchant_id"`
-	SKUID         string    `json:"sku_id"`
-	Region        string    `json:"region"`
-	AmountMinor   int64     `json:"amount_minor"`
-	Currency      string    `json:"currency"`
-	StockRevision int64     `json:"stock_revision"`
-	SnapshotHash  string    `json:"snapshot_hash"`
-	CreatedAt     time.Time `json:"created_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	ID                 string    `json:"quote_id"`
+	TenantID           string    `json:"tenant_id"`
+	TaskID             string    `json:"task_id"`
+	BuyerID            string    `json:"buyer_id"`
+	Version            int64     `json:"version"`
+	MerchantID         string    `json:"merchant_id"`
+	SKUID              string    `json:"sku_id"`
+	RequestedItem      string    `json:"requested_item"`
+	ProductItem        string    `json:"product_item"`
+	ProductTitle       string    `json:"product_title"`
+	MatchType          string    `json:"match_type"`
+	SubstitutionNotice string    `json:"substitution_notice,omitempty"`
+	Region             string    `json:"region"`
+	AmountMinor        int64     `json:"amount_minor"`
+	Currency           string    `json:"currency"`
+	StockRevision      int64     `json:"stock_revision"`
+	SnapshotHash       string    `json:"snapshot_hash"`
+	CreatedAt          time.Time `json:"created_at"`
+	ExpiresAt          time.Time `json:"expires_at"`
 }
 
 type Confirmation struct {
@@ -122,6 +138,46 @@ type AuditRecord struct {
 type CheckoutResult struct {
 	Order   Order       `json:"order"`
 	Payment MockPayment `json:"payment"`
+}
+
+type Fulfillment struct {
+	ID                string     `json:"fulfillment_id"`
+	TenantID          string     `json:"tenant_id"`
+	OrderID           string     `json:"order_id"`
+	IdempotencyKey    string     `json:"idempotency_key"`
+	Status            string     `json:"status"`
+	Provider          string     `json:"provider"`
+	DeliveryReference string     `json:"delivery_reference,omitempty"`
+	FailureCode       string     `json:"failure_code,omitempty"`
+	AttemptCount      int        `json:"attempt_count"`
+	MaxAttempts       int        `json:"max_attempts"`
+	Retryable         bool       `json:"retryable"`
+	RetryAfterMillis  int64      `json:"retry_after_ms,omitempty"`
+	SimulationOnly    bool       `json:"simulation_only"`
+	CreatedAt         time.Time  `json:"created_at"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+}
+
+type MockRefund struct {
+	ID              string    `json:"refund_id"`
+	TenantID        string    `json:"tenant_id"`
+	OrderID         string    `json:"order_id"`
+	PaymentID       string    `json:"payment_id"`
+	AmountMinor     int64     `json:"amount_minor"`
+	Currency        string    `json:"currency"`
+	Provider        string    `json:"provider"`
+	Status          string    `json:"status"`
+	IdempotencyKey  string    `json:"idempotency_key"`
+	RefundReference string    `json:"refund_reference"`
+	SimulationOnly  bool      `json:"simulation_only"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type FulfillmentResult struct {
+	Order       Order       `json:"order"`
+	Payment     MockPayment `json:"payment"`
+	Fulfillment Fulfillment `json:"fulfillment"`
+	Refund      *MockRefund `json:"refund,omitempty"`
 }
 
 // Simulator is an in-process benchmark-only commerce boundary. It has no

@@ -327,6 +327,22 @@ func TestFaultRecoverySeparatesBusinessAndOperationalRecovery(t *testing.T) {
 	}
 }
 
+func TestBenchmarkPolicyDecisionIsNotCountedAsLLM(t *testing.T) {
+	for _, test := range []struct {
+		provider string
+		wantLLM  bool
+	}{
+		{provider: "benchmark_policy", wantLLM: false},
+		{provider: "rule", wantLLM: false},
+		{provider: "deepseek", wantLLM: true},
+	} {
+		attempt := canonicalDecisionAttempt{model: &llm.ModelDecisionTrace{Provider: test.provider, Status: llm.TraceSuccess}}
+		if got := attemptIsLLM(attempt); got != test.wantLLM {
+			t.Fatalf("attemptIsLLM(%q) = %t, want %t", test.provider, got, test.wantLLM)
+		}
+	}
+}
+
 func TestReliabilityPassKIsLiveOnlyAndAggregated(t *testing.T) {
 	results := make([]EpisodeResult, 0, 9)
 	for index := 1; index <= 8; index++ {

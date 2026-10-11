@@ -19,13 +19,20 @@ import (
 	"gorm.io/gorm"
 )
 
-const mysqlIntegrationAPIKey = "local-mysql-http-integration-key-only"
+const (
+	mysqlIntegrationAPIKey           = "local-mysql-http-integration-key-only"
+	mysqlIntegrationBuyerApprovalKey = "local-mysql-http-buyer-approval-key-only"
+)
 
 type mysqlIntegrationParser struct{}
 
 func (mysqlIntegrationParser) Provider() string { return "integration-test" }
 func (mysqlIntegrationParser) Model() string    { return "deterministic-stub" }
 func (mysqlIntegrationParser) Parse(_ context.Context, prompt string, region string, budget int64, _ Taxonomy) (Intent, error) {
+	if prompt == "safety-coffee-origin-substitution" {
+		return Intent{Category: "coffee", Item: "耶加雪菲", RequiredFormat: "单品豆", PreferredStyle: "花果香",
+			Region: region, MaxPriceMinor: budget, AllowSubstitution: true, ConfirmationNeeded: true}, nil
+	}
 	if prompt == "safety-ambiguous-intent" {
 		return Intent{Category: "coffee", RequiredFormat: "whole-bean", PreferredStyle: "floral",
 			Region: region, MaxPriceMinor: budget, ClarificationRequired: true, ConfirmationNeeded: true}, nil
@@ -102,7 +109,7 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 		}
 	})
 
-	api, err := NewHTTPAPI(store, mysqlIntegrationParser{}, mysqlIntegrationAPIKey)
+	api, err := NewHTTPAPI(store, mysqlIntegrationParser{}, mysqlIntegrationAPIKey, mysqlIntegrationBuyerApprovalKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +130,96 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 	}
 
 	allScenariosPass := true
+	allScenariosPass = t.Run("curated same-format substitute is visible and requires fresh confirmation", func(t *testing.T) {
+		fixture := createMySQLSubstitutionIntegrationFixture(t, ctx, store, client, suffix+"-substitution")
+		task, err := store.GetTask(ctx, fixture.taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var intent Intent
+		if err := json.Unmarshal(task.IntentJSON, &intent); err != nil {
+			t.Fatal(err)
+		}
+		candidates, err := store.FindCandidates(ctx, intent, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(candidates) != 1 || candidates[0].Product.Item != "曼特宁" || candidates[0].MatchType != MatchTypeSubstitute ||
+			!strings.Contains(candidates[0].SubstitutionNotice, "耶加雪菲") || !strings.Contains(candidates[0].SubstitutionNotice, "曼特宁") {
+			t.Fatalf("candidate set must contain only the explicitly curated, buyer-labeled substitute: %+v", candidates)
+		}
+		client.assertTaskStatus(t, fixture.taskID, TaskStatusDiscovered)
+
+		quote := client.issueQuote(t, fixture, "substitute-quote", 2000, http.StatusCreated)
+		if quote.RequestedItem != "耶加雪菲" || quote.ProductItem != "曼特宁" || quote.MatchType != MatchTypeSubstitute ||
+			!strings.Contains(quote.SubstitutionNotice, "明确确认") || quote.ProductTitle == "" {
+			t.Fatalf("immutable quote did not carry the requested-versus-substitute item details: %+v", quote)
+		}
+		replay, status := client.getQuote(t, quote.ID)
+		if status != http.StatusOK || replay.SnapshotHash != quote.SnapshotHash || replay.ProductItem != quote.ProductItem || replay.MatchType != quote.MatchType {
+			t.Fatalf("quote replay lost substitution snapshot fields: status=%d first=%+v replay=%+v", status, quote, replay)
+		}
+
+		issueRequest := func(sku, key string, maximum int64) mysqlIntegrationResponse {
+			return client.do(t, http.MethodPost, "/v1/quotes", map[string]any{
+				"task_id": fixture.taskID, "buyer_id": fixture.buyerID, "merchant_id": fixture.merchantID,
+				"sku_id": sku, "region": "CN-EAST", "max_price_minor": maximum, "currency": "USDC",
+				"idempotency_key": key + "-" + fixture.taskID,
+			})
+		}
+		unrelated := issueRequest("it-sub-unrelated-"+suffix+"-substitution", "unrelated-product", 2000)
+		if unrelated.status != http.StatusConflict || extractIntegrationErrorCode(t, unrelated.body) != "CANDIDATE_NOT_ALLOWED" {
+			t.Fatalf("unrelated same-category product was not rejected: status=%d body=%s", unrelated.status, unrelated.body)
+		}
+		overBudget := issueRequest(fixture.skuID, "over-task-budget", 2001)
+		if overBudget.status != http.StatusUnprocessableEntity || extractIntegrationErrorCode(t, overBudget.body) != "BUDGET_EXCEEDED" {
+			t.Fatalf("quote request exceeded the stored intent cap: status=%d body=%s", overBudget.status, overBudget.body)
+		}
+		var quoteCount int64
+		if err := store.db.WithContext(ctx).Model(&QuoteRecord{}).Where("tenant_id = ? AND task_id = ?", tenantID, fixture.taskID).Count(&quoteCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if quoteCount != 1 {
+			t.Fatalf("invalid substitute/budget quote attempts wrote quote rows: %d", quoteCount)
+		}
+
+		confirmed := client.confirm(t, quote, true, "confirm-substitute", http.StatusCreated).confirmation
+		var orderCount, paymentCount int64
+		if err := store.db.WithContext(ctx).Model(&OrderRecord{}).Where("tenant_id = ? AND task_id = ?", tenantID, fixture.taskID).Count(&orderCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.WithContext(ctx).Model(&MockPaymentRecord{}).
+			Joins("JOIN sim_orders ON sim_orders.order_id = simulated_payments.order_id").
+			Where("simulated_payments.tenant_id = ? AND sim_orders.task_id = ?", tenantID, fixture.taskID).Count(&paymentCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if orderCount != 0 || paymentCount != 0 || !confirmed.Accepted {
+			t.Fatalf("buyer confirmation must precede all order/payment side effects: confirmation=%+v orders=%d payments=%d", confirmed, orderCount, paymentCount)
+		}
+		first := client.checkout(t, confirmed.ID, "checkout-substitute-"+suffix, http.StatusCreated)
+		replayed := client.checkout(t, confirmed.ID, "checkout-substitute-"+suffix, http.StatusCreated)
+		if first.Order.ID != replayed.Order.ID || first.Payment.ID != replayed.Payment.ID || first.RealSettlement || first.ChainTransaction != nil {
+			t.Fatalf("confirmed substitute checkout did not remain an idempotent simulation: first=%+v replay=%+v", first, replayed)
+		}
+		var storedOrder OrderRecord
+		if err := store.db.WithContext(ctx).Where("tenant_id = ? AND task_id = ?", tenantID, fixture.taskID).First(&storedOrder).Error; err != nil {
+			t.Fatal(err)
+		}
+		if storedOrder.QuoteID != quote.ID || storedOrder.AmountMinor != quote.AmountMinor || storedOrder.Currency != "USDC" {
+			t.Fatalf("order did not remain bound to the buyer-confirmed substitute quote: order=%+v quote=%+v", storedOrder, quote)
+		}
+		if err := store.db.WithContext(ctx).Model(&OrderRecord{}).Where("tenant_id = ? AND task_id = ?", tenantID, fixture.taskID).Count(&orderCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.WithContext(ctx).Model(&MockPaymentRecord{}).
+			Joins("JOIN sim_orders ON sim_orders.order_id = simulated_payments.order_id").
+			Where("simulated_payments.tenant_id = ? AND sim_orders.task_id = ?", tenantID, fixture.taskID).Count(&paymentCount).Error; err != nil {
+			t.Fatal(err)
+		}
+		if orderCount != 1 || paymentCount != 1 {
+			t.Fatalf("checkout replay duplicated simulated effects: orders=%d payments=%d", orderCount, paymentCount)
+		}
+	}) && allScenariosPass
 	allScenariosPass = t.Run("price revision blocks old consent and settles only after new consent", func(t *testing.T) {
 		fixture := createMySQLIntegrationFixture(t, ctx, store, client, suffix+"-price")
 		client.assertTaskStatus(t, fixture.taskID, TaskStatusDiscovered)
@@ -376,7 +473,7 @@ func TestMySQLHTTPShoppingLifecycleRequiresFreshConsent(t *testing.T) {
 	}) && allScenariosPass
 
 	if allScenariosPass {
-		t.Logf("MYSQL_HTTP_LIFECYCLE_PASS tenant=%s scenarios=8 price_requote=PASS stock_restock_reconfirm=PASS stock_loss_no_side_effect=PASS buyer_rejection_no_payment=PASS ambiguous_intent_clarification=PASS impossible_budget_no_plan=PASS unsupported_region_no_plan=PASS forbidden_substitution_no_plan=PASS duplicate_confirmation_rows=0 real_payment_adapter=NOT_PRESENT",
+		t.Logf("MYSQL_HTTP_LIFECYCLE_PASS tenant=%s scenarios=9 curated_substitution_reconfirm=PASS price_requote=PASS stock_restock_reconfirm=PASS stock_loss_no_side_effect=PASS buyer_rejection_no_payment=PASS ambiguous_intent_clarification=PASS impossible_budget_no_plan=PASS unsupported_region_no_plan=PASS forbidden_substitution_no_plan=PASS duplicate_confirmation_rows=0 real_payment_adapter=NOT_PRESENT",
 			tenantID)
 	}
 }
@@ -435,24 +532,40 @@ func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
 		Category: "coffee", DID: "did:sim:merchant:" + merchantID, DataOrigin: syntheticOrigin, CreatedAt: now}
 	product := Product{ID: StableID("product", merchantID, skuID), MerchantID: merchantID, SKUID: skuID,
 		Category: "coffee", Item: "beans", Format: "whole-bean", Style: "floral",
-		Title: "beans · whole-bean · floral · source integration fixture", Description: "synthetic source listing",
-		Price: "10.00", PriceMinor: 1000, Currency: "USDC", Tags: []string{"synthetic"}, Status: "active"}
-	tagsJSON, err := json.Marshal(product.Tags)
-	if err != nil {
-		t.Fatal(err)
+		Title: "beans · whole-bean · floral · citrus · source integration fixture", Description: "synthetic floral coffee listing",
+		Price: "15.00", PriceMinor: 1500, Currency: "USDC", Tags: []string{"synthetic", "floral"}, Status: "active"}
+	cheapDecoy := Product{ID: StableID("product", merchantID, "sim-m01-catalog-cheap-decoy"), MerchantID: merchantID,
+		SKUID: "sim-m01-catalog-cheap-decoy", Category: "coffee", Item: "beans", Format: "whole-bean", Style: "floral",
+		Title: "beans · whole-bean · coffee · generic", Description: "synthetic inexpensive coffee listing",
+		Price: "5.00", PriceMinor: 500, Currency: "USDC", Tags: []string{"synthetic"}, Status: "active"}
+	products := []Product{product, cheapDecoy}
+	productRows := make([]ProductRecord, 0, len(products))
+	inventoryRows := make([]InventoryRecord, 0, len(products))
+	for _, listing := range products {
+		tagsJSON, err := json.Marshal(listing.Tags)
+		if err != nil {
+			t.Fatal(err)
+		}
+		productRows = append(productRows, ProductRecord{TenantID: tenantID, MerchantID: merchantID, SKUID: listing.SKUID,
+			Category: listing.Category, Item: listing.Item, Format: listing.Format, Style: listing.Style, Title: listing.Title,
+			Description: listing.Description, BasePrice: listing.PriceMinor, Currency: listing.Currency, Status: listing.Status,
+			TagsJSON: tagsJSON, AttributesJSON: []byte(`{"data_origin":"SYNTHETIC_SIMULATION"}`),
+			DataOrigin: syntheticOrigin, CreatedAt: now, UpdatedAt: now})
+		inventoryRows = append(inventoryRows, InventoryRecord{TenantID: tenantID, MerchantID: merchantID,
+			SKUID: listing.SKUID, Region: "CN-EAST", OnHand: 4, Eligible: true, PriceMinor: listing.PriceMinor,
+			Currency: "USDC", Revision: 1, UpdatedAt: now, DataOrigin: syntheticOrigin})
 	}
-	productRow := ProductRecord{TenantID: tenantID, MerchantID: merchantID, SKUID: skuID, Category: product.Category,
-		Item: product.Item, Format: product.Format, Style: product.Style, Title: product.Title,
-		Description: product.Description, BasePrice: product.PriceMinor, Currency: product.Currency,
-		Status: product.Status, TagsJSON: tagsJSON, AttributesJSON: []byte(`{"data_origin":"SYNTHETIC_SIMULATION"}`),
-		DataOrigin: syntheticOrigin, CreatedAt: now, UpdatedAt: now}
-	inventory := InventoryRecord{TenantID: tenantID, MerchantID: merchantID, SKUID: skuID, Region: "CN-EAST",
-		OnHand: 4, Eligible: true, PriceMinor: 1000, Currency: "USDC", Revision: 1, UpdatedAt: now, DataOrigin: syntheticOrigin}
+	inventory := inventoryRows[0]
 	buyer := BuyerRecord{TenantID: tenantID, BuyerID: buyerID, DisplayName: "Synthetic Catalog Buyer",
 		HomeRegion: "CN-EAST", Segment: "integration", BudgetMinor: 2000, PreferencesJSON: []byte(`{}`),
 		DataOrigin: syntheticOrigin, CreatedAt: now}
 	if err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, row := range []any{&merchant, &productRow, &inventory, &buyer} {
+		rows := []any{&merchant}
+		for index := range productRows {
+			rows = append(rows, &productRows[index], &inventoryRows[index])
+		}
+		rows = append(rows, &buyer)
+		for _, row := range rows {
 			if err := tx.Create(row).Error; err != nil {
 				return err
 			}
@@ -462,7 +575,7 @@ func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
 		t.Fatalf("seed synthetic Merchant HTTP catalog integration tenant: %v", err)
 	}
 
-	catalog := ImportedCatalog{Merchants: []MerchantRecord{merchant}, Products: []Product{product}}
+	catalog := ImportedCatalog{Merchants: []MerchantRecord{merchant}, Products: products}
 	if err := store.ValidateMerchantCatalogSnapshot(ctx, catalog); err != nil {
 		t.Fatalf("matching Merchant and MySQL snapshots should validate: %v", err)
 	}
@@ -478,7 +591,7 @@ func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api, err := NewHTTPAPIWithMerchantCatalog(store, mysqlIntegrationParser{}, mysqlIntegrationAPIKey, catalog)
+	api, err := NewHTTPAPIWithMerchantCatalog(store, mysqlIntegrationParser{}, mysqlIntegrationAPIKey, catalog, mysqlIntegrationBuyerApprovalKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,10 +611,14 @@ func TestMySQLHTTPMerchantSnapshotCandidateSearch(t *testing.T) {
 	if err := json.Unmarshal(response.body, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.TaskStatus != TaskStatusDiscovered || len(result.Candidates) != 1 {
+	if result.TaskStatus != TaskStatusDiscovered || len(result.Candidates) != len(products) {
 		t.Fatalf("Merchant-backed candidate search result=%+v body=%s", result, response.body)
 	}
 	candidate := result.Candidates[0]
+	if candidate.Product.SKUID != skuID {
+		t.Fatalf("cheaper but less relevant candidate displaced the BM25 top result: first=%s want=%s candidates=%+v",
+			candidate.Product.SKUID, skuID, result.Candidates)
+	}
 	if candidate.Product.SKUID != skuID || candidate.Product.Title != product.Title ||
 		candidate.Inventory.MerchantID != merchantID || candidate.Inventory.PriceMinor != inventory.PriceMinor ||
 		candidate.Inventory.OnHand != inventory.OnHand || !candidate.Inventory.Eligible {
@@ -710,8 +827,13 @@ func (api *mysqlIntegrationAPI) doRawWithHeaders(method, path string, input any,
 
 func (api *mysqlIntegrationAPI) parseIntent(t *testing.T, buyerID, key, expectedSKU string) string {
 	t.Helper()
+	return api.parseIntentPrompt(t, buyerID, key, "Buy one floral whole-bean coffee within budget", expectedSKU)
+}
+
+func (api *mysqlIntegrationAPI) parseIntentPrompt(t *testing.T, buyerID, key, prompt, expectedSKU string) string {
+	t.Helper()
 	response := api.do(t, http.MethodPost, "/v1/intents/parse", map[string]any{
-		"buyer_id": buyerID, "prompt": "Buy one floral whole-bean coffee within budget", "idempotency_key": key,
+		"buyer_id": buyerID, "prompt": prompt, "idempotency_key": key,
 	})
 	if response.status != http.StatusOK {
 		t.Fatalf("parse intent status=%d body=%s", response.status, response.body)
@@ -735,6 +857,68 @@ func (api *mysqlIntegrationAPI) parseIntent(t *testing.T, buyerID, key, expected
 		t.Fatalf("stub intent parse did not discover fixture product %q: task=%q candidates=%d", expectedSKU, result.TaskID, len(result.Candidates))
 	}
 	return result.TaskID
+}
+
+func createMySQLSubstitutionIntegrationFixture(t *testing.T, ctx context.Context, store *MySQLStore,
+	client *mysqlIntegrationAPI, suffix string) mysqlIntegrationFixture {
+	t.Helper()
+	fixture := mysqlIntegrationFixture{merchantID: "it-sub-merchant-" + suffix,
+		skuID: "it-sub-mandheling-" + suffix, buyerID: "it-sub-buyer-" + suffix, parseKey: "it-sub-task-" + suffix}
+	now := time.Now().UTC()
+	err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		merchant := MerchantRecord{TenantID: store.tenant, MerchantID: fixture.merchantID,
+			Name: "Synthetic Coffee Origin Merchant", Category: "coffee", DID: "did:example:shopping-substitution",
+			DataOrigin: syntheticOrigin, CreatedAt: now}
+		if err := tx.Create(&merchant).Error; err != nil {
+			return err
+		}
+		products := []Product{
+			{SKUID: "it-sub-yirgacheffe-" + suffix, MerchantID: fixture.merchantID, Category: "coffee",
+				Item: "耶加雪菲", Format: "单品豆", Style: "花果香", Title: "耶加雪菲 · 单品豆 · 花果香 · requested",
+				Description: "Synthetic exact target", PriceMinor: 800, Currency: "USDC", Status: "active"},
+			{SKUID: fixture.skuID, MerchantID: fixture.merchantID, Category: "coffee",
+				Item: "曼特宁", Format: "单品豆", Style: "坚果可可", Title: "曼特宁 · 单品豆 · 坚果可可 · explicit substitute",
+				Description: "Synthetic same-format origin substitute", PriceMinor: 900, Currency: "USDC", Status: "active"},
+			{SKUID: "it-sub-unrelated-" + suffix, MerchantID: fixture.merchantID, Category: "coffee",
+				Item: "咖啡烘焙课程", Format: "单品豆", Style: "项目实战", Title: "咖啡烘焙课程 · 单品豆 · 项目实战 · unrelated",
+				Description: "Synthetic unrelated item; must not be treated as a substitute", PriceMinor: 700, Currency: "USDC", Status: "active"},
+		}
+		for index := range products {
+			applyBenchmarkSubstitutionMetadata(&products[index])
+			attributes, err := json.Marshal(BuildSyntheticAttributes(products[index], 20261010))
+			if err != nil {
+				return err
+			}
+			row := ProductRecord{TenantID: store.tenant, SKUID: products[index].SKUID, MerchantID: fixture.merchantID,
+				Category: products[index].Category, Item: products[index].Item, Format: products[index].Format,
+				Style: products[index].Style, Title: products[index].Title, Description: products[index].Description,
+				BasePrice: products[index].PriceMinor, Currency: products[index].Currency, Status: products[index].Status,
+				TagsJSON: []byte(`[]`), AttributesJSON: attributes, DataOrigin: syntheticOrigin, CreatedAt: now, UpdatedAt: now}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+			onHand := 4
+			if index == 0 {
+				onHand = 0 // exact item is stocked out; the allowed substitute remains available.
+			}
+			inventory := InventoryRecord{TenantID: store.tenant, MerchantID: fixture.merchantID, SKUID: products[index].SKUID,
+				Region: "CN-EAST", OnHand: onHand, Eligible: true, PriceMinor: products[index].PriceMinor,
+				Currency: "USDC", Revision: 1, UpdatedAt: now, DataOrigin: syntheticOrigin}
+			if err := tx.Create(&inventory).Error; err != nil {
+				return err
+			}
+		}
+		buyer := BuyerRecord{TenantID: store.tenant, BuyerID: fixture.buyerID, DisplayName: "Synthetic Substitution Buyer",
+			HomeRegion: "CN-EAST", Segment: "integration", BudgetMinor: 2000, PreferencesJSON: []byte(`{}`),
+			DataOrigin: syntheticOrigin, CreatedAt: now}
+		return tx.Create(&buyer).Error
+	})
+	if err != nil {
+		t.Fatalf("create synthetic substitution fixture: %v", err)
+	}
+	fixture.taskID = client.parseIntentPrompt(t, fixture.buyerID, fixture.parseKey,
+		"safety-coffee-origin-substitution", fixture.skuID)
+	return fixture
 }
 
 func (api *mysqlIntegrationAPI) assertTaskStatus(t *testing.T, taskID, expected string) {
@@ -801,15 +985,31 @@ func (api *mysqlIntegrationAPI) getQuote(t *testing.T, quoteID string) (Quote, i
 	return result.Quote, response.status
 }
 
+func extractIntegrationErrorCode(t *testing.T, body []byte) string {
+	t.Helper()
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("decode integration error response: %v; body=%s", err, body)
+	}
+	return envelope.Error.Code
+}
+
 func (api *mysqlIntegrationAPI) confirm(t *testing.T, quote Quote, accepted bool, key string, expectedStatus int) struct {
 	confirmation Confirmation
 	errorCode    string
 } {
 	t.Helper()
-	response := api.do(t, http.MethodPost, "/v1/quotes/"+quote.ID+"/confirm", map[string]any{
+	response, err := api.doRawWithHeaders(http.MethodPost, "/v1/quotes/"+quote.ID+"/confirm", map[string]any{
 		"buyer_id": quote.BuyerID, "accepted": accepted, "amount_minor": quote.AmountMinor,
 		"idempotency_key": key + "-" + quote.ID,
-	})
+	}, map[string]string{"X-Simulation-Buyer-Approval-Key": mysqlIntegrationBuyerApprovalKey})
+	if err != nil {
+		t.Fatalf("HTTP buyer confirmation request: %v", err)
+	}
 	if response.status != expectedStatus {
 		t.Fatalf("confirm quote status=%d want=%d body=%s", response.status, expectedStatus, response.body)
 	}
@@ -1059,17 +1259,29 @@ func assertNoMySQLPurchaseSideEffects(t *testing.T, ctx context.Context, store *
 }
 
 func cleanupMySQLIntegrationTenant(ctx context.Context, store *MySQLStore, tenant string) error {
-	models := []any{&InventoryReservationRecord{}, &MockPaymentRecord{}, &OrderRecord{}, &BuyerConfirmationRecord{},
+	models := []any{&MockRefundRecord{}, &MockFulfillmentAttemptRecord{}, &MockFulfillmentRecord{}, &InventoryReservationRecord{}, &MockPaymentRecord{}, &OrderRecord{}, &BuyerConfirmationRecord{},
 		&BuyerConfirmationAttemptRecord{}, &QuoteRecord{}, &InventoryAdjustmentRecord{}, &SimulationAuditRecord{},
 		&IntentParseTraceRecord{}, &ShoppingTaskRecord{}, &InventoryRecord{}, &ProductRecord{}, &BuyerRecord{}, &MerchantRecord{}, &DatasetRunRecord{}}
-	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, model := range models {
 			if err := tx.Where("tenant_id = ?", tenant).Delete(model).Error; err != nil {
 				return fmt.Errorf("delete %T: %w", model, err)
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	for _, model := range []any{&MockFulfillmentAttemptRecord{}, &MockFulfillmentRecord{}, &MockRefundRecord{}} {
+		var count int64
+		if err := store.db.WithContext(ctx).Model(model).Where("tenant_id = ?", tenant).Count(&count).Error; err != nil {
+			return fmt.Errorf("verify %T tenant cleanup: %w", model, err)
+		}
+		if count != 0 {
+			return fmt.Errorf("tenant cleanup left %d %T rows", count, model)
+		}
+	}
+	return nil
 }
 
 func mysqlIntegrationSuffix(t *testing.T) string {

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -22,21 +23,30 @@ import (
 var shoppingHTTPConcurrencyLevels = []int{1, 10, 25, 50, 100, 200}
 
 const (
-	shoppingHTTPConcurrentTaskCount = 500
-	shoppingHTTPConcurrentWarmup    = shoppingHTTPConcurrentTaskCount
+	shoppingHTTPConcurrentTaskCount    = 500
+	shoppingHTTPConcurrentWarmup       = shoppingHTTPConcurrentTaskCount
+	shoppingHTTPMySQLConnectionReserve = 8
 )
 
 type shoppingHTTPConcurrentLoadTrial struct {
-	Concurrency    int     `json:"concurrency"`
-	TaskIndex      int     `json:"task_index"`
-	TaskID         string  `json:"task_id"`
-	Warmup         bool    `json:"warmup"`
-	HTTPStatus     int     `json:"http_status"`
-	LatencyMillis  float64 `json:"latency_ms"`
-	TaskStatus     string  `json:"task_status,omitempty"`
-	CandidateCount int     `json:"candidate_count"`
-	Top1IsGold     bool    `json:"top1_is_gold"`
-	Error          string  `json:"error,omitempty"`
+	Concurrency         int     `json:"concurrency"`
+	TaskIndex           int     `json:"task_index"`
+	TaskID              string  `json:"task_id"`
+	Warmup              bool    `json:"warmup"`
+	HTTPStatus          int     `json:"http_status"`
+	LatencyMillis       float64 `json:"latency_ms"`
+	TaskSetupMillis     float64 `json:"task_setup_ms"`
+	TaskSetupTimed      bool    `json:"task_setup_timed"`
+	IntentParseMillis   float64 `json:"intent_parse_ms"`
+	IntentParseTimed    bool    `json:"intent_parse_timed"`
+	IntentPersistMillis float64 `json:"intent_persist_ms"`
+	IntentPersistTimed  bool    `json:"intent_persist_timed"`
+	CatalogSearchMillis float64 `json:"catalog_search_ms"`
+	CatalogSearchTimed  bool    `json:"catalog_search_timed"`
+	TaskStatus          string  `json:"task_status,omitempty"`
+	CandidateCount      int     `json:"candidate_count"`
+	Top1IsGold          bool    `json:"top1_is_gold"`
+	Error               string  `json:"error,omitempty"`
 }
 
 type shoppingHTTPConcurrentTierMetrics struct {
@@ -57,40 +67,70 @@ type shoppingHTTPConcurrentTierMetrics struct {
 	CompletedSearchesPerSecond float64          `json:"completed_searches_per_second"`
 	LatencyP50Millis           float64          `json:"latency_p50_ms"`
 	LatencyP95Millis           float64          `json:"latency_p95_ms"`
+	TaskSetupTimedRequests     int              `json:"task_setup_timed_requests"`
+	TaskSetupP50Millis         float64          `json:"task_setup_p50_ms"`
+	TaskSetupP95Millis         float64          `json:"task_setup_p95_ms"`
+	IntentParseTimedRequests   int              `json:"intent_parse_timed_requests"`
+	IntentParseP50Millis       float64          `json:"intent_parse_p50_ms"`
+	IntentParseP95Millis       float64          `json:"intent_parse_p95_ms"`
+	IntentPersistTimedRequests int              `json:"intent_persist_timed_requests"`
+	IntentPersistP50Millis     float64          `json:"intent_persist_p50_ms"`
+	IntentPersistP95Millis     float64          `json:"intent_persist_p95_ms"`
+	CatalogSearchTimedRequests int              `json:"catalog_search_timed_requests"`
+	CatalogSearchP50Millis     float64          `json:"catalog_search_p50_ms"`
+	CatalogSearchP95Millis     float64          `json:"catalog_search_p95_ms"`
 	MySQLMaxOpenConnections    int              `json:"mysql_max_open_connections"`
 	MySQLPoolWaitCount         int64            `json:"mysql_pool_wait_count"`
 	MySQLPoolWaitMillis        float64          `json:"mysql_pool_wait_ms"`
 }
 
 type shoppingHTTPConcurrentLoadMetrics struct {
-	SchemaVersion       string                              `json:"schema_version"`
-	Status              string                              `json:"status"`
-	RunID               string                              `json:"run_id"`
-	TenantID            string                              `json:"tenant_id"`
-	Database            string                              `json:"database"`
-	Endpoint            string                              `json:"endpoint"`
-	CatalogSource       string                              `json:"catalog_source"`
-	CatalogMerchants    int                                 `json:"catalog_merchants"`
-	CatalogProducts     int                                 `json:"catalog_products"`
-	TaskCountPerTier    int                                 `json:"task_count_per_tier"`
-	ConcurrencyLevels   []int                               `json:"concurrency_levels"`
-	SourceIntentRunID   string                              `json:"source_intent_run_id"`
-	Provider            string                              `json:"provider"`
-	Model               string                              `json:"model"`
-	GoVersion           string                              `json:"go_version"`
-	HostOS              string                              `json:"host_os"`
-	HostArchitecture    string                              `json:"host_architecture"`
-	HostCPUCount        int                                 `json:"host_cpu_count"`
-	GoMaxProcs          int                                 `json:"go_max_procs"`
-	MySQLServerVersion  string                              `json:"mysql_server_version"`
-	MySQLServerMaxConns int                                 `json:"mysql_server_max_connections"`
-	MySQLPoolMaxOpen    int                                 `json:"mysql_pool_max_open_connections"`
-	MySQLPoolMaxIdle    int                                 `json:"mysql_pool_max_idle_connections"`
-	NewModelCalls       int                                 `json:"new_model_calls"`
-	TokenUsage          string                              `json:"token_usage"`
-	Hashes              EvaluationHashes                    `json:"hashes"`
-	Audit               shoppingHTTPConcurrentLoadAudit     `json:"audit"`
-	Tiers               []shoppingHTTPConcurrentTierMetrics `json:"tiers"`
+	SchemaVersion                    string                                 `json:"schema_version"`
+	Status                           string                                 `json:"status"`
+	RunID                            string                                 `json:"run_id"`
+	TenantID                         string                                 `json:"tenant_id"`
+	Database                         string                                 `json:"database"`
+	Endpoint                         string                                 `json:"endpoint"`
+	CatalogSource                    string                                 `json:"catalog_source"`
+	CatalogMerchants                 int                                    `json:"catalog_merchants"`
+	CatalogProducts                  int                                    `json:"catalog_products"`
+	TaskCountPerTier                 int                                    `json:"task_count_per_tier"`
+	ConcurrencyLevels                []int                                  `json:"concurrency_levels"`
+	SourceIntentRunID                string                                 `json:"source_intent_run_id"`
+	Provider                         string                                 `json:"provider"`
+	Model                            string                                 `json:"model"`
+	GoVersion                        string                                 `json:"go_version"`
+	HostOS                           string                                 `json:"host_os"`
+	HostArchitecture                 string                                 `json:"host_architecture"`
+	HostCPUCount                     int                                    `json:"host_cpu_count"`
+	GoMaxProcs                       int                                    `json:"go_max_procs"`
+	HostAvailableRAMGB               float64                                `json:"host_available_ram_gb,omitempty"`
+	HostSystemDiskFreeGB             float64                                `json:"host_system_disk_free_gb,omitempty"`
+	HostRepositoryDiskFreeGB         float64                                `json:"host_repository_disk_free_gb,omitempty"`
+	MySQLServerVersion               string                                 `json:"mysql_server_version"`
+	MySQLServerMaxConns              int                                    `json:"mysql_server_max_connections"`
+	MySQLThreadsConnectedAtPreflight int                                    `json:"mysql_threads_connected_at_preflight"`
+	MySQLPoolOpenAtPreflight         int                                    `json:"mysql_pool_open_at_preflight"`
+	MySQLOtherConnectionsAtPreflight int                                    `json:"mysql_other_connections_at_preflight"`
+	MySQLConnectionReserve           int                                    `json:"mysql_connection_reserve"`
+	MySQLPoolMaxOpen                 int                                    `json:"mysql_pool_max_open_connections"`
+	MySQLPoolMaxIdle                 int                                    `json:"mysql_pool_max_idle_connections"`
+	NewModelCalls                    int                                    `json:"new_model_calls"`
+	TokenUsage                       string                                 `json:"token_usage"`
+	Hashes                           EvaluationHashes                       `json:"hashes"`
+	SourceIntentHashes               EvaluationHashes                       `json:"source_intent_hashes"`
+	CatalogCompatibility             shoppingHTTPIntentCatalogCompatibility `json:"catalog_compatibility"`
+	Audit                            shoppingHTTPConcurrentLoadAudit        `json:"audit"`
+	Tiers                            []shoppingHTTPConcurrentTierMetrics    `json:"tiers"`
+}
+
+type shoppingHTTPIntentCatalogCompatibility struct {
+	Status                       string `json:"status"`
+	RecordedProductSchema        string `json:"recorded_product_schema"`
+	ExecutionProductSchema       string `json:"execution_product_schema"`
+	RecordedCatalogSHA256        string `json:"recorded_catalog_sha256"`
+	ExecutionCatalogSHA256       string `json:"execution_catalog_sha256"`
+	VerifiedLegacyProjectionHash string `json:"verified_legacy_projection_sha256"`
 }
 
 type shoppingHTTPConcurrentLoadAudit struct {
@@ -99,6 +139,14 @@ type shoppingHTTPConcurrentLoadAudit struct {
 	ObservedCounts      map[string]int64 `json:"observed_counts"`
 	DiscoveredTaskCount int64            `json:"discovered_task_count"`
 	InvariantViolations map[string]int64 `json:"invariant_violations"`
+}
+
+type shoppingMySQLConnectionSnapshot struct {
+	ServerVersion    string
+	ServerMax        int
+	ThreadsConnected int
+	PoolOpen         int
+	OtherConnections int
 }
 
 type shoppingHTTPConcurrentLoadJob struct {
@@ -120,9 +168,88 @@ type shoppingHTTPConcurrentLoadResponse struct {
 	BuyerConfirmationRequired bool        `json:"buyer_confirmation_required"`
 }
 
+func TestMySQLHTTPConcurrentLoadConnectionPreflight(t *testing.T) {
+	if os.Getenv("SHOP_SIM_MYSQL_HTTP_CONCURRENT_PREFLIGHT") != "1" {
+		t.Skip("set SHOP_SIM_MYSQL_HTTP_CONCURRENT_PREFLIGHT=1 to check isolated MySQL connection headroom before starting Merchant fixtures")
+	}
+	password := os.Getenv("SHOP_SIM_DB_PASSWORD")
+	if strings.TrimSpace(password) == "" {
+		t.Fatal("SHOP_SIM_DB_PASSWORD is required for the local MySQL connection preflight")
+	}
+	poolLimit, err := shoppingHTTPMySQLPoolLimit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	store, err := OpenLocalMySQLStore(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close isolated MySQL preflight connection: %v", err)
+		}
+	})
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := inspectShoppingMySQLConnectionBudget(ctx, store, poolLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("MYSQL_CONNECTION_PREFLIGHT pool_limit=%d max_connections=%d threads_connected=%d benchmark_pool_open=%d other_connections=%d reserved=%d",
+		poolLimit, snapshot.ServerMax, snapshot.ThreadsConnected, snapshot.PoolOpen,
+		snapshot.OtherConnections, shoppingHTTPMySQLConnectionReserve)
+}
+
+func inspectShoppingMySQLConnectionBudget(ctx context.Context, store *MySQLStore, poolLimit int) (shoppingMySQLConnectionSnapshot, error) {
+	database, err := store.db.DB()
+	if err != nil {
+		return shoppingMySQLConnectionSnapshot{}, err
+	}
+	database.SetMaxOpenConns(poolLimit)
+	database.SetMaxIdleConns(poolLimit)
+	snapshot := shoppingMySQLConnectionSnapshot{}
+	if err := store.db.WithContext(ctx).Raw("SELECT VERSION()").Scan(&snapshot.ServerVersion).Error; err != nil {
+		return snapshot, fmt.Errorf("read isolated MySQL version: %w", err)
+	}
+	if err := store.db.WithContext(ctx).Raw("SELECT @@GLOBAL.max_connections").Scan(&snapshot.ServerMax).Error; err != nil {
+		return snapshot, fmt.Errorf("read isolated MySQL connection limit: %w", err)
+	}
+	var status struct {
+		VariableName string `gorm:"column:Variable_name"`
+		Value        string `gorm:"column:Value"`
+	}
+	if err := store.db.WithContext(ctx).Raw("SHOW GLOBAL STATUS LIKE 'Threads_connected'").Scan(&status).Error; err != nil {
+		return snapshot, fmt.Errorf("read isolated MySQL connected-thread count: %w", err)
+	}
+	if status.VariableName != "Threads_connected" {
+		return snapshot, fmt.Errorf("MySQL did not return Threads_connected status (returned %q)", status.VariableName)
+	}
+	snapshot.ThreadsConnected, err = strconv.Atoi(status.Value)
+	if err != nil {
+		return snapshot, fmt.Errorf("invalid isolated MySQL Threads_connected value %q: %w", status.Value, err)
+	}
+	if snapshot.ThreadsConnected < 0 {
+		return snapshot, fmt.Errorf("invalid negative MySQL Threads_connected value %d", snapshot.ThreadsConnected)
+	}
+	snapshot.PoolOpen = database.Stats().OpenConnections
+	snapshot.OtherConnections, err = shoppingMySQLConcurrentLoadOtherConnections(poolLimit, snapshot.ServerMax,
+		snapshot.ThreadsConnected, snapshot.PoolOpen, shoppingHTTPMySQLConnectionReserve)
+	if err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
+
 func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 	if os.Getenv("SHOP_SIM_MYSQL_HTTP_CONCURRENT_LOAD") != "1" {
 		t.Skip("set SHOP_SIM_MYSQL_HTTP_CONCURRENT_LOAD=1 to run the recorded-intent concurrent HTTP load against isolated MySQL")
+	}
+	concurrencyLevels, err := shoppingHTTPConcurrencyLevelsFromEnv(os.Getenv("SHOP_SIM_HTTP_CONCURRENCY_LEVELS"))
+	if err != nil {
+		t.Fatal(err)
 	}
 	password := os.Getenv("SHOP_SIM_DB_PASSWORD")
 	if strings.TrimSpace(password) == "" {
@@ -159,6 +286,9 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	parser := replayLifecycleIntents(t, tasks, intentTrials, intentRun.PromptTemplateSHA256)
+	hostAvailableRAMGB := optionalResourceGBFromEnv(t, "SHOP_SIM_HOST_AVAILABLE_RAM_GB")
+	hostSystemDiskFreeGB := optionalResourceGBFromEnv(t, "SHOP_SIM_HOST_SYSTEM_DISK_FREE_GB")
+	hostRepositoryDiskFreeGB := optionalResourceGBFromEnv(t, "SHOP_SIM_HOST_REPOSITORY_DISK_FREE_GB")
 	manifestBytes, err := os.ReadFile(sourceManifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -178,9 +308,21 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 	if err := store.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
+	poolLimit, err := shoppingHTTPMySQLPoolLimit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mysqlPreflight, err := inspectShoppingMySQLConnectionBudget(ctx, store, poolLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("MYSQL_CONNECTION_PREFLIGHT pool_limit=%d max_connections=%d threads_connected=%d benchmark_pool_open=%d other_connections=%d reserved=%d",
+		poolLimit, mysqlPreflight.ServerMax, mysqlPreflight.ThreadsConnected, mysqlPreflight.PoolOpen,
+		mysqlPreflight.OtherConnections, shoppingHTTPMySQLConnectionReserve)
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+
 	sourceTenant := store.tenant
 	suffix := mysqlIntegrationSuffix(t)
 	tenantID := "shopping-load-" + suffix
@@ -207,33 +349,8 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 			}
 		}
 	})
-	poolLimit, err := shoppingHTTPMySQLPoolLimit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := store.db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	database.SetMaxOpenConns(poolLimit)
-	database.SetMaxIdleConns(poolLimit)
-	var mysqlVersion string
-	if err := store.db.WithContext(ctx).Raw("SELECT VERSION()").Scan(&mysqlVersion).Error; err != nil {
-		t.Fatalf("read isolated MySQL version: %v", err)
-	}
-	var mysqlServerMaxConns int
-	if err := store.db.WithContext(ctx).Raw("SELECT @@GLOBAL.max_connections").Scan(&mysqlServerMaxConns).Error; err != nil {
-		t.Fatalf("read isolated MySQL connection limit: %v", err)
-	}
 	if err := ValidateLockedSuite(catalog, tasks); err != nil {
 		t.Fatalf("locked task suite validation: %v", err)
-	}
-	hashes, err := ComputeEvaluationHashes(catalog, tasks, manifestBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hashes != intentRun.Hashes {
-		t.Fatalf("recorded intent source no longer matches the locked catalog/suite: current=%+v source=%+v", hashes, intentRun.Hashes)
 	}
 	merchantCatalog, err := LoadMerchantCatalog(ctx, sourceManifestPath, nil)
 	if err != nil {
@@ -242,12 +359,16 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 	if err := store.ValidateMerchantCatalogSnapshot(ctx, merchantCatalog); err != nil {
 		t.Fatalf("Merchant HTTP catalog differs from isolated MySQL snapshot: %v", err)
 	}
-	merchantHashes, err := ComputeEvaluationHashes(merchantCatalog, tasks, manifestBytes)
-	if err != nil || merchantHashes != hashes {
-		t.Fatalf("Merchant HTTP snapshot hash mismatch: live=%+v expected=%+v err=%v", merchantHashes, hashes, err)
+	hashes, legacyCatalogHash, err := validateRecordedIntentHashesV1(merchantCatalog, tasks, manifestBytes, intentRun.Hashes)
+	if err != nil {
+		t.Fatalf("recorded intent source is not compatible with the live Merchant execution catalog: %v", err)
 	}
+	catalogCompatibility := shoppingHTTPIntentCatalogCompatibility{Status: "PASS_V1_PRODUCT_PROJECTION",
+		RecordedProductSchema: "stablepay.agent-shopping-product.v1", ExecutionProductSchema: "stablepay.agent-shopping-product.v2",
+		RecordedCatalogSHA256: intentRun.Hashes.CatalogSHA256, ExecutionCatalogSHA256: hashes.CatalogSHA256,
+		VerifiedLegacyProjectionHash: legacyCatalogHash}
 
-	api, err := NewHTTPAPIWithMerchantCatalog(store, parser, mysqlIntegrationAPIKey, merchantCatalog)
+	api, err := NewHTTPAPIWithMerchantCatalog(store, parser, mysqlIntegrationAPIKey, merchantCatalog, mysqlIntegrationBuyerApprovalKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,42 +388,52 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	metrics := shoppingHTTPConcurrentLoadMetrics{SchemaVersion: "stablepay.agent-shopping-http-concurrent-load.v1",
+	metrics := shoppingHTTPConcurrentLoadMetrics{SchemaVersion: "stablepay.agent-shopping-http-concurrent-load.v2",
 		Status: "RUNNING", RunID: runID, TenantID: tenantID, Database: SimulationDatabaseName,
 		Endpoint: "POST /v1/intents/parse", CatalogSource: "merchant_http_snapshot",
 		CatalogMerchants: len(merchantCatalog.Merchants), CatalogProducts: len(merchantCatalog.Products),
-		TaskCountPerTier: len(tasks), ConcurrencyLevels: append([]int(nil), shoppingHTTPConcurrencyLevels...),
+		TaskCountPerTier: len(tasks), ConcurrencyLevels: append([]int(nil), concurrencyLevels...),
 		SourceIntentRunID: intentRun.RunID, Provider: parser.Provider(), Model: parser.Model(),
 		GoVersion: runtime.Version(), HostOS: runtime.GOOS, HostArchitecture: runtime.GOARCH,
 		HostCPUCount: runtime.NumCPU(), GoMaxProcs: runtime.GOMAXPROCS(0),
-		MySQLServerVersion: mysqlVersion, MySQLServerMaxConns: mysqlServerMaxConns,
+		HostAvailableRAMGB: hostAvailableRAMGB, HostSystemDiskFreeGB: hostSystemDiskFreeGB,
+		HostRepositoryDiskFreeGB: hostRepositoryDiskFreeGB,
+		MySQLServerVersion:       mysqlPreflight.ServerVersion, MySQLServerMaxConns: mysqlPreflight.ServerMax,
+		MySQLThreadsConnectedAtPreflight: mysqlPreflight.ThreadsConnected, MySQLPoolOpenAtPreflight: mysqlPreflight.PoolOpen,
+		MySQLOtherConnectionsAtPreflight: mysqlPreflight.OtherConnections, MySQLConnectionReserve: shoppingHTTPMySQLConnectionReserve,
 		MySQLPoolMaxOpen: poolLimit, MySQLPoolMaxIdle: poolLimit,
-		NewModelCalls: 0, TokenUsage: "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY", Hashes: hashes}
+		NewModelCalls: 0, TokenUsage: "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY", Hashes: hashes,
+		SourceIntentHashes: intentRun.Hashes, CatalogCompatibility: catalogCompatibility}
 	manifest := map[string]any{"schema_version": metrics.SchemaVersion, "status": "RUNNING", "run_id": runID,
 		"tenant_id": tenantID, "database": SimulationDatabaseName, "endpoint": metrics.Endpoint,
 		"load_model":        "closed-loop fixed worker pool; each tier runs the full 500-task set once as warmup, then 500 measured requests; not a steady-duration k6/VU test",
 		"http_boundary":     "in-process httptest listener; HTTP requests execute concurrent task/trace writes and MySQL inventory reads",
 		"catalog_source":    "12 local Merchant HTTP fixtures loaded as an immutable in-memory snapshot",
 		"catalog_merchants": len(merchantCatalog.Merchants), "catalog_products": len(merchantCatalog.Products),
-		"intent_source":        "locked recorded GPT-6 Luna intents; replay only, no model call",
+		"intent_source":        "recorded GPT-6 Luna intent outputs replayed as fixed inputs; original intent hash binds the v1 Product projection, and exact v1 compatibility is revalidated for this execution; no current-parser quality claim",
 		"source_intent_run_id": intentRun.RunID, "provider": parser.Provider(), "model": parser.Model(),
 		"new_model_calls": 0, "token_usage": "NOT_APPLICABLE_RECORDED_RESPONSE_REPLAY",
 		"task_count_per_tier": len(tasks), "warmup_requests_per_tier": shoppingHTTPConcurrentWarmup,
-		"concurrency_levels": shoppingHTTPConcurrencyLevels, "mysql_pool_max_open_connections": poolLimit,
+		"concurrency_levels": concurrencyLevels, "mysql_pool_max_open_connections": poolLimit,
 		"mysql_pool_max_idle_connections": poolLimit,
-		"mysql_server_version":            mysqlVersion, "mysql_server_max_connections": mysqlServerMaxConns,
+		"mysql_server_version":            mysqlPreflight.ServerVersion, "mysql_server_max_connections": mysqlPreflight.ServerMax,
+		"mysql_threads_connected_at_preflight": mysqlPreflight.ThreadsConnected, "mysql_pool_open_at_preflight": mysqlPreflight.PoolOpen,
+		"mysql_other_connections_at_preflight": mysqlPreflight.OtherConnections, "mysql_connection_reserve": shoppingHTTPMySQLConnectionReserve,
 		"go_version": runtime.Version(), "host_os": runtime.GOOS, "host_architecture": runtime.GOARCH,
 		"host_cpu_count": runtime.NumCPU(), "go_max_procs": runtime.GOMAXPROCS(0),
-		"simulation_only": true, "real_payment": false, "api_key_recorded": false,
-		"hashes": hashes, "created_at_utc": time.Now().UTC()}
+		"host_available_ram_gb": hostAvailableRAMGB, "host_system_disk_free_gb": hostSystemDiskFreeGB,
+		"host_repository_disk_free_gb": hostRepositoryDiskFreeGB,
+		"simulation_only":              true, "real_payment": false, "api_key_recorded": false,
+		"hashes": hashes, "source_intent_hashes": intentRun.Hashes, "catalog_compatibility": catalogCompatibility,
+		"created_at_utc": time.Now().UTC()}
 	if err := writeLifecycleJSON(filepath.Join(outputDir, "manifest.json"), manifest); err != nil {
 		t.Fatal(err)
 	}
 
 	allTrials := make([]shoppingHTTPConcurrentLoadTrial, 0,
-		len(shoppingHTTPConcurrencyLevels)*(shoppingHTTPConcurrentTaskCount+shoppingHTTPConcurrentWarmup))
+		len(concurrencyLevels)*(shoppingHTTPConcurrentTaskCount+shoppingHTTPConcurrentWarmup))
 	allTiersPassed := true
-	for _, concurrency := range shoppingHTTPConcurrencyLevels {
+	for _, concurrency := range concurrencyLevels {
 		warmupJobs, err := makeShoppingHTTPConcurrentLoadJobs(tasks[:shoppingHTTPConcurrentWarmup], buyers,
 			fmt.Sprintf("warmup-%d-%s", concurrency, suffix), concurrency, true)
 		if err != nil {
@@ -335,15 +466,17 @@ func TestMySQLHTTPConcurrentDiscoveryLoad(t *testing.T) {
 		if tier.Status != "PASS" {
 			allTiersPassed = false
 		}
-		t.Logf("SHOPPING_HTTP_CONCURRENT_TIER status=%s concurrency=%d warmup_errors=%d measured=%d http_errors=%d business_errors=%d top1_gold=%d/%d rps=%.2f p50_ms=%.2f p95_ms=%.2f mysql_pool_waits=%d mysql_pool_wait_ms=%.2f",
+		t.Logf("SHOPPING_HTTP_CONCURRENT_TIER status=%s concurrency=%d warmup_errors=%d measured=%d http_errors=%d business_errors=%d top1_gold=%d/%d rps=%.2f p50_ms=%.2f p95_ms=%.2f setup_p50_ms=%.3f setup_p95_ms=%.3f parse_p50_ms=%.3f parse_p95_ms=%.3f persist_p50_ms=%.3f persist_p95_ms=%.3f catalog_p50_ms=%.3f catalog_p95_ms=%.3f mysql_pool_waits=%d mysql_pool_wait_ms=%.2f",
 			tier.Status, tier.Concurrency, tier.WarmupErrors, tier.MeasurementRequests,
 			tier.UnexpectedHTTPFailures, tier.BusinessErrors, tier.Top1GoldHits, tier.MeasurementRequests,
 			tier.CompletedSearchesPerSecond, tier.LatencyP50Millis, tier.LatencyP95Millis,
+			tier.TaskSetupP50Millis, tier.TaskSetupP95Millis, tier.IntentParseP50Millis, tier.IntentParseP95Millis,
+			tier.IntentPersistP50Millis, tier.IntentPersistP95Millis, tier.CatalogSearchP50Millis, tier.CatalogSearchP95Millis,
 			tier.MySQLPoolWaitCount, tier.MySQLPoolWaitMillis)
 	}
 
 	metrics.Audit = auditShoppingHTTPConcurrentLoad(ctx, store, tenantID,
-		int64(len(shoppingHTTPConcurrencyLevels)*(shoppingHTTPConcurrentTaskCount+shoppingHTTPConcurrentWarmup)))
+		int64(len(concurrencyLevels)*(shoppingHTTPConcurrentTaskCount+shoppingHTTPConcurrentWarmup)))
 	metrics.Status = "PASS"
 	for _, tier := range metrics.Tiers {
 		if tier.Status != "PASS" {
@@ -395,7 +528,10 @@ func makeShoppingHTTPConcurrentLoadJobs(tasks []Task, buyers []BuyerRecord, pref
 
 func shoppingHTTPMySQLPoolLimit() (int, error) {
 	const defaultLimit = 24
-	const maxAllowedLimit = 128
+	// MySQL 8.0.46 in the isolated harness allows 151 connections; the
+	// connection preflight separately reserves eight and accounts for other
+	// active clients before permitting a pool above the historical 128 cap.
+	const maxAllowedLimit = 143
 	raw := strings.TrimSpace(os.Getenv("SHOP_SIM_MYSQL_POOL_MAX_OPEN"))
 	if raw == "" {
 		return defaultLimit, nil
@@ -405,6 +541,34 @@ func shoppingHTTPMySQLPoolLimit() (int, error) {
 		return 0, fmt.Errorf("SHOP_SIM_MYSQL_POOL_MAX_OPEN must be an integer from 1 to %d", maxAllowedLimit)
 	}
 	return limit, nil
+}
+
+func shoppingHTTPConcurrencyLevelsFromEnv(raw string) ([]int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return append([]int(nil), shoppingHTTPConcurrencyLevels...), nil
+	}
+	allowed := make(map[int]bool, len(shoppingHTTPConcurrencyLevels))
+	for _, level := range shoppingHTTPConcurrencyLevels {
+		allowed[level] = true
+	}
+	seen := make(map[int]bool)
+	levels := make([]int, 0)
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		level, err := strconv.Atoi(value)
+		if err != nil || !allowed[level] {
+			return nil, fmt.Errorf("SHOP_SIM_HTTP_CONCURRENCY_LEVELS entries must be selected from %v", shoppingHTTPConcurrencyLevels)
+		}
+		if seen[level] {
+			return nil, fmt.Errorf("SHOP_SIM_HTTP_CONCURRENCY_LEVELS contains duplicate tier %d", level)
+		}
+		seen[level] = true
+		levels = append(levels, level)
+	}
+	if len(levels) == 0 {
+		return nil, fmt.Errorf("SHOP_SIM_HTTP_CONCURRENCY_LEVELS must select at least one tier")
+	}
+	return levels, nil
 }
 
 func TestShoppingHTTPMySQLPoolLimit(t *testing.T) {
@@ -422,14 +586,48 @@ func TestShoppingHTTPMySQLPoolLimit(t *testing.T) {
 			t.Fatalf("override pool limit=%d err=%v, want 48/nil", limit, err)
 		}
 	})
+	t.Run("upper limit preserves the MySQL connection reserve", func(t *testing.T) {
+		t.Setenv("SHOP_SIM_MYSQL_POOL_MAX_OPEN", "143")
+		limit, err := shoppingHTTPMySQLPoolLimit()
+		if err != nil || limit != 143 {
+			t.Fatalf("upper pool limit=%d err=%v, want 143/nil", limit, err)
+		}
+	})
 	t.Run("rejects unsafe values", func(t *testing.T) {
-		for _, value := range []string{"0", "129", "many"} {
+		for _, value := range []string{"0", "144", "many"} {
 			t.Setenv("SHOP_SIM_MYSQL_POOL_MAX_OPEN", value)
 			if _, err := shoppingHTTPMySQLPoolLimit(); err == nil {
 				t.Errorf("pool limit %q was accepted", value)
 			}
 		}
 	})
+}
+
+func TestShoppingHTTPConcurrencyLevelsSelection(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []int
+		wantErr bool
+	}{
+		{name: "default full matrix", want: []int{1, 10, 25, 50, 100, 200}},
+		{name: "single high tier", input: "200", want: []int{200}},
+		{name: "controlled pair", input: "100, 200", want: []int{100, 200}},
+		{name: "unsupported tier", input: "128", wantErr: true},
+		{name: "duplicate tier", input: "200,200", wantErr: true},
+		{name: "empty element", input: "200,", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := shoppingHTTPConcurrencyLevelsFromEnv(test.input)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("error=%v, wantErr=%t", err, test.wantErr)
+			}
+			if err == nil && !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("levels=%v, want %v", got, test.want)
+			}
+		})
+	}
 }
 
 func newShoppingHTTPConcurrentLoadClient(concurrency int) *http.Client {
@@ -495,14 +693,15 @@ func executeShoppingHTTPConcurrentLoadJob(ctx context.Context, client *http.Clie
 	request.Header.Set("Content-Type", "application/json")
 	started := time.Now()
 	response, err := client.Do(request)
-	trial.LatencyMillis = float64(time.Since(started).Microseconds()) / 1000
 	if err != nil {
+		trial.LatencyMillis = float64(time.Since(started).Microseconds()) / 1000
 		trial.Error = "HTTP request failed: " + err.Error()
 		return trial
 	}
 	trial.HTTPStatus = response.StatusCode
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024))
 	_ = response.Body.Close()
+	trial.LatencyMillis = float64(time.Since(started).Microseconds()) / 1000
 	if readErr != nil {
 		trial.Error = "read response body: " + readErr.Error()
 		return trial
@@ -511,6 +710,30 @@ func executeShoppingHTTPConcurrentLoadJob(ctx context.Context, client *http.Clie
 		trial.Error = fmt.Sprintf("unexpected HTTP status %d", response.StatusCode)
 		return trial
 	}
+	trial.TaskSetupMillis, err = parseSimulationStageMillis(response.Header, simulationTaskSetupMicrosHeader)
+	if err != nil {
+		trial.Error = err.Error()
+		return trial
+	}
+	trial.TaskSetupTimed = true
+	trial.IntentParseMillis, err = parseSimulationStageMillis(response.Header, simulationIntentParseMicrosHeader)
+	if err != nil {
+		trial.Error = err.Error()
+		return trial
+	}
+	trial.IntentParseTimed = true
+	trial.IntentPersistMillis, err = parseSimulationStageMillis(response.Header, simulationIntentPersistenceMicrosHeader)
+	if err != nil {
+		trial.Error = err.Error()
+		return trial
+	}
+	trial.IntentPersistTimed = true
+	trial.CatalogSearchMillis, err = parseSimulationCatalogSearchMillis(response.Header)
+	if err != nil {
+		trial.Error = err.Error()
+		return trial
+	}
+	trial.CatalogSearchTimed = true
 	var decoded shoppingHTTPConcurrentLoadResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		trial.Error = "decode HTTP response: " + err.Error()
@@ -518,7 +741,7 @@ func executeShoppingHTTPConcurrentLoadJob(ctx context.Context, client *http.Clie
 	}
 	trial.TaskStatus = decoded.TaskStatus
 	trial.CandidateCount = len(decoded.Candidates)
-	if decoded.TaskID == "" || decoded.TaskStatus != TaskStatusDiscovered || decoded.Intent != job.task.Intent ||
+	if decoded.TaskID == "" || decoded.TaskStatus != TaskStatusDiscovered || !sameChallengeIntent(decoded.Intent, job.task.Intent) ||
 		decoded.Provider != "openai-codex" || decoded.Model != "gpt-6-luna" ||
 		!decoded.BuyerConfirmationRequired || len(decoded.Candidates) == 0 || len(decoded.Candidates) > 20 {
 		trial.Error = "shopping API response violated the locked discovery contract"
@@ -542,6 +765,7 @@ func summarizeShoppingHTTPConcurrentTier(concurrency int, warmup, measured []sho
 		MySQLPoolWaitCount:        after.WaitCount - before.WaitCount,
 		MySQLPoolWaitMillis:       float64((after.WaitDuration - before.WaitDuration).Microseconds()) / 1000}
 	var latencies []float64
+	var taskSetupLatencies, intentParseLatencies, intentPersistLatencies, catalogSearchLatencies []float64
 	var totalCandidates int64
 	for _, trial := range warmup {
 		if trial.HTTPStatus != 0 {
@@ -556,6 +780,22 @@ func summarizeShoppingHTTPConcurrentTier(concurrency int, warmup, measured []sho
 			metrics.HTTPStatusCounts[fmt.Sprint(trial.HTTPStatus)]++
 		}
 		latencies = append(latencies, trial.LatencyMillis)
+		if trial.TaskSetupTimed {
+			metrics.TaskSetupTimedRequests++
+			taskSetupLatencies = append(taskSetupLatencies, trial.TaskSetupMillis)
+		}
+		if trial.IntentParseTimed {
+			metrics.IntentParseTimedRequests++
+			intentParseLatencies = append(intentParseLatencies, trial.IntentParseMillis)
+		}
+		if trial.IntentPersistTimed {
+			metrics.IntentPersistTimedRequests++
+			intentPersistLatencies = append(intentPersistLatencies, trial.IntentPersistMillis)
+		}
+		if trial.CatalogSearchTimed {
+			metrics.CatalogSearchTimedRequests++
+			catalogSearchLatencies = append(catalogSearchLatencies, trial.CatalogSearchMillis)
+		}
 		totalCandidates += int64(trial.CandidateCount)
 		if trial.HTTPStatus != http.StatusOK {
 			metrics.UnexpectedHTTPFailures++
@@ -576,15 +816,57 @@ func summarizeShoppingHTTPConcurrentTier(concurrency int, warmup, measured []sho
 	}
 	metrics.LatencyP50Millis = lifecyclePercentile(latencies, 0.50)
 	metrics.LatencyP95Millis = lifecyclePercentile(latencies, 0.95)
+	metrics.TaskSetupP50Millis = lifecyclePercentile(taskSetupLatencies, 0.50)
+	metrics.TaskSetupP95Millis = lifecyclePercentile(taskSetupLatencies, 0.95)
+	metrics.IntentParseP50Millis = lifecyclePercentile(intentParseLatencies, 0.50)
+	metrics.IntentParseP95Millis = lifecyclePercentile(intentParseLatencies, 0.95)
+	metrics.IntentPersistP50Millis = lifecyclePercentile(intentPersistLatencies, 0.50)
+	metrics.IntentPersistP95Millis = lifecyclePercentile(intentPersistLatencies, 0.95)
+	metrics.CatalogSearchP50Millis = lifecyclePercentile(catalogSearchLatencies, 0.50)
+	metrics.CatalogSearchP95Millis = lifecyclePercentile(catalogSearchLatencies, 0.95)
 	if duration > 0 {
 		metrics.CompletedSearchesPerSecond = float64(metrics.CompletedSearches) / duration.Seconds()
 	}
 	if metrics.WarmupErrors != 0 || len(measured) != shoppingHTTPConcurrentTaskCount ||
 		metrics.UnexpectedHTTPFailures != 0 || metrics.BusinessErrors != 0 ||
+		metrics.TaskSetupTimedRequests != shoppingHTTPConcurrentTaskCount ||
+		metrics.IntentParseTimedRequests != shoppingHTTPConcurrentTaskCount ||
+		metrics.IntentPersistTimedRequests != shoppingHTTPConcurrentTaskCount ||
+		metrics.CatalogSearchTimedRequests != shoppingHTTPConcurrentTaskCount ||
 		metrics.Top1GoldHits != shoppingHTTPConcurrentTaskCount || metrics.CompletedSearches != shoppingHTTPConcurrentTaskCount {
 		metrics.Status = "FAIL"
 	}
 	return metrics
+}
+
+func TestParseSimulationCatalogSearchMillis(t *testing.T) {
+	tests := []struct {
+		name      string
+		header    string
+		want      float64
+		wantError bool
+	}{
+		{name: "microseconds convert to milliseconds", header: "1250", want: 1.25},
+		{name: "zero is valid", header: "0", want: 0},
+		{name: "missing", wantError: true},
+		{name: "malformed", header: "fast", wantError: true},
+		{name: "negative", header: "-1", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			header := make(http.Header)
+			if test.header != "" {
+				header.Set(simulationCatalogSearchMicrosHeader, test.header)
+			}
+			got, err := parseSimulationCatalogSearchMillis(header)
+			if (err != nil) != test.wantError {
+				t.Fatalf("parseSimulationCatalogSearchMillis() error = %v, wantError %v", err, test.wantError)
+			}
+			if err == nil && got != test.want {
+				t.Fatalf("parseSimulationCatalogSearchMillis() = %v, want %v", got, test.want)
+			}
+		})
+	}
 }
 
 func auditShoppingHTTPConcurrentLoad(ctx context.Context, store *MySQLStore, tenant string,
@@ -621,6 +903,64 @@ func auditShoppingHTTPConcurrentLoad(ctx context.Context, store *MySQLStore, ten
 	}
 	audit.Passed = len(audit.InvariantViolations) == 0
 	return audit
+}
+
+func shoppingMySQLConcurrentLoadOtherConnections(poolLimit, serverMax, threadsConnected, poolOpen, reserve int) (int, error) {
+	if poolLimit <= 0 || serverMax <= 0 || threadsConnected < 0 || poolOpen < 0 || reserve < 0 {
+		return 0, fmt.Errorf("invalid MySQL connection budget inputs: pool_limit=%d server_max=%d threads_connected=%d pool_open=%d reserve=%d",
+			poolLimit, serverMax, threadsConnected, poolOpen, reserve)
+	}
+	otherConnections := threadsConnected - poolOpen
+	if otherConnections < 0 {
+		otherConnections = 0
+	}
+	if poolLimit+otherConnections+reserve > serverMax {
+		return otherConnections, fmt.Errorf("refusing concurrent load: MySQL connection headroom is insufficient (pool_limit=%d other_connections=%d reserve=%d max_connections=%d)",
+			poolLimit, otherConnections, reserve, serverMax)
+	}
+	return otherConnections, nil
+}
+
+func optionalResourceGBFromEnv(t *testing.T, name string) float64 {
+	t.Helper()
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || parsed < 0 {
+		t.Fatalf("invalid non-negative GB value in %s: %q", name, value)
+	}
+	return parsed
+}
+
+func TestShoppingMySQLConcurrentLoadConnectionBudget(t *testing.T) {
+	tests := []struct {
+		name             string
+		poolLimit        int
+		serverMax        int
+		threadsConnected int
+		poolOpen         int
+		reserve          int
+		wantOther        int
+		wantError        bool
+	}{
+		{name: "fits with exact reserve", poolLimit: 128, serverMax: 151, threadsConnected: 16, poolOpen: 1, reserve: 8, wantOther: 15},
+		{name: "rejects when reserve would be consumed", poolLimit: 128, serverMax: 151, threadsConnected: 17, poolOpen: 1, reserve: 8, wantOther: 16, wantError: true},
+		{name: "rejects saturated smaller pool", poolLimit: 96, serverMax: 151, threadsConnected: 50, poolOpen: 1, reserve: 8, wantOther: 49, wantError: true},
+		{name: "does not count benchmark connections twice", poolLimit: 24, serverMax: 151, threadsConnected: 5, poolOpen: 5, reserve: 8, wantOther: 0},
+		{name: "rejects invalid pool limit", poolLimit: 0, serverMax: 151, threadsConnected: 1, poolOpen: 1, reserve: 8, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotOther, err := shoppingMySQLConcurrentLoadOtherConnections(test.poolLimit, test.serverMax,
+				test.threadsConnected, test.poolOpen, test.reserve)
+			if gotOther != test.wantOther || (err != nil) != test.wantError {
+				t.Fatalf("connection budget = (other=%d, err=%v), want (other=%d, error=%t)",
+					gotOther, err, test.wantOther, test.wantError)
+			}
+		})
+	}
 }
 
 func sqlStats(store *MySQLStore) sql.DBStats {

@@ -68,7 +68,7 @@ func run(args []string) error {
 			if taskID == "" {
 				taskID = scenario.CaseID
 			}
-			scenario.TrialIsolationID = fmt.Sprintf("live-local-runtime:%s:%d:%d", taskID, scenario.TrialIndex, scenario.Seed)
+			scenario.TrialIsolationID = fmt.Sprintf("live-local-runtime:%s:%s:%d:%d", scenario.CaseID, taskID, scenario.TrialIndex, scenario.Seed)
 		}
 		root, err := livelocal.New(context.Background(), livelocal.Config{MemoryMode: defaultValue(scenario.MemoryMode, "on"), LLMMode: llmMode(scenario.RecoveryProvider)})
 		if err != nil {
@@ -102,7 +102,7 @@ func run(args []string) error {
 		Benchmark:              "S11 isolated live-local Agent commerce suite",
 		GeneratedAtUTC:         time.Now().UTC(),
 		GoVersion:              buildGoVersion(),
-		SourceRevision:         buildSetting("vcs.revision"),
+		SourceRevision:         sourceRevision(),
 		SourceModified:         sourceModifiedAtBuild(),
 		DatasetFile:            filepath.Base(*dataset),
 		DatasetSHA256:          fmt.Sprintf("sha256:%x", datasetDigest),
@@ -184,6 +184,13 @@ func sourceModifiedAtBuild() string {
 	return buildSetting("vcs.modified")
 }
 
+func sourceRevision() string {
+	if value := strings.TrimSpace(os.Getenv("STABLEPAY_SOURCE_REVISION")); value != "" {
+		return value
+	}
+	return buildSetting("vcs.revision")
+}
+
 func buildGoVersion() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -193,10 +200,14 @@ func buildGoVersion() string {
 }
 
 func llmMode(provider string) string {
-	if strings.EqualFold(strings.TrimSpace(provider), "llm") {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "llm":
 		return "local"
+	case "baseline_stop":
+		return "stop"
+	default:
+		return "rule"
 	}
-	return "rule"
 }
 
 func defaultValue(value, fallback string) string {

@@ -77,6 +77,7 @@ type PairedPlanOutcomes struct {
 type PolicyTrial struct {
 	CandidateCount int      `json:"candidate_count"`
 	TopSKU         string   `json:"top_sku,omitempty"`
+	MatchType      string   `json:"match_type,omitempty"`
 	RecallHits     int      `json:"recall_hits"`
 	GoldCount      int      `json:"gold_count"`
 	TaskHit        bool     `json:"task_hit_at_k"`
@@ -93,9 +94,10 @@ type EvaluationTrial struct {
 }
 
 type rankedOffer struct {
-	product Product
-	offer   Inventory
-	score   int
+	product   Product
+	offer     Inventory
+	score     int
+	matchType string
 }
 
 func ValidateLockedSuite(catalog ImportedCatalog, tasks []Task) error {
@@ -268,7 +270,8 @@ func rankBaseline(products []Product, intent Intent, limit int) []rankedOffer {
 func rankTreatment(products []Product, offers map[string]Inventory, intent Intent, limit int) []rankedOffer {
 	candidates := make([]rankedOffer, 0, 32)
 	for _, product := range products {
-		if product.Category != intent.Category || product.Item != intent.Item || product.Format != intent.RequiredFormat || product.Currency != "USDC" {
+		matchType := candidateMatchType(product, intent)
+		if matchType == "" || product.Currency != "USDC" {
 			continue
 		}
 		offer, ok := offers[inventoryKey(SimulationTenantID, product.MerchantID, product.SKUID, intent.Region)]
@@ -276,9 +279,12 @@ func rankTreatment(products []Product, offers map[string]Inventory, intent Inten
 			continue
 		}
 		score := stylePreferenceScore(product, intent.PreferredStyle)
-		candidates = append(candidates, rankedOffer{product: product, offer: offer, score: score})
+		candidates = append(candidates, rankedOffer{product: product, offer: offer, score: score, matchType: matchType})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].matchType != candidates[j].matchType {
+			return matchTypePriority(candidates[i].matchType) > matchTypePriority(candidates[j].matchType)
+		}
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
@@ -325,10 +331,11 @@ func makePolicyTrial(task Task, candidates []rankedOffer, offers map[string]Inve
 	}
 	selected := candidates[0]
 	trial.TopSKU = selected.product.SKUID
+	trial.MatchType = selected.matchType
 	if !gold[selected.product.SKUID] {
 		trial.FailureReasons = append(trial.FailureReasons, "SKU_NOT_IN_GOLD_SET")
 	}
-	if selected.product.Category != task.Intent.Category || selected.product.Item != task.Intent.Item || selected.product.Format != task.Intent.RequiredFormat {
+	if candidateMatchType(selected.product, task.Intent) == "" {
 		trial.FailureReasons = append(trial.FailureReasons, "HARD_ATTRIBUTE_MISMATCH")
 	}
 	if selected.product.Currency != "USDC" {
@@ -498,6 +505,48 @@ func ComputeEvaluationHashes(catalog ImportedCatalog, tasks []Task, manifestByte
 	manifestHash := sha256.Sum256(manifestBytes)
 	return EvaluationHashes{CatalogSHA256: productHash, OverlaySHA256: offerHash,
 		TasksSHA256: taskHash, ManifestSHA256: "sha256:" + hex.EncodeToString(manifestHash[:])}, nil
+}
+
+// validateRecordedIntentHashesV1 allows an existing recorded-intent run to be
+// replayed only when every v1 Merchant product fact, inventory row, task, and
+// source manifest still hashes exactly as recorded. The v1 Merchant snapshot
+// did not contain benchmark-generated Product.Attributes or
+// Product.SubstitutionGroup; v2 derives those locally and records them in the
+// full execution hash. This does not certify current parser quality or current
+// taxonomy coverage.
+func validateRecordedIntentHashesV1(catalog ImportedCatalog, tasks []Task, manifestBytes []byte,
+	recorded EvaluationHashes) (EvaluationHashes, string, error) {
+	current, err := ComputeEvaluationHashes(catalog, tasks, manifestBytes)
+	if err != nil {
+		return EvaluationHashes{}, "", err
+	}
+	if current.OverlaySHA256 != recorded.OverlaySHA256 || current.TasksSHA256 != recorded.TasksSHA256 ||
+		current.ManifestSHA256 != recorded.ManifestSHA256 {
+		return EvaluationHashes{}, "", fmt.Errorf("recorded intent inventory/task/source-manifest hashes differ from current execution inputs: current=%+v recorded=%+v", current, recorded)
+	}
+	legacyCatalogHash, err := legacyProductCatalogHashV1(catalog.Products)
+	if err != nil {
+		return EvaluationHashes{}, "", err
+	}
+	if legacyCatalogHash != recorded.CatalogSHA256 {
+		return EvaluationHashes{}, "", fmt.Errorf("recorded intent catalog does not match the v1 product projection: current_v1=%s recorded=%s", legacyCatalogHash, recorded.CatalogSHA256)
+	}
+	return current, legacyCatalogHash, nil
+}
+
+func legacyProductCatalogHashV1(input []Product) (string, error) {
+	products := append([]Product(nil), input...)
+	sort.Slice(products, func(i, j int) bool {
+		if products[i].MerchantID != products[j].MerchantID {
+			return products[i].MerchantID < products[j].MerchantID
+		}
+		return products[i].SKUID < products[j].SKUID
+	})
+	for index := range products {
+		products[index].Attributes = nil
+		products[index].SubstitutionGroup = ""
+	}
+	return hashJSON(products)
 }
 
 func hashJSON(value any) (string, error) {

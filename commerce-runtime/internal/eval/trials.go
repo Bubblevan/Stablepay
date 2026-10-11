@@ -13,7 +13,16 @@ func ExpandTrials(scenarios []Scenario, trials int) ([]Scenario, error) {
 		return nil, errors.New("trials must be positive")
 	}
 	if trials == 1 {
-		return scenarios, nil
+		result := make([]Scenario, len(scenarios))
+		for index, scenario := range scenarios {
+			if scenario.TaskID == "" {
+				scenario.TaskID = scenario.CaseID
+			}
+			scenario.TrialIndex = 1
+			scenario.TrialIsolationID = ""
+			result[index] = scenario
+		}
+		return result, nil
 	}
 	result := make([]Scenario, 0, len(scenarios)*trials)
 	for _, scenario := range scenarios {

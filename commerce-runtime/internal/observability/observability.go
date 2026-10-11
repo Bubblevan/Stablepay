@@ -97,7 +97,7 @@ type EpisodeResult struct {
 	Mode                       string           `json:"mode"`              // offline, replay, live
 	Ingress                    string           `json:"ingress"`           // http, mcp, cli
 	MemoryMode                 string           `json:"memory_mode"`       // on, off, unknown
-	RecoveryProvider           string           `json:"recovery_provider"` // llm, rule, unknown
+	RecoveryProvider           string           `json:"recovery_provider"` // llm, rule, baseline_stop, unknown
 	Path                       string           `json:"path"`              // happy, recovery, unknown
 	Suite                      string           `json:"suite,omitempty"`   // regression, benchmark, live_local, real_business
 	Environment                string           `json:"environment,omitempty"`
@@ -418,7 +418,7 @@ func computeLegacy(results []EpisodeResult, now time.Time) Metrics {
 			if value == nil {
 				continue
 			}
-			if strings.EqualFold(value.Provider, "rule") || value.Status == llm.TraceFallback {
+			if !isModelDecisionProvider(value.Provider) || value.Status == llm.TraceFallback {
 				continue
 			}
 			metrics.LLMProposals++
@@ -483,7 +483,7 @@ func computeLegacy(results []EpisodeResult, now time.Time) Metrics {
 		}
 		liveHasModelTrace := false
 		for _, value := range result.Trace.ModelDecisionTraces {
-			if value != nil && value.Provider != "" && !strings.EqualFold(value.Provider, "rule") {
+			if value != nil && isModelDecisionProvider(value.Provider) {
 				liveHasModelTrace = true
 				break
 			}

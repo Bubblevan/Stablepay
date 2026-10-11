@@ -17,6 +17,8 @@ const (
 	TaskStatusBuyerRejected          = "BUYER_REJECTED"
 	TaskStatusPaid                   = "PAID"
 	TaskStatusPaymentFailed          = "PAYMENT_FAILED"
+	TaskStatusFulfilled              = "FULFILLED"
+	TaskStatusRefunded               = "REFUNDED"
 )
 
 // These records live only in the dedicated stablepay_shopping_sim database.
@@ -108,23 +110,28 @@ type ShoppingTaskRecord struct {
 func (ShoppingTaskRecord) TableName() string { return "sim_shopping_tasks" }
 
 type QuoteRecord struct {
-	QuoteID        string    `gorm:"primaryKey;size:96"`
-	TenantID       string    `gorm:"size:64;not null;uniqueIndex:uk_sim_quote_version,priority:1;uniqueIndex:uk_sim_quote_idem,priority:1;index:idx_sim_quote_task"`
-	TaskID         string    `gorm:"size:96;not null;index:idx_sim_quote_task,priority:2"`
-	BuyerID        string    `gorm:"size:96;not null;index"`
-	MerchantID     string    `gorm:"size:64;not null;uniqueIndex:uk_sim_quote_version,priority:2"`
-	SKUID          string    `gorm:"column:sku_id;size:96;not null;uniqueIndex:uk_sim_quote_version,priority:3"`
-	Region         string    `gorm:"size:16;not null;uniqueIndex:uk_sim_quote_version,priority:4"`
-	Version        int64     `gorm:"not null;uniqueIndex:uk_sim_quote_version,priority:5"`
-	AmountMinor    int64     `gorm:"not null"`
-	Currency       string    `gorm:"size:16;not null"`
-	StockRevision  int64     `gorm:"not null"`
-	SnapshotHash   string    `gorm:"size:71;not null"`
-	IdempotencyKey string    `gorm:"size:128;not null;uniqueIndex:uk_sim_quote_idem,priority:2"`
-	RequestHash    string    `gorm:"size:71;not null"`
-	ExpiresAt      time.Time `gorm:"not null;index"`
-	CreatedAt      time.Time `gorm:"not null"`
-	DataOrigin     string    `gorm:"size:32;not null;default:SYNTHETIC"`
+	QuoteID            string    `gorm:"primaryKey;size:96"`
+	TenantID           string    `gorm:"size:64;not null;uniqueIndex:uk_sim_quote_version,priority:1;uniqueIndex:uk_sim_quote_idem,priority:1;index:idx_sim_quote_task"`
+	TaskID             string    `gorm:"size:96;not null;index:idx_sim_quote_task,priority:2"`
+	BuyerID            string    `gorm:"size:96;not null;index"`
+	MerchantID         string    `gorm:"size:64;not null;uniqueIndex:uk_sim_quote_version,priority:2"`
+	SKUID              string    `gorm:"column:sku_id;size:96;not null;uniqueIndex:uk_sim_quote_version,priority:3"`
+	RequestedItem      string    `gorm:"size:160"`
+	ProductItem        string    `gorm:"size:160"`
+	ProductTitle       string    `gorm:"size:512"`
+	MatchType          string    `gorm:"size:16"`
+	SubstitutionNotice string    `gorm:"size:1024"`
+	Region             string    `gorm:"size:16;not null;uniqueIndex:uk_sim_quote_version,priority:4"`
+	Version            int64     `gorm:"not null;uniqueIndex:uk_sim_quote_version,priority:5"`
+	AmountMinor        int64     `gorm:"not null"`
+	Currency           string    `gorm:"size:16;not null"`
+	StockRevision      int64     `gorm:"not null"`
+	SnapshotHash       string    `gorm:"size:71;not null"`
+	IdempotencyKey     string    `gorm:"size:128;not null;uniqueIndex:uk_sim_quote_idem,priority:2"`
+	RequestHash        string    `gorm:"size:71;not null"`
+	ExpiresAt          time.Time `gorm:"not null;index"`
+	CreatedAt          time.Time `gorm:"not null"`
+	DataOrigin         string    `gorm:"size:32;not null;default:SYNTHETIC"`
 }
 
 func (QuoteRecord) TableName() string { return "sim_quotes" }
@@ -231,6 +238,63 @@ type MockPaymentRecord struct {
 }
 
 func (MockPaymentRecord) TableName() string { return "simulated_payments" }
+
+type MockFulfillmentRecord struct {
+	FulfillmentID     string    `gorm:"primaryKey;size:96"`
+	TenantID          string    `gorm:"size:64;not null;uniqueIndex:uk_sim_fulfillment_order,priority:1;uniqueIndex:uk_sim_fulfillment_idem,priority:1;index"`
+	OrderID           string    `gorm:"size:96;not null;uniqueIndex:uk_sim_fulfillment_order,priority:2"`
+	IdempotencyKey    string    `gorm:"size:128;not null;uniqueIndex:uk_sim_fulfillment_idem,priority:2"`
+	Status            string    `gorm:"size:32;not null;index"`
+	Provider          string    `gorm:"size:64;not null;default:simulation-only"`
+	DeliveryReference string    `gorm:"size:128"`
+	FailureCode       string    `gorm:"size:48"`
+	AttemptCount      int       `gorm:"not null;default:1"`
+	MaxAttempts       int       `gorm:"not null;default:1"`
+	CreatedAt         time.Time `gorm:"not null"`
+	CompletedAt       time.Time `gorm:"not null"`
+	DataOrigin        string    `gorm:"size:32;not null;default:SYNTHETIC"`
+}
+
+func (MockFulfillmentRecord) TableName() string { return "simulated_fulfillments" }
+
+// MockFulfillmentAttemptRecord is the durable retry history for the
+// benchmark-only fulfillment adapter. One row represents one provider attempt;
+// the final fulfillment/refund remains a separate, unique per-order effect.
+type MockFulfillmentAttemptRecord struct {
+	AttemptID                string    `gorm:"primaryKey;size:96"`
+	TenantID                 string    `gorm:"size:64;not null;uniqueIndex:uk_sim_fulfillment_attempt,priority:1;index"`
+	OrderID                  string    `gorm:"size:96;not null;uniqueIndex:uk_sim_fulfillment_attempt,priority:2;index"`
+	AttemptNumber            int       `gorm:"not null;uniqueIndex:uk_sim_fulfillment_attempt,priority:3"`
+	IdempotencyKey           string    `gorm:"size:128;not null"`
+	Status                   string    `gorm:"size:32;not null;index"`
+	FailureCode              string    `gorm:"size:48"`
+	PlannedTransientFailures int       `gorm:"not null;default:0"`
+	PermanentFailure         bool      `gorm:"not null;default:false"`
+	MaxAttempts              int       `gorm:"not null;default:1"`
+	Provider                 string    `gorm:"size:64;not null;default:simulation-only"`
+	NextAttemptAt            time.Time `gorm:"not null"`
+	CreatedAt                time.Time `gorm:"not null"`
+	DataOrigin               string    `gorm:"size:32;not null;default:SYNTHETIC"`
+}
+
+func (MockFulfillmentAttemptRecord) TableName() string { return "simulated_fulfillment_attempts" }
+
+type MockRefundRecord struct {
+	RefundID        string    `gorm:"primaryKey;size:96"`
+	TenantID        string    `gorm:"size:64;not null;uniqueIndex:uk_sim_refund_order,priority:1;uniqueIndex:uk_sim_refund_payment,priority:1;uniqueIndex:uk_sim_refund_idem,priority:1;index"`
+	OrderID         string    `gorm:"size:96;not null;uniqueIndex:uk_sim_refund_order,priority:2"`
+	PaymentID       string    `gorm:"size:96;not null;uniqueIndex:uk_sim_refund_payment,priority:2"`
+	AmountMinor     int64     `gorm:"not null"`
+	Currency        string    `gorm:"size:16;not null"`
+	Provider        string    `gorm:"size:64;not null;default:simulation-only"`
+	Status          string    `gorm:"size:24;not null;index"`
+	IdempotencyKey  string    `gorm:"size:128;not null;uniqueIndex:uk_sim_refund_idem,priority:2"`
+	RefundReference string    `gorm:"size:128;not null"`
+	CreatedAt       time.Time `gorm:"not null"`
+	DataOrigin      string    `gorm:"size:32;not null;default:SYNTHETIC"`
+}
+
+func (MockRefundRecord) TableName() string { return "simulated_refunds" }
 
 type SimulationAuditRecord struct {
 	ID         uint64    `gorm:"primaryKey;autoIncrement"`

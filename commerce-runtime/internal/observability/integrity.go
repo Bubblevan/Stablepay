@@ -210,7 +210,7 @@ func applyIntegrityMetrics(results []EpisodeResult, metrics *Metrics) {
 		if result.Mode == ModeLive {
 			liveHasModelTrace := false
 			for _, model := range result.Trace.ModelDecisionTraces {
-				if model != nil && strings.TrimSpace(model.Provider) != "" && !strings.EqualFold(model.Provider, "rule") {
+				if model != nil && isModelDecisionProvider(model.Provider) {
 					liveHasModelTrace = true
 					break
 				}
@@ -524,7 +524,16 @@ func attemptIsLLM(attempt canonicalDecisionAttempt) bool {
 	if attempt.model == nil {
 		return true
 	}
-	return !strings.EqualFold(attempt.model.Provider, "rule") && attempt.model.Status != llm.TraceFallback
+	return isModelDecisionProvider(attempt.model.Provider) && attempt.model.Status != llm.TraceFallback
+}
+
+func isModelDecisionProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "rule", "benchmark_policy":
+		return false
+	default:
+		return true
+	}
 }
 
 func extractAllLatencies(results []EpisodeResult) []float64 {
