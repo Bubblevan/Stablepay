@@ -382,7 +382,7 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("mysql db is required")
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &PaymentTransportTraceModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}, &DecisionOutcomeTraceModel{}, &WorkflowDefinitionModel{}, &WorkflowRunModel{}, &WorkflowStepRunModel{}, &WorkflowEventModel{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&EpisodeModel{}, &EpisodeExecutionStatusModel{}, &EventModel{}, &LedgerEntryModel{}, &PaymentIntentModel{}, &PaymentTransportTraceModel{}, &MerchantCapabilityModel{}, &MerchantCapabilityCurrentModel{}, &CandidateSetModel{}, &MerchantInvocationModel{}, &PaymentRequirementFactModel{}, &DeliveryArtifactModel{}, &ValidationEvidenceModel{}, &RecoveryContextModel{}, &ParentApprovalRequestModel{}, &ParentDecisionFactModel{}, &BudgetAmendmentModel{}, &BuyerConfirmationModel{}, &EvidenceRecordModel{}, &ModelDecisionTraceModel{}, &MemoryRecordModel{}, &MemoryObservationModel{}, &MemoryUseTraceModel{}, &DecisionOutcomeTraceModel{}, &WorkflowDefinitionModel{}, &WorkflowRunModel{}, &WorkflowStepRunModel{}, &WorkflowEventModel{}); err != nil {
 		return err
 	}
 	// GORM's generic MySQL time mapping may retain an older DATETIME(3)

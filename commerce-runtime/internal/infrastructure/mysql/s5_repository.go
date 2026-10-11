@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/stablepay/commerce-runtime/internal/buyer"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
 	"github.com/stablepay/commerce-runtime/internal/repository"
@@ -91,6 +92,50 @@ type BudgetAmendmentModel struct {
 }
 
 func (BudgetAmendmentModel) TableName() string { return "budget_amendments" }
+
+type BuyerConfirmationModel struct {
+	ConfirmationID string    `gorm:"column:confirmation_id;type:varchar(128);primaryKey"`
+	EpisodeID      string    `gorm:"column:episode_id;type:varchar(128);not null;uniqueIndex:uk_buyer_confirmation_quote,priority:1;uniqueIndex:uk_buyer_confirmation_key,priority:1;index:idx_buyer_confirmation_episode"`
+	RequestID      string    `gorm:"column:request_id;type:varchar(128);not null"`
+	RequesterDID   string    `gorm:"column:requester_did;type:varchar(128);not null"`
+	MerchantDID    string    `gorm:"column:merchant_did;type:varchar(128);not null"`
+	CapabilityID   string    `gorm:"column:capability_id;type:varchar(128);not null"`
+	ProductID      string    `gorm:"column:product_id;type:varchar(255);not null"`
+	QuoteHash      string    `gorm:"column:quote_hash;type:char(71);not null;uniqueIndex:uk_buyer_confirmation_quote,priority:2"`
+	AmountMinor    int64     `gorm:"column:amount_minor;not null"`
+	Currency       string    `gorm:"column:currency;type:varchar(16);not null"`
+	Accepted       bool      `gorm:"column:accepted;not null"`
+	IdempotencyKey string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_buyer_confirmation_key,priority:2"`
+	PayloadHash    string    `gorm:"column:payload_hash;type:char(71);not null"`
+	Signature      string    `gorm:"column:signature;type:varchar(128);not null"`
+	ExpiresAt      time.Time `gorm:"column:expires_at;not null"`
+	CreatedAt      time.Time `gorm:"column:created_at;not null"`
+}
+
+func (BuyerConfirmationModel) TableName() string { return "buyer_confirmations" }
+
+func buyerConfirmationToModel(v *buyer.Confirmation) (*BuyerConfirmationModel, error) {
+	if v == nil || v.Validate() != nil {
+		return nil, buyer.ErrInvalidConfirmation
+	}
+	return &BuyerConfirmationModel{ConfirmationID: v.ConfirmationID, EpisodeID: v.EpisodeID, RequestID: v.RequestID,
+		RequesterDID: v.RequesterDID, MerchantDID: v.MerchantDID, CapabilityID: v.CapabilityID, ProductID: v.ProductID,
+		QuoteHash: v.QuoteHash, AmountMinor: v.AmountMinor, Currency: v.Currency, Accepted: v.Accepted,
+		IdempotencyKey: v.IdempotencyKey, PayloadHash: v.PayloadHash, Signature: v.Signature,
+		ExpiresAt: v.ExpiresAt, CreatedAt: v.CreatedAt}, nil
+}
+
+func modelToBuyerConfirmation(m BuyerConfirmationModel) (*buyer.Confirmation, error) {
+	v := &buyer.Confirmation{ConfirmationID: m.ConfirmationID, EpisodeID: m.EpisodeID, RequestID: m.RequestID,
+		RequesterDID: m.RequesterDID, MerchantDID: m.MerchantDID, CapabilityID: m.CapabilityID, ProductID: m.ProductID,
+		QuoteHash: m.QuoteHash, AmountMinor: m.AmountMinor, Currency: m.Currency, Accepted: m.Accepted,
+		IdempotencyKey: m.IdempotencyKey, PayloadHash: m.PayloadHash, Signature: m.Signature,
+		ExpiresAt: m.ExpiresAt, CreatedAt: m.CreatedAt}
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
 
 func recoveryContextToModel(v *recovery.RecoveryContext) (*RecoveryContextModel, error) {
 	if v == nil || v.Validate() != nil {

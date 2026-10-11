@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/stablepay/commerce-runtime/internal/buyer"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/evidence"
@@ -39,6 +40,7 @@ var (
 	ErrModelTraceConflict         = errors.New("model decision trace conflicts with an existing identity")
 	ErrMemoryUseTraceConflict     = errors.New("memory use trace conflicts with an existing identity")
 	ErrDecisionOutcomeConflict    = errors.New("decision outcome trace conflicts with an existing identity")
+	ErrBuyerConfirmationConflict  = errors.New("buyer confirmation conflicts with an existing identity")
 )
 
 type EpisodeRepository interface {
@@ -241,6 +243,27 @@ type ParentApprovalRepository interface {
 	GetParentDecision(context.Context, string) (*recovery.ParentDecisionFact, error)
 	SaveBudgetAmendment(context.Context, *recovery.BudgetAmendment) error
 	GetBudgetAmendment(context.Context, string) (*recovery.BudgetAmendment, error)
+}
+
+type BuyerConfirmationRepository interface {
+	GetBuyerConfirmationByQuoteHash(context.Context, string, string) (*buyer.Confirmation, error)
+	FindBuyerConfirmationByIdempotencyKey(context.Context, string, string) (*buyer.Confirmation, error)
+}
+
+// BuyerConfirmationStore atomically records a signed buyer fact with the
+// Episode projection/event that resumes or aborts the purchase.
+type BuyerConfirmationStore interface {
+	TransitionStore
+	BuyerConfirmationRepository
+	CommitBuyerConfirmationTransition(context.Context, BuyerConfirmationTransition) error
+}
+
+type BuyerConfirmationTransition struct {
+	EpisodeID              string
+	ExpectedEpisodeVersion uint64
+	NextEpisode            *episode.CommerceEpisode
+	Event                  *episode.EpisodeEvent
+	Confirmation           *buyer.Confirmation
 }
 
 // S5Store extends the S4 local transaction boundary with recovery facts. The

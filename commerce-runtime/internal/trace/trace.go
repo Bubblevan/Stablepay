@@ -33,34 +33,39 @@ const (
 	ActionPaymentConfirmed            ActionType = "PAYMENT_CONFIRMED"
 	ActionPaymentFailed               ActionType = "PAYMENT_FAILED"
 	ActionPaymentUnknown              ActionType = "PAYMENT_UNKNOWN"
+	ActionRequestBuyerConfirmation    ActionType = "REQUEST_BUYER_CONFIRMATION"
+	ActionRecordBuyerConfirmation     ActionType = "RECORD_BUYER_CONFIRMATION"
 )
 
 type ObservationType string
 
 const (
-	ObservationCandidatesFound      ObservationType = "CANDIDATES_FOUND"
-	ObservationNoEligibleCandidate  ObservationType = "NO_ELIGIBLE_CANDIDATE"
-	ObservationHTTP402              ObservationType = "HTTP_402"
-	ObservationMerchantResponse     ObservationType = "MERCHANT_RESPONSE"
-	ObservationQuoteValid           ObservationType = "QUOTE_VALID"
-	ObservationPolicyDenied         ObservationType = "POLICY_DENIED"
-	ObservationPaymentSettled       ObservationType = "PAYMENT_SETTLED"
-	ObservationEntitlementValid     ObservationType = "ENTITLEMENT_VALID"
-	ObservationDeliveryValid        ObservationType = "DELIVERY_VALID"
-	ObservationDeliveryInvalid      ObservationType = "DELIVERY_INVALID"
-	ObservationToolError            ObservationType = "TOOL_ERROR"
-	ObservationDeadlineExceeded     ObservationType = "DEADLINE_EXCEEDED"
-	ObservationPaymentSubmitted     ObservationType = "PAYMENT_SUBMITTED"
-	ObservationPaymentPending       ObservationType = "PAYMENT_PENDING"
-	ObservationPaymentStatusQueried ObservationType = "PAYMENT_STATUS_QUERIED"
-	ObservationAuthorizationAllowed ObservationType = "AUTHORIZATION_ALLOWED"
-	ObservationPaymentConfirmed     ObservationType = "PAYMENT_CONFIRMED"
-	ObservationPaymentFailed        ObservationType = "PAYMENT_FAILED"
-	ObservationPaymentUnknown       ObservationType = "PAYMENT_UNKNOWN"
-	ObservationEntitlementInvalid   ObservationType = "ENTITLEMENT_INVALID"
-	ObservationEntitlementUnknown   ObservationType = "ENTITLEMENT_UNKNOWN"
-	ObservationParentApproved       ObservationType = "PARENT_APPROVED"
-	ObservationParentDenied         ObservationType = "PARENT_DENIED"
+	ObservationCandidatesFound           ObservationType = "CANDIDATES_FOUND"
+	ObservationNoEligibleCandidate       ObservationType = "NO_ELIGIBLE_CANDIDATE"
+	ObservationHTTP402                   ObservationType = "HTTP_402"
+	ObservationMerchantResponse          ObservationType = "MERCHANT_RESPONSE"
+	ObservationQuoteValid                ObservationType = "QUOTE_VALID"
+	ObservationPolicyDenied              ObservationType = "POLICY_DENIED"
+	ObservationPaymentSettled            ObservationType = "PAYMENT_SETTLED"
+	ObservationEntitlementValid          ObservationType = "ENTITLEMENT_VALID"
+	ObservationDeliveryValid             ObservationType = "DELIVERY_VALID"
+	ObservationDeliveryInvalid           ObservationType = "DELIVERY_INVALID"
+	ObservationToolError                 ObservationType = "TOOL_ERROR"
+	ObservationDeadlineExceeded          ObservationType = "DEADLINE_EXCEEDED"
+	ObservationPaymentSubmitted          ObservationType = "PAYMENT_SUBMITTED"
+	ObservationPaymentPending            ObservationType = "PAYMENT_PENDING"
+	ObservationPaymentStatusQueried      ObservationType = "PAYMENT_STATUS_QUERIED"
+	ObservationAuthorizationAllowed      ObservationType = "AUTHORIZATION_ALLOWED"
+	ObservationPaymentConfirmed          ObservationType = "PAYMENT_CONFIRMED"
+	ObservationPaymentFailed             ObservationType = "PAYMENT_FAILED"
+	ObservationPaymentUnknown            ObservationType = "PAYMENT_UNKNOWN"
+	ObservationEntitlementInvalid        ObservationType = "ENTITLEMENT_INVALID"
+	ObservationEntitlementUnknown        ObservationType = "ENTITLEMENT_UNKNOWN"
+	ObservationParentApproved            ObservationType = "PARENT_APPROVED"
+	ObservationParentDenied              ObservationType = "PARENT_DENIED"
+	ObservationBuyerConfirmationRequired ObservationType = "BUYER_CONFIRMATION_REQUIRED"
+	ObservationBuyerApproved             ObservationType = "BUYER_APPROVED"
+	ObservationBuyerRejected             ObservationType = "BUYER_REJECTED"
 )
 
 type Action struct {
@@ -141,7 +146,8 @@ func KnownAction(action ActionType) bool {
 		ActionParentDecision,
 		ActionSelectMerchant, ActionNegotiateAndPay, ActionPaymentSubmitted, ActionPaymentPending,
 		ActionPaymentStatusQueried, ActionPaymentAuthorizationChecked, ActionPaymentConfirmed,
-		ActionPaymentFailed, ActionPaymentUnknown:
+		ActionPaymentFailed, ActionPaymentUnknown, ActionRequestBuyerConfirmation,
+		ActionRecordBuyerConfirmation:
 		return true
 	default:
 		return false

@@ -222,6 +222,34 @@ func TestDeterministicS2PaymentLifecycleIsLLMIndependent(t *testing.T) {
 	}
 }
 
+func TestBuyerConfirmationIsRequiredBeforePaymentReservation(t *testing.T) {
+	service, store, now := serviceFixture()
+	request := requestFixture(now)
+	request.RequestID = "buyer-confirmation-gate"
+	request.Constraints.RequireBuyerConfirmation = true
+	created, err := service.CreateEpisode(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := advanceToNegotiating(t, service, created.Episode, now)
+	quote := TrustedPaymentQuote{MerchantDID: "did:merchant:1", CapabilityID: "capability-1", PayeeDID: "did:payee:1",
+		QuoteHash: "sha256:buyer-gate-quote", AmountMinor: 300, Currency: "USDC", RequesterDID: current.RequesterDID,
+		ProductID: "sku-audio-1", ExpiresAt: now.Add(30 * time.Minute)}
+	_, err = service.ReservePaymentIntent(context.Background(), ReservePaymentIntentRequest{EpisodeID: current.EpisodeID, Quote: quote,
+		IdempotencyKey: "buyer-gate-payment", Actor: "runtime", TraceID: "buyer-gate"})
+	if !errors.Is(err, ErrBuyerConfirmationRequired) {
+		t.Fatalf("reserve without buyer confirmation error=%v, want ErrBuyerConfirmationRequired", err)
+	}
+	intents, err := store.ListPaymentIntents(context.Background(), current.EpisodeID)
+	if err != nil || len(intents) != 0 {
+		t.Fatalf("unapproved purchase created payment intents: count=%d err=%v", len(intents), err)
+	}
+	entries, err := store.ListLedgerEntries(context.Background(), current.EpisodeID)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("unapproved purchase reserved budget: ledger entries=%d err=%v", len(entries), err)
+	}
+}
+
 func TestUnknownPaymentOutcomeCannotBlindRetry(t *testing.T) {
 	service, _, now, created := createFixture(t)
 	current := advanceToNegotiating(t, service, created, now)

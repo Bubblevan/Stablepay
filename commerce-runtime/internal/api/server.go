@@ -213,6 +213,14 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 		s.parentDecision(w, r, episodeID)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "buyer-confirmations" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")
+			return
+		}
+		s.buyerConfirmation(w, r, episodeID)
+		return
+	}
 	if len(parts) != 1 || r.Method != http.MethodGet {
 		writeError(w, http.StatusNotFound, "not_found", "episode route not found")
 		return
@@ -221,12 +229,14 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 type statusResponse struct {
-	Episode        *episode.CommerceEpisode           `json:"episode"`
-	Artifact       *invocation.DeliveryArtifact       `json:"artifact,omitempty"`
-	Validation     *invocation.ValidationEvidence     `json:"validation,omitempty"`
-	ParentApproval *recovery.ParentApprovalRequest    `json:"parent_approval,omitempty"`
-	ParentDecision *recovery.ParentDecisionFact       `json:"parent_decision,omitempty"`
-	Execution      *repository.EpisodeExecutionStatus `json:"execution,omitempty"`
+	Episode         *episode.CommerceEpisode           `json:"episode"`
+	Artifact        *invocation.DeliveryArtifact       `json:"artifact,omitempty"`
+	Validation      *invocation.ValidationEvidence     `json:"validation,omitempty"`
+	ParentApproval  *recovery.ParentApprovalRequest    `json:"parent_approval,omitempty"`
+	ParentDecision  *recovery.ParentDecisionFact       `json:"parent_decision,omitempty"`
+	Execution       *repository.EpisodeExecutionStatus `json:"execution,omitempty"`
+	BuyerOffer      *application.BuyerOffer            `json:"buyer_offer,omitempty"`
+	BuyerOfferError string                             `json:"buyer_offer_error,omitempty"`
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request, episodeID string) {
@@ -256,6 +266,13 @@ func (s *Server) observability(w http.ResponseWriter, r *http.Request, episodeID
 
 func (s *Server) statusValueFromEpisode(ctx context.Context, value *episode.CommerceEpisode) statusResponse {
 	response := statusResponse{Episode: value}
+	if value.State == episode.StateAwaitingBuyer {
+		if offer, err := s.service.GetBuyerOffer(ctx, value.EpisodeID); err == nil {
+			response.BuyerOffer = &offer
+		} else {
+			response.BuyerOfferError = safeError(err)
+		}
+	}
 	if executionStore, ok := s.store.(repository.ExecutionStatusRepository); ok {
 		response.Execution, _ = executionStore.GetEpisodeExecutionStatus(ctx, value.EpisodeID)
 		if response.Execution == nil {
@@ -277,6 +294,43 @@ func (s *Server) statusValueFromEpisode(ctx context.Context, value *episode.Comm
 		}
 	}
 	return response
+}
+
+type buyerConfirmationPayload struct {
+	QuoteHash   string `json:"quote_hash"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+	Accepted    bool   `json:"accepted"`
+	Signature   string `json:"signature_base64"`
+}
+
+func (s *Server) buyerConfirmation(w http.ResponseWriter, r *http.Request, episodeID string) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "missing_idempotency_key", "Idempotency-Key is required")
+		return
+	}
+	var payload buyerConfirmationPayload
+	if err := decodeBody(w, r, &payload); err != nil {
+		return
+	}
+	result, err := s.service.RecordBuyerConfirmation(r.Context(), application.BuyerConfirmationRequest{
+		EpisodeID: episodeID, QuoteHash: payload.QuoteHash, AmountMinor: payload.AmountMinor,
+		Currency: payload.Currency, Accepted: payload.Accepted, Signature: payload.Signature,
+		IdempotencyKey: key, TraceID: r.Header.Get("X-Trace-ID"),
+	})
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	if payload.Accepted && s.runner != nil {
+		s.runner.Enqueue(r.Context(), episodeID)
+	}
+	status := http.StatusAccepted
+	if result.Replayed {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, map[string]any{"episode": result.Episode, "buyer_confirmation": result.Confirmation, "replayed": result.Replayed})
 }
 
 type parentApprovalLister interface {
@@ -575,6 +629,12 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		status, code = http.StatusNotFound, "not_found"
 	case errors.Is(err, repository.ErrRequestIDConflict), errors.Is(err, repository.ErrIdempotencyConflict), errors.Is(err, repository.ErrParentDecisionConflict), errors.Is(err, repository.ErrVersionConflict):
 		status, code = http.StatusConflict, "conflict"
+	case errors.Is(err, repository.ErrBuyerConfirmationConflict), errors.Is(err, application.ErrBuyerConfirmationInvalid), errors.Is(err, application.ErrBuyerConfirmationPending), errors.Is(err, application.ErrBuyerQuoteStale):
+		status, code = http.StatusConflict, "buyer_confirmation_conflict"
+	case errors.Is(err, application.ErrBuyerQuoteValidatorUnavailable):
+		status, code = http.StatusServiceUnavailable, "buyer_quote_validation_unavailable"
+	case errors.Is(err, application.ErrBuyerConfirmationRequired):
+		status, code = http.StatusForbidden, "buyer_confirmation_required"
 	case errors.Is(err, workflow.ErrDefinitionConflict), errors.Is(err, workflow.ErrWorkflowRequestConflict), errors.Is(err, workflow.ErrWorkflowVersionConflict), errors.Is(err, workflow.ErrWorkflowEventConflict):
 		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, workflow.ErrWorkflowArtifactNotFulfilled):

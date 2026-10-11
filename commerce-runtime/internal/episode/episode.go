@@ -26,6 +26,7 @@ const (
 	StateValidatingDelivery State = "VALIDATING_DELIVERY"
 	StateRecovering         State = "RECOVERING"
 	StateAwaitingParent     State = "AWAITING_PARENT"
+	StateAwaitingBuyer      State = "AWAITING_BUYER_CONFIRMATION"
 	StateFulfilled          State = "FULFILLED"
 	StateFailed             State = "FAILED"
 	StateBlocked            State = "BLOCKED"
@@ -261,13 +262,14 @@ func AllowedTransitions(from State) []State {
 		StateAccepted:           {StateDiscovering, StateAborted, StateExpired},
 		StateDiscovering:        {StateInvoking, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateInvoking:           {StateNegotiating, StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
-		StateNegotiating:        {StatePaying, StateRecovering, StateAwaitingParent, StateBlocked, StateFailed, StateAborted, StateExpired},
+		StateNegotiating:        {StatePaying, StateRecovering, StateAwaitingParent, StateAwaitingBuyer, StateBlocked, StateFailed, StateAborted, StateExpired},
 		StatePaying:             {StateClaiming, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateClaiming:           {StateInvokingDelivery, StateFailed, StateBlocked, StateAborted, StateExpired},
 		StateInvokingDelivery:   {StateValidatingDelivery, StateFailed, StateAborted, StateExpired},
 		StateValidatingDelivery: {StateFulfilled, StateRecovering, StateFailed, StateExpired},
 		StateRecovering:         {StateDiscovering, StateInvoking, StateInvokingDelivery, StateAwaitingParent, StateFailed, StateAborted, StateExpired},
 		StateAwaitingParent:     {StateNegotiating, StateRecovering, StateFailed, StateAborted, StateExpired},
+		StateAwaitingBuyer:      {StateNegotiating, StateAborted, StateFailed, StateExpired},
 	}
 	return append([]State(nil), transitions[from]...)
 }
@@ -285,7 +287,7 @@ func KnownState(state State) bool {
 	switch state {
 	case StateAccepted, StateDiscovering, StateInvoking, StateNegotiating, StatePaying,
 		StateClaiming, StateInvokingDelivery, StateValidatingDelivery, StateRecovering,
-		StateAwaitingParent,
+		StateAwaitingParent, StateAwaitingBuyer,
 		StateFulfilled, StateFailed, StateBlocked, StateAborted, StateExpired,
 		StateCompensating, StateDisputed:
 		return true
@@ -350,6 +352,15 @@ func StateForAction(from State, action trace.ActionType, observation trace.Obser
 		return StateDiscovering, from == StateRecovering
 	case trace.ActionAskParent:
 		return StateAwaitingParent, from == StateRecovering || from == StateNegotiating
+	case trace.ActionRequestBuyerConfirmation:
+		return StateAwaitingBuyer, from == StateNegotiating
+	case trace.ActionRecordBuyerConfirmation:
+		if observation == trace.ObservationBuyerApproved {
+			return StateNegotiating, from == StateAwaitingBuyer
+		}
+		if observation == trace.ObservationBuyerRejected {
+			return StateAborted, from == StateAwaitingBuyer
+		}
 	case trace.ActionStop:
 		return StateFailed, from == StateRecovering || from == StateAwaitingParent || from == StateDiscovering || from == StateInvoking || from == StateNegotiating
 	}

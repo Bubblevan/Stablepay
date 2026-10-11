@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
@@ -45,6 +48,18 @@ type apiEntitlement struct{}
 
 func (apiEntitlement) Verify(_ context.Context, request adapters.EntitlementQuery) (adapters.EntitlementResult, error) {
 	return adapters.EntitlementResult{Status: adapters.EntitlementValid, PaymentIntentID: request.IntentID, TxID: request.TxID, Reference: "entitlement:" + request.IntentID, EvidenceRef: "entitlement://" + request.IntentID}, nil
+}
+
+type currentBuyerQuote struct{ err error }
+
+func (v *currentBuyerQuote) ValidateBuyerOffer(_ context.Context, offer application.BuyerOffer) error {
+	if v.err != nil {
+		return v.err
+	}
+	if offer.ProductID == "" || offer.QuoteHash == "" || offer.AmountMinor <= 0 || !time.Now().Before(offer.ExpiresAt) {
+		return application.ErrBuyerQuoteStale
+	}
+	return nil
 }
 
 type apiMerchant struct {
@@ -193,6 +208,118 @@ func TestExternalHTTPAndMCPDriveDurableEpisode(t *testing.T) {
 	mcpStatus := doJSON(t, server.URL+"/mcp", http.MethodPost, "s10-test-token", "", statusBody)
 	if mcpStatus.Code != http.StatusOK || !strings.Contains(mcpStatus.Body.String(), "FULFILLED") {
 		t.Fatalf("MCP status failed: %s", mcpStatus.Body.String())
+	}
+}
+
+func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requesterDID := "did:solana:" + solana.PublicKeyFromBytes(publicKey).String()
+	store := repository.NewInMemoryStore()
+	merchant := &apiMerchant{}
+	paymentAdapter := &apiPayment{}
+	quoteValidator := &currentBuyerQuote{}
+	service := application.NewService(store,
+		application.WithUnconstrainedSettlementPolicyForTests(),
+		application.WithMerchantAdapter(merchant),
+		application.WithPaymentAdapters(application.PaymentDependencies{DID: apiDID{}, Payment: paymentAdapter, Entitlement: apiEntitlement{}}),
+		application.WithBuyerQuoteValidator(quoteValidator),
+	)
+	now := time.Now().UTC()
+	if err := service.RegisterCapabilityVersion(context.Background(), testCapability(now)); err != nil {
+		t.Fatal(err)
+	}
+	request := testAcquireRequest("buyer-confirmation-http-e2e", now)
+	request.RequesterDID = requesterDID
+	request.Constraints.RequireBuyerConfirmation = true
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := runtime.NewRunner(service, store)
+	handler := NewServer(service, store, runner, AuthConfig{Token: "buyer-confirmation-token"}, nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	create := doJSON(t, server.URL+"/v1/episodes", http.MethodPost, "buyer-confirmation-token", request.RequestID, body)
+	if create.Code != http.StatusAccepted {
+		t.Fatalf("create episode status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		Episode *episode.CommerceEpisode `json:"episode"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil || created.Episode == nil {
+		t.Fatalf("decode created episode: episode=%#v err=%v body=%s", created.Episode, err, create.Body.String())
+	}
+	paused, err := runner.RunEpisode(context.Background(), created.Episode.EpisodeID)
+	if err != nil || paused.Episode.State != episode.StateAwaitingBuyer || !paused.Paused {
+		t.Fatalf("runner did not pause for buyer approval: state=%s paused=%v err=%v", paused.Episode.State, paused.Paused, err)
+	}
+	intents, err := store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
+		t.Fatalf("economic side effect before approval: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
+	}
+	status := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID, http.MethodGet, "buyer-confirmation-token", "", nil)
+	if status.Code != http.StatusOK {
+		t.Fatalf("status request=%d body=%s", status.Code, status.Body.String())
+	}
+	var statusBody struct {
+		BuyerOffer *application.BuyerOffer `json:"buyer_offer"`
+	}
+	if err := json.Unmarshal(status.Body.Bytes(), &statusBody); err != nil || statusBody.BuyerOffer == nil {
+		t.Fatalf("buyer offer missing: %#v err=%v body=%s", statusBody.BuyerOffer, err, status.Body.String())
+	}
+	approvalMessage, err := base64.StdEncoding.DecodeString(statusBody.BuyerOffer.AcceptMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, approvalMessage))
+	confirmationBody, err := json.Marshal(map[string]any{
+		"quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor,
+		"currency": statusBody.BuyerOffer.Currency, "accepted": true, "signature_base64": signature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tamperedBody, err := json.Marshal(map[string]any{
+		"quote_hash": statusBody.BuyerOffer.QuoteHash, "amount_minor": statusBody.BuyerOffer.AmountMinor + 1,
+		"currency": statusBody.BuyerOffer.Currency, "accepted": true, "signature_base64": signature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
+		"buyer-confirmation-token", "buyer-confirmation-1", tamperedBody)
+	if tampered.Code != http.StatusConflict {
+		t.Fatalf("tampered amount status=%d body=%s", tampered.Code, tampered.Body.String())
+	}
+	quoteValidator.err = application.ErrBuyerQuoteStale
+	stale := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
+		"buyer-confirmation-token", "buyer-confirmation-1", confirmationBody)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale quote status=%d body=%s", stale.Code, stale.Body.String())
+	}
+	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
+		t.Fatalf("tampered/stale approval caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
+	}
+	quoteValidator.err = nil
+	confirmed := doJSON(t, server.URL+"/v1/episodes/"+created.Episode.EpisodeID+"/buyer-confirmations", http.MethodPost,
+		"buyer-confirmation-token", "buyer-confirmation-1", confirmationBody)
+	if confirmed.Code != http.StatusAccepted {
+		t.Fatalf("buyer confirmation status=%d body=%s", confirmed.Code, confirmed.Body.String())
+	}
+	completed, err := runner.RunEpisode(context.Background(), created.Episode.EpisodeID)
+	if err != nil || completed.Episode.State != episode.StateFulfilled {
+		t.Fatalf("unified runtime flow did not fulfill after buyer approval: state=%s err=%v", completed.Episode.State, err)
+	}
+	if paymentAdapter.submits.Load() != 1 {
+		t.Fatalf("payment submits=%d, want exactly one", paymentAdapter.submits.Load())
+	}
+	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	if err != nil || len(intents) != 1 || intents[0].QuoteHash != statusBody.BuyerOffer.QuoteHash {
+		t.Fatalf("unexpected runtime intents=%#v err=%v", intents, err)
 	}
 }
 

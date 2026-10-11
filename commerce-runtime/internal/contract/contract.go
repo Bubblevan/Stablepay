@@ -60,6 +60,7 @@ type Constraints struct {
 	MaxPaymentAttempts                  int       `json:"max_payment_attempts"`
 	MaxDeliveryAttempts                 int       `json:"max_delivery_attempts"`
 	AllowCrossMerchantSwitch            bool      `json:"allow_cross_merchant_switch"`
+	RequireBuyerConfirmation            bool      `json:"require_buyer_confirmation,omitempty"`
 	RequireParentConfirmationAboveMinor int64     `json:"require_parent_confirmation_above_minor"`
 }
 

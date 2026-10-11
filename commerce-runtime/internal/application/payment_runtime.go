@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/adapters"
+	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/ledger"
@@ -150,22 +153,11 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	// Resolve retries before state/deadline checks. Once the local transaction
 	// has created an intent, replaying the same request must be safe even if the
 	// caller observes the episode in PAYING or the wall clock has advanced.
-	if existing, err := store.FindPaymentIntentByIdempotencyKey(ctx, current.EpisodeID, request.IdempotencyKey); err == nil {
-		if !intentMatchesQuote(existing, current.EpisodeID, request.Quote) {
-			return PaymentIntentResult{}, repository.ErrPaymentIntentConflict
-		}
-		return s.intentResult(ctx, existing, true)
-	} else if !errors.Is(err, repository.ErrPaymentIntentNotFound) {
-		return PaymentIntentResult{}, err
-	}
 	economicKey := payment.EconomicIdentityKey(current.EpisodeID, request.Quote.MerchantDID, request.Quote.CapabilityID, request.Quote.PayeeDID, request.Quote.QuoteHash, request.Quote.AmountMinor, request.Quote.Currency)
-	if existing, err := store.FindPaymentIntentByEconomicKey(ctx, current.EpisodeID, economicKey); err == nil {
-		if !intentMatchesQuote(existing, current.EpisodeID, request.Quote) {
-			return PaymentIntentResult{}, repository.ErrPaymentIntentConflict
-		}
-		return s.intentResult(ctx, existing, true)
-	} else if !errors.Is(err, repository.ErrPaymentIntentNotFound) {
-		return PaymentIntentResult{}, err
+	if replay, found, lookupErr := s.findExistingPaymentIntent(ctx, store, current.EpisodeID, request, economicKey); lookupErr != nil {
+		return PaymentIntentResult{}, lookupErr
+	} else if found {
+		return replay, nil
 	}
 	now := s.clock().UTC()
 	if current.State != episode.StateNegotiating {
@@ -173,6 +165,27 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	}
 	if err := request.Quote.Validate(now, current.DeadlineAt); err != nil {
 		return PaymentIntentResult{}, err
+	}
+	var acquire contract.AcquireCapabilityRequest
+	if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
+		return PaymentIntentResult{}, fmt.Errorf("decode episode contract snapshot: %w", err)
+	}
+	if acquire.Constraints.RequireBuyerConfirmation {
+		confirmations, ok := s.store.(repository.BuyerConfirmationRepository)
+		if !ok {
+			return PaymentIntentResult{}, repository.ErrRepositoryUnavailable
+		}
+		confirmation, err := confirmations.GetBuyerConfirmationByQuoteHash(ctx, current.EpisodeID, request.Quote.QuoteHash)
+		if err != nil {
+			return PaymentIntentResult{}, fmt.Errorf("%w: %v", ErrBuyerConfirmationRequired, err)
+		}
+		if !confirmation.Accepted || confirmation.RequestID != current.RequestID || confirmation.RequesterDID != request.Quote.RequesterDID ||
+			confirmation.MerchantDID != request.Quote.MerchantDID || confirmation.CapabilityID != request.Quote.CapabilityID ||
+			confirmation.ProductID != request.Quote.ProductID || confirmation.QuoteHash != request.Quote.QuoteHash ||
+			confirmation.AmountMinor != request.Quote.AmountMinor || !strings.EqualFold(confirmation.Currency, request.Quote.Currency) ||
+			!now.Before(confirmation.ExpiresAt) {
+			return PaymentIntentResult{}, ErrBuyerConfirmationInvalid
+		}
 	}
 	if request.Quote.RequesterDID != current.RequesterDID {
 		return PaymentIntentResult{}, decision.ErrPaymentBindingMismatch
@@ -196,6 +209,13 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	}
 	projection, err := s.currentProjection(ctx, store, current)
 	if err != nil {
+		// The Episode and ledger reads are separate repository calls. A racing
+		// identical reservation can commit between them, so this may be a stale
+		// projection rather than corruption. Resolve the durable idempotency or
+		// economic fact before returning the consistency error.
+		if replay, found, lookupErr := s.findExistingPaymentIntent(ctx, store, current.EpisodeID, request, economicKey); lookupErr == nil && found {
+			return replay, nil
+		}
 		return PaymentIntentResult{}, err
 	}
 	sequence, err := nextLedgerSequence(ctx, store, current.EpisodeID)
@@ -247,11 +267,8 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 		LedgerEntries: []*ledger.LedgerEntry{entry}, IntentCreate: intent,
 	})
 	if err != nil {
-		if existing, lookupErr := store.FindPaymentIntentByIdempotencyKey(ctx, current.EpisodeID, request.IdempotencyKey); lookupErr == nil {
-			if intentMatchesQuote(existing, current.EpisodeID, request.Quote) {
-				return s.intentResult(ctx, existing, true)
-			}
-			return PaymentIntentResult{}, repository.ErrPaymentIntentConflict
+		if replay, found, lookupErr := s.findExistingPaymentIntent(ctx, store, current.EpisodeID, request, economicKey); lookupErr == nil && found {
+			return replay, nil
 		}
 		return PaymentIntentResult{}, err
 	}
@@ -317,6 +334,32 @@ func nextLedgerSequence(ctx context.Context, store repository.S2Store, episodeID
 
 func intentMatchesQuote(intent *payment.PaymentIntent, episodeID string, quote TrustedPaymentQuote) bool {
 	return intent != nil && intent.EpisodeID == episodeID && intent.MerchantDID == quote.MerchantDID && intent.CapabilityID == quote.CapabilityID && intent.PayeeDID == quote.PayeeDID && intent.QuoteHash == quote.QuoteHash && intent.AmountMinor == quote.AmountMinor && strings.EqualFold(intent.Currency, quote.Currency) && intent.RequesterDID == quote.RequesterDID
+}
+
+func (s *Service) findExistingPaymentIntent(ctx context.Context, store repository.S2Store, episodeID string, request ReservePaymentIntentRequest, economicKey string) (PaymentIntentResult, bool, error) {
+	lookups := []func() (*payment.PaymentIntent, error){
+		func() (*payment.PaymentIntent, error) {
+			return store.FindPaymentIntentByIdempotencyKey(ctx, episodeID, request.IdempotencyKey)
+		},
+		func() (*payment.PaymentIntent, error) {
+			return store.FindPaymentIntentByEconomicKey(ctx, episodeID, economicKey)
+		},
+	}
+	for _, lookup := range lookups {
+		existing, err := lookup()
+		if errors.Is(err, repository.ErrPaymentIntentNotFound) {
+			continue
+		}
+		if err != nil {
+			return PaymentIntentResult{}, false, err
+		}
+		if !intentMatchesQuote(existing, episodeID, request.Quote) {
+			return PaymentIntentResult{}, false, repository.ErrPaymentIntentConflict
+		}
+		result, err := s.intentResult(ctx, existing, true)
+		return result, err == nil, err
+	}
+	return PaymentIntentResult{}, false, nil
 }
 
 func (s *Service) AuthorizeAndSubmitPayment(ctx context.Context, intentID, traceID string) (PaymentExecutionResult, error) {

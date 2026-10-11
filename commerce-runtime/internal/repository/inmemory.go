@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/stablepay/commerce-runtime/internal/buyer"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/evidence"
@@ -47,6 +48,9 @@ type InMemoryStore struct {
 	recoveryByEpisode        map[string]string
 	parentApprovals          map[string]*recovery.ParentApprovalRequest
 	parentDecisions          map[string]*recovery.ParentDecisionFact
+	buyerConfirmations       map[string]*buyer.Confirmation
+	buyerConfirmationByKey   map[string]string
+	buyerConfirmationByQuote map[string]string
 	budgetAmendments         map[string]*recovery.BudgetAmendment
 	evidenceRecords          map[string]*evidence.EvidenceRecord
 	modelDecisionTraces      map[string]*llm.ModelDecisionTrace
@@ -86,6 +90,9 @@ func NewInMemoryStore() *InMemoryStore {
 		recoveryByEpisode:        make(map[string]string),
 		parentApprovals:          make(map[string]*recovery.ParentApprovalRequest),
 		parentDecisions:          make(map[string]*recovery.ParentDecisionFact),
+		buyerConfirmations:       make(map[string]*buyer.Confirmation),
+		buyerConfirmationByKey:   make(map[string]string),
+		buyerConfirmationByQuote: make(map[string]string),
 		budgetAmendments:         make(map[string]*recovery.BudgetAmendment),
 		evidenceRecords:          make(map[string]*evidence.EvidenceRecord),
 		modelDecisionTraces:      make(map[string]*llm.ModelDecisionTrace),

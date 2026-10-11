@@ -52,6 +52,7 @@ type Service struct {
 	memoryRetrievalPolicy memory.MemoryRetrievalPolicy
 	memoryUseTraceStore   memory.MemoryUseTraceStore
 	inputPayloadResolver  InputPayloadResolver
+	buyerQuoteValidator   BuyerQuoteValidator
 }
 
 // InputPayloadResolver materializes a validated workflow artifact only at the

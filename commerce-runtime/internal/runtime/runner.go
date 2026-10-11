@@ -214,7 +214,7 @@ func (r *Runner) sweep(ctx context.Context) error {
 	}
 	now := r.now()
 	for _, value := range values {
-		if value == nil || episode.IsTerminal(value.State) || value.State == episode.StateAwaitingParent {
+		if value == nil || episode.IsTerminal(value.State) || value.State == episode.StateAwaitingParent || value.State == episode.StateAwaitingBuyer {
 			continue
 		}
 		status, statusErr := r.getExecutionStatus(ctx, value.EpisodeID)
@@ -299,7 +299,7 @@ func (r *Runner) run(ctx context.Context, episodeID string) (Result, error) {
 			_ = r.markCompleted(ctx, episodeID)
 			return Result{Episode: current, Steps: step}, nil
 		}
-		if current.State == episode.StateAwaitingParent {
+		if current.State == episode.StateAwaitingParent || current.State == episode.StateAwaitingBuyer {
 			_ = r.markPaused(ctx, episodeID)
 			return Result{Episode: current, Steps: step, Paused: true}, nil
 		}
@@ -313,7 +313,7 @@ func (r *Runner) run(ctx context.Context, episodeID string) (Result, error) {
 					_ = r.markCompleted(ctx, episodeID)
 					return Result{Episode: latest, Steps: step + 1}, nil
 				}
-				if latest.State == episode.StateAwaitingParent {
+				if latest.State == episode.StateAwaitingParent || latest.State == episode.StateAwaitingBuyer {
 					_ = r.markPaused(ctx, episodeID)
 					return Result{Episode: latest, Steps: step + 1, Paused: true}, nil
 				}
@@ -529,6 +529,25 @@ func (r *Runner) step(ctx context.Context, current *episode.CommerceEpisode) err
 		var acquire contract.AcquireCapabilityRequest
 		if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
 			return fmt.Errorf("decode episode contract snapshot: %w", err)
+		}
+		if acquire.Constraints.RequireBuyerConfirmation {
+			confirmations, ok := r.store.(repository.BuyerConfirmationRepository)
+			if !ok {
+				return repository.ErrRepositoryUnavailable
+			}
+			confirmation, findErr := confirmations.GetBuyerConfirmationByQuoteHash(ctx, current.EpisodeID, quote.QuoteHash)
+			if errors.Is(findErr, repository.ErrNotFound) {
+				_, err = r.service.RequestBuyerConfirmation(ctx, current.EpisodeID, traceID+":buyer-confirmation")
+				return err
+			}
+			if findErr != nil {
+				return findErr
+			}
+			if !confirmation.Accepted || confirmation.RequesterDID != quote.RequesterDID || confirmation.MerchantDID != quote.MerchantDID ||
+				confirmation.CapabilityID != quote.CapabilityID || confirmation.ProductID != quote.ProductID || confirmation.QuoteHash != quote.QuoteHash ||
+				confirmation.AmountMinor != quote.AmountMinor || !strings.EqualFold(confirmation.Currency, quote.Currency) || !r.now().Before(confirmation.ExpiresAt) {
+				return application.ErrBuyerConfirmationInvalid
+			}
 		}
 		if threshold := acquire.Constraints.RequireParentConfirmationAboveMinor; threshold > 0 && quote.AmountMinor > threshold && current.RecoveryID == "" {
 			_, err = r.service.RequestParentConfirmation(ctx, application.ParentConfirmationRequest{EpisodeID: current.EpisodeID, TraceID: traceID + ":parent-threshold"})
