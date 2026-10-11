@@ -150,6 +150,7 @@ func (PaymentIntentModel) TableName() string { return "payment_intents" }
 type MerchantCapabilityModel struct {
 	MerchantDID               string    `gorm:"column:merchant_did;type:varchar(128);primaryKey"`
 	CapabilityID              string    `gorm:"column:capability_id;type:varchar(128);primaryKey"`
+	ProductID                 string    `gorm:"column:product_id;type:varchar(255)"`
 	CatalogVersion            string    `gorm:"column:catalog_version;type:varchar(64);primaryKey"`
 	PayeeDID                  string    `gorm:"column:payee_did;type:varchar(128);not null"`
 	Name                      string    `gorm:"column:name;type:varchar(255);not null"`
@@ -1767,7 +1768,7 @@ func merchantCapabilityToModel(value *catalog.MerchantCapability) (*MerchantCapa
 	if err != nil {
 		return nil, err
 	}
-	return &MerchantCapabilityModel{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, CatalogVersion: normalized.CatalogVersion,
+	return &MerchantCapabilityModel{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, ProductID: normalized.ProductID, CatalogVersion: normalized.CatalogVersion,
 		PayeeDID: normalized.PayeeDID, Name: normalized.Name, Description: normalized.Description, TaskTypes: taskTypes, SemanticTags: semanticTags,
 		InvokeEndpoint: invokeEndpoint, QuoteEndpoint: quoteEndpoint, InputSchemaRef: normalized.InputSchemaRef, OutputSchemaRef: normalized.OutputSchemaRef,
 		InputContentTypes: inputTypes, OutputContentTypes: outputTypes, SupportedProtocolVersions: protocols, SupportedCurrencies: currencies,
@@ -1783,7 +1784,7 @@ func modelToMerchantCapability(row MerchantCapabilityModel) (*catalog.MerchantCa
 		}
 		return json.Unmarshal(input, target)
 	}
-	value := &catalog.MerchantCapability{MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, CatalogVersion: row.CatalogVersion, PayeeDID: row.PayeeDID,
+	value := &catalog.MerchantCapability{MerchantDID: row.MerchantDID, CapabilityID: row.CapabilityID, ProductID: row.ProductID, CatalogVersion: row.CatalogVersion, PayeeDID: row.PayeeDID,
 		Name: row.Name, Description: row.Description, InputSchemaRef: row.InputSchemaRef, OutputSchemaRef: row.OutputSchemaRef, PricingModel: row.PricingModel,
 		PriceHintMinor: row.PriceHintMinor, PriceHintCurrency: row.PriceHintCurrency, Status: catalog.CapabilityStatus(row.Status), Availability: catalog.Availability(row.Availability),
 		Source: row.Source, SourceRef: row.SourceRef, SourceHash: row.SourceHash, ValidFrom: row.ValidFrom, ValidUntil: row.ValidUntil, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}

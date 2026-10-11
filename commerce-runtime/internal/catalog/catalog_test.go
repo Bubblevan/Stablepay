@@ -111,6 +111,15 @@ func TestCapabilityCanonicalSnapshotSeparatesCapabilityAndPayee(t *testing.T) {
 	if changedHash == hash {
 		t.Fatal("payee mutation did not change the immutable snapshot hash")
 	}
+	changedSKU := capability.Clone()
+	changedSKU.ProductID = "different-sku"
+	changedSKUHash, err := changedSKU.SnapshotHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedSKUHash == hash {
+		t.Fatal("SKU mutation did not change the immutable catalog snapshot hash")
+	}
 }
 
 func TestMerchantAndPayeeMayBeEqualWithoutCollapsingCapabilityID(t *testing.T) {

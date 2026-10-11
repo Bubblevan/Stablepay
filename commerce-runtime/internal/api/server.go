@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/application"
+	"github.com/stablepay/commerce-runtime/internal/catalog"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
@@ -73,6 +74,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveMCP(w, r)
 		return
 	}
+	if r.URL.Path == "/v1/catalog/search" {
+		s.searchCatalog(w, r)
+		return
+	}
 	if r.URL.Path == "/v1/episodes" {
 		s.createEpisode(w, r)
 		return
@@ -98,6 +103,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusNotFound, "not_found", "route not found")
+}
+
+type catalogSearchPayload struct {
+	Query catalog.DiscoveryQuery `json:"query"`
+	Limit int                    `json:"limit,omitempty"`
+}
+
+func (s *Server) searchCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")
+		return
+	}
+	if err := s.authorize(r); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		return
+	}
+	var payload catalogSearchPayload
+	if err := decodeBody(w, r, &payload); err != nil {
+		return
+	}
+	result, err := s.service.SearchCapabilities(r.Context(), payload.Query, payload.Limit)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) health(w http.ResponseWriter) {
@@ -487,6 +518,7 @@ type mcpCallParams struct {
 
 func mcpTools() []map[string]any {
 	return []map[string]any{
+		{"name": "stablepay.search_catalog", "description": "Read-only Runtime catalog search. Returns a ranked catalog snapshot; it does not reserve inventory or authorize payment. Search results are revalidated by the Runtime Episode before purchase.", "inputSchema": catalogSearchSchema()},
 		{"name": "stablepay.acquire", "description": "Submit an AcquireCapabilityRequest. The same request_id and contract replay the same episode; a changed contract conflicts.", "inputSchema": acquireSchema()},
 		{"name": "stablepay.status", "description": "Read episode, artifact, validation, parent approval/decision, and operational execution status.", "inputSchema": map[string]any{"type": "object", "required": []string{"episode_id"}, "properties": map[string]any{"episode_id": map[string]any{"type": "string", "minLength": 1}}}},
 		{"name": "stablepay.approve", "description": "Record a persisted parent approval or denial and resume the episode. approval_id must already exist.", "inputSchema": map[string]any{"type": "object", "required": []string{"approval_id", "decision", "actor_ref"}, "properties": map[string]any{"approval_id": map[string]any{"type": "string", "minLength": 1}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]any{"type": "string", "minLength": 1}, "idempotency_key": map[string]any{"type": "string"}}}},
@@ -494,6 +526,19 @@ func mcpTools() []map[string]any {
 		{"name": "stablepay.workflow_status", "description": "Read a durable workflow run, immutable definition hash, step projections, child episode IDs and budget refs.", "inputSchema": map[string]any{"type": "object", "required": []string{"workflow_run_id"}, "properties": map[string]any{"workflow_run_id": map[string]any{"type": "string", "minLength": 1}}}},
 		{"name": "stablepay.workflow_approve", "description": "Delegate approval to the active child Episode parent-decision authority.", "inputSchema": map[string]any{"type": "object", "required": []string{"workflow_run_id", "approval_id", "decision", "actor_ref"}, "properties": map[string]any{"workflow_run_id": map[string]any{"type": "string", "minLength": 1}, "approval_id": map[string]any{"type": "string", "minLength": 1}, "decision": map[string]any{"type": "string", "enum": []string{"APPROVE", "DENY"}}, "actor_ref": map[string]any{"type": "string", "minLength": 1}}}},
 	}
+}
+
+func catalogSearchSchema() map[string]any {
+	return map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{
+		"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
+		"query": map[string]any{"type": "object", "required": []string{"task_type", "input_content_type", "expected_output_content_type", "supported_protocol_versions", "currency", "budget_limit_minor", "deadline"}, "properties": map[string]any{
+			"task_type": map[string]any{"type": "string", "minLength": 1}, "required_merchant_did": map[string]any{"type": "string"}, "required_capability_id": map[string]any{"type": "string"},
+			"input_content_type": map[string]any{"type": "string", "minLength": 1}, "expected_output_content_type": map[string]any{"type": "string", "minLength": 1},
+			"supported_protocol_versions": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string"}}, "currency": map[string]any{"type": "string", "minLength": 1},
+			"budget_limit_minor": map[string]any{"type": "integer", "minimum": 0}, "deadline": map[string]any{"type": "string", "format": "date-time"},
+			"semantic_constraints": map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"key", "value"}, "properties": map[string]any{"key": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}}}},
+		}},
+	}}
 }
 
 func workflowRunSchema() map[string]any {
@@ -532,6 +577,13 @@ func (s *Server) mcpCall(ctx context.Context, call mcpCallParams) map[string]any
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(payload)}}, "structuredContent": value}
 	}
 	switch call.Name {
+	case "stablepay.search_catalog":
+		var payload catalogSearchPayload
+		if err := json.Unmarshal(call.Arguments, &payload); err != nil {
+			return callResult(nil, err)
+		}
+		result, err := s.service.SearchCapabilities(ctx, payload.Query, payload.Limit)
+		return callResult(result, err)
 	case "stablepay.acquire":
 		var request contract.AcquireCapabilityRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {

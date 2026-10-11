@@ -89,6 +89,9 @@ func TestHTTPMerchantCatalogReaderMapsExplicitMetadataAndSyncsLifecycle(t *testi
 	if imported.MerchantDID != "did:merchant:explicit" || imported.PayeeDID != "did:solana:explicit-payee" {
 		t.Fatalf("identity was not taken from explicit operator metadata: %#v", imported)
 	}
+	if imported.ProductID != "sku-active" {
+		t.Fatalf("stable Merchant SKU was not retained in Runtime catalog: %q", imported.ProductID)
+	}
 	if imported.PriceHintMinor == nil || *imported.PriceHintMinor != 125 || imported.PriceHintCurrency != "USDC" {
 		t.Fatalf("display price was not converted to Runtime business minor units: %#v", imported.PriceHintMinor)
 	}

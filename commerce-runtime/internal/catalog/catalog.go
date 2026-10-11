@@ -104,6 +104,7 @@ func (e EndpointRef) Validate(required bool) error {
 type MerchantCapability struct {
 	MerchantDID               string           `json:"merchant_did"`
 	CapabilityID              string           `json:"capability_id"`
+	ProductID                 string           `json:"product_id,omitempty"`
 	PayeeDID                  string           `json:"payee_did"`
 	Name                      string           `json:"name"`
 	Description               string           `json:"description"`
@@ -135,6 +136,7 @@ type MerchantCapability struct {
 func (c MerchantCapability) Normalize() MerchantCapability {
 	c.MerchantDID = strings.TrimSpace(c.MerchantDID)
 	c.CapabilityID = strings.ToLower(strings.TrimSpace(c.CapabilityID))
+	c.ProductID = strings.TrimSpace(c.ProductID)
 	c.PayeeDID = strings.TrimSpace(c.PayeeDID)
 	c.Name = strings.TrimSpace(c.Name)
 	c.Description = strings.TrimSpace(c.Description)
@@ -243,6 +245,7 @@ func (c MerchantCapability) Validate() error {
 type canonicalCapability struct {
 	MerchantDID               string           `json:"merchant_did"`
 	CapabilityID              string           `json:"capability_id"`
+	ProductID                 string           `json:"product_id,omitempty"`
 	PayeeDID                  string           `json:"payee_did"`
 	Name                      string           `json:"name"`
 	Description               string           `json:"description"`
@@ -273,7 +276,7 @@ type canonicalCapability struct {
 
 func (c MerchantCapability) canonical() canonicalCapability {
 	c = c.Normalize()
-	return canonicalCapability{MerchantDID: c.MerchantDID, CapabilityID: c.CapabilityID, PayeeDID: c.PayeeDID, Name: c.Name, Description: c.Description,
+	return canonicalCapability{MerchantDID: c.MerchantDID, CapabilityID: c.CapabilityID, ProductID: c.ProductID, PayeeDID: c.PayeeDID, Name: c.Name, Description: c.Description,
 		TaskTypes: c.TaskTypes, SemanticTags: c.SemanticTags, InvokeEndpoint: c.InvokeEndpoint, QuoteEndpoint: c.QuoteEndpoint,
 		InputSchemaRef: c.InputSchemaRef, OutputSchemaRef: c.OutputSchemaRef, InputContentTypes: c.InputContentTypes, OutputContentTypes: c.OutputContentTypes,
 		SupportedProtocolVersions: c.SupportedProtocolVersions, SupportedCurrencies: c.SupportedCurrencies, PricingModel: c.PricingModel,
@@ -390,6 +393,10 @@ type RankFeatures struct {
 type Candidate struct {
 	MerchantDID         string           `json:"merchant_did"`
 	CapabilityID        string           `json:"capability_id"`
+	ProductID           string           `json:"product_id,omitempty"`
+	Name                string           `json:"name,omitempty"`
+	Description         string           `json:"description,omitempty"`
+	Source              string           `json:"source,omitempty"`
 	PayeeDID            string           `json:"payee_did"`
 	CatalogVersion      string           `json:"catalog_version"`
 	CatalogSnapshotHash string           `json:"catalog_snapshot_hash"`
@@ -437,6 +444,10 @@ func (s CandidateSet) Normalize() CandidateSet {
 	for i := range s.Candidates {
 		s.Candidates[i].MerchantDID = strings.TrimSpace(s.Candidates[i].MerchantDID)
 		s.Candidates[i].CapabilityID = strings.ToLower(strings.TrimSpace(s.Candidates[i].CapabilityID))
+		s.Candidates[i].ProductID = strings.TrimSpace(s.Candidates[i].ProductID)
+		s.Candidates[i].Name = strings.TrimSpace(s.Candidates[i].Name)
+		s.Candidates[i].Description = strings.TrimSpace(s.Candidates[i].Description)
+		s.Candidates[i].Source = strings.TrimSpace(s.Candidates[i].Source)
 		s.Candidates[i].PayeeDID = strings.TrimSpace(s.Candidates[i].PayeeDID)
 		s.Candidates[i].CatalogVersion = strings.TrimSpace(s.Candidates[i].CatalogVersion)
 		s.Candidates[i].CatalogSnapshotHash = strings.ToLower(strings.TrimSpace(s.Candidates[i].CatalogSnapshotHash))

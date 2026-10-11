@@ -25,13 +25,15 @@ Avoid “AI payment platform”, “intelligent payment Agent”, and “LLM pay
 
 ## Recommended project bullets
 
-- 构建 Agent Commerce Runtime 持久化执行层，以 Episode 状态机编排商户发现、买家确认、x402/Solana 支付、验单交付和恢复；LLM 仅提交带证据的 proposal，支付副作用由 `RuntimeGuard` 与确定性执行路径控制。
+- 构建 Agent Commerce Runtime 持久化执行层，以 Episode 状态机编排商户发现、稳定 SKU 选择、精确报价签名确认、x402/Solana 支付、验单交付和恢复；LLM 仅提交带证据的 proposal，支付副作用由 `RuntimeGuard` 与确定性执行路径控制。Runtime 提供只读 HTTP/MCP 商品搜索并在购买 Episode 内重新发现、核验报价。
 - 在 12 家本地模拟 Merchant、24,000 条商品和隔离 MySQL 上打通约束筛选、库存/价格复核、报价预留、二次确认与模拟支付；回放 500 条锁定意图后全部到达终态（483 次模拟结算、17 次模拟拒付），覆盖 50 次价格变化、50 次缺货和 100 次过期确认拒绝，SQL invariant violations 为 0。另以 9 个定向 MySQL/API 场景验证买家许可的同格式替代品、缺货后基于新报价重新确认；不相关替代、不可行预算/区域和澄清路径均未产生购买副作用。该 9 场景窄范围测试未并入 500 条回放，也不是独立商品相关性评测。
 - 在隔离 MySQL 的 300 次本地模拟购买回放中注入 200 次提交后响应丢失、100 次 API 重建/重试（含 1 次 checkout OS 进程重启）及 100 组并发重复请求；**287/300** 订单端到端到达模拟 `FULFILLED`，其余 **13/300** 被确定性 mock 支付拒绝。对 29 个预设单次瞬态配送故障，均在同一幂等键下重试恢复；SQL 与离线审计未发现重复订单/支付/结算/履约/退款、金额/货币或终态不一致。固定合成任务池、mock 支付与履约；不是外部支付 sandbox、Devnet 或生产成功率。
 - 在隔离 MySQL 的 8 个崩溃窗口完成 160/160 次 Runtime 恢复，审计 PASS，重复支付事实、预算漂移、orphan/stuck episode 均为 0，TTR P50/P95 为 0.621/28.807 s；另在 200 VU 本地 Docker k6 窗口测得 1,319 HTTP req/s、72.6 completed Episodes/s、HTTP p95 114 ms、Episode p95 3.349 s，观测 HTTP/业务错误率 0%。
 - 在 6 节点 Minikube（单台 Docker Desktop 主机）部署 12 个 ready Deployments，完成一次真实 0.01 USDC Solana Devnet 商户支付与交付；Runtime 重启后同请求重放未产生第二笔支付，MySQL 与跨服务审计一致。该结果是单次 Devnet 验收，不是生产可用率或重复支付统计。
 
 The local shopping lifecycle and 300-order replay use isolated deterministic mocks; keep that qualifier next to their results. The 500-task product-quality figures `94.2%` and `72.6% → 91.8%` are not established: no independent, double-reviewed holdout has been evaluated. Do not headline `48/56`; the 56 include the expected `guard-rejected` safety-negative group.
+
+The direct Runtime integration has a separate 50-template deterministic Mock regression (50/50 valid deliveries, zero duplicate settlement facts), but intent was already normalized and the test used in-memory persistence. Keep it as an engineering/interview diagnostic until a public Agent/client path and a durable isolated-MySQL audit are attached; its sub-millisecond payment-to-delivery P95 is not a resume performance claim.
 
 ### Optional public retrieval-reference result (separate from the StablePay holdout)
 

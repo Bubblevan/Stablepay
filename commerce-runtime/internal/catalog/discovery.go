@@ -24,8 +24,38 @@ func BuildCandidateSet(candidateSetID, episodeID, requestID string, query Discov
 	if err != nil {
 		return nil, err
 	}
+	candidates, err := SearchCandidates(query, capabilities, generatedAt)
+	if err != nil {
+		return nil, err
+	}
 	result := &CandidateSet{CandidateSetID: strings.TrimSpace(candidateSetID), EpisodeID: strings.TrimSpace(episodeID), RequestID: strings.TrimSpace(requestID), QueryHash: queryHash,
-		GeneratedAt: generatedAt.UTC().Truncate(time.Nanosecond), ExpiresAt: expiresAt.UTC().Truncate(time.Nanosecond), FactsRef: "candidate-set://" + strings.TrimSpace(candidateSetID)}
+		GeneratedAt: generatedAt.UTC().Truncate(time.Nanosecond), ExpiresAt: expiresAt.UTC().Truncate(time.Nanosecond), FactsRef: "candidate-set://" + strings.TrimSpace(candidateSetID), Candidates: candidates}
+	*result = result.Normalize()
+	payloadHash, err := result.PayloadHashFor()
+	if err != nil {
+		return nil, err
+	}
+	result.PayloadHash = payloadHash
+	if err := result.Validate(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// SearchCandidates applies the same hard eligibility and ranking rules as
+// BuildCandidateSet without creating a durable Episode or candidate-set fact.
+// It is intended for read-only agent browsing; purchase execution must repeat
+// discovery inside the persisted Runtime Episode.
+func SearchCandidates(query DiscoveryQuery, capabilities []*MerchantCapability, generatedAt time.Time) ([]Candidate, error) {
+	query = query.Normalize()
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+	if generatedAt.IsZero() {
+		return nil, ErrInvalidCandidateSet
+	}
+	generatedAt = generatedAt.UTC()
+	result := make([]Candidate, 0, len(capabilities))
 	for _, capability := range capabilities {
 		if capability == nil {
 			continue
@@ -45,20 +75,12 @@ func BuildCandidateSet(candidateSetID, episodeID, requestID string, query Discov
 		if err != nil {
 			return nil, err
 		}
-		result.Candidates = append(result.Candidates, Candidate{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, PayeeDID: normalized.PayeeDID,
+		result = append(result, Candidate{MerchantDID: normalized.MerchantDID, CapabilityID: normalized.CapabilityID, ProductID: normalized.ProductID,
+			Name: normalized.Name, Description: normalized.Description, Source: normalized.Source, PayeeDID: normalized.PayeeDID,
 			CatalogVersion: normalized.CatalogVersion, CatalogSnapshotHash: hash, CatalogSnapshotRef: normalized.SnapshotRef(), CatalogValidFrom: normalized.ValidFrom, CatalogValidUntil: normalized.ValidUntil,
 			Eligibility: facts, RankFeatures: rank})
 	}
-	*result = result.Normalize()
-	payloadHash, err := result.PayloadHashFor()
-	if err != nil {
-		return nil, err
-	}
-	result.PayloadHash = payloadHash
-	if err := result.Validate(); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return RankCandidates(result), nil
 }
 
 func evaluate(capability MerchantCapability, query DiscoveryQuery, now time.Time) (EligibilityFacts, RankFeatures) {

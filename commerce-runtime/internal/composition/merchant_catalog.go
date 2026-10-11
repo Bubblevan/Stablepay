@@ -384,7 +384,7 @@ func capabilityFromMerchantProduct(source MerchantCatalogSource, metadata Mercha
 
 	price := priceMinor
 	capability := &catalog.MerchantCapability{
-		MerchantDID: source.MerchantDID, CapabilityID: metadata.CapabilityID, PayeeDID: source.PayeeDID,
+		MerchantDID: source.MerchantDID, CapabilityID: metadata.CapabilityID, ProductID: skuID, PayeeDID: source.PayeeDID,
 		Name: product.Title, Description: product.Description, TaskTypes: append([]string(nil), metadata.TaskTypes...),
 		SemanticTags:   append([]string(nil), metadata.SemanticTags...),
 		InvokeEndpoint: catalog.EndpointRef{Endpoint: endpoint.String(), Method: http.MethodGet},
