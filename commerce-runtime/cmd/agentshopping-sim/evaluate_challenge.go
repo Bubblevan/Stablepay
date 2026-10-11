@@ -211,6 +211,12 @@ func evaluateChallenge(args []string) error {
 	if err != nil || !pathWithinDirectory(challengeRootReal, tasksReal) {
 		return errors.New("challenge task file resolves outside the local challenge-suite directory")
 	}
+	// Validate and hash the scoring implementation before any model batches run.
+	// localRunRoot is the .local-run directory; source paths are repository-relative.
+	scoringSourceHashes, err := hashChallengeScoringSources(filepath.Dir(localRunRoot))
+	if err != nil {
+		return fmt.Errorf("hash challenge scoring sources: %w", err)
+	}
 	bundleReal := ""
 	if *requireHumanReview {
 		if !samePath(filepath.Dir(reviewBundleAbs), challengeSourceRoot) || samePath(reviewBundleAbs, challengeSourceRoot) {
@@ -360,10 +366,6 @@ func evaluateChallenge(args []string) error {
 	}
 	metrics.Hashes = hashes
 	metrics.DataOrigin = provenanceStatus
-	scoringSourceHashes, err := hashChallengeScoringSources(localRunRoot)
-	if err != nil {
-		return fmt.Errorf("hash challenge scoring sources: %w", err)
-	}
 	scenarioCounts := make(map[string]int)
 	for _, task := range tasks {
 		scenarioCounts[task.Scenario]++

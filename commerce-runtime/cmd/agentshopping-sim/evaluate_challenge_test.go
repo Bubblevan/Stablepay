@@ -5,11 +5,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stablepay/commerce-runtime/benchmarks/agentshopping"
 )
+
+func TestHashChallengeScoringSourcesResolvesFromRepositoryRoot(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller did not return this test source path")
+	}
+	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(sourcePath), "..", "..", ".."))
+	hashes, err := hashChallengeScoringSources(repositoryRoot)
+	if err != nil {
+		t.Fatalf("hash repository scoring sources before model invocation: %v", err)
+	}
+	if len(hashes) != len(challengeScoringSourceNames) {
+		t.Fatalf("expected all scoring source files to be hash-bound: got %d, want %d", len(hashes), len(challengeScoringSourceNames))
+	}
+	for _, name := range challengeScoringSourceNames {
+		if !strings.HasPrefix(hashes[name], "sha256:") || len(hashes[name]) != len("sha256:")+64 {
+			t.Errorf("missing/invalid scoring source digest for %s: %q", name, hashes[name])
+		}
+	}
+}
 
 func TestChallengeParserRequestUsesDeclaredContextRatherThanGoldIntent(t *testing.T) {
 	task := agentshopping.ChallengeTask{TaskID: "context-separation", Prompt: "Buy beans, max 3 USDC, ship to east.",
