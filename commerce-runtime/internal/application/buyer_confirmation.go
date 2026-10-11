@@ -172,7 +172,7 @@ func (s *Service) RefreshBuyerOffer(ctx context.Context, request RefreshBuyerOff
 	if err != nil {
 		return PaymentRequirementResult{}, err
 	}
-	keyDigest := sha256.Sum256([]byte(request.IdempotencyKey))
+	keyDigest := sha256.Sum256([]byte(request.EpisodeID + "\x00" + request.IdempotencyKey))
 	durableKey := "buyer-quote-refresh:" + hex.EncodeToString(keyDigest[:])
 	if existing, findErr := store.FindMerchantInvocationByIdempotencyKey(ctx, current.EpisodeID, durableKey); findErr == nil {
 		if existing.Phase != invocation.PhaseQuoteRefresh {

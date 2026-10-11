@@ -89,7 +89,7 @@ type EventModel struct {
 	DecisionPayload    []byte    `gorm:"column:decision_payload;type:json;not null"`
 	VerdictPayload     []byte    `gorm:"column:runtime_verdict_payload;type:json;not null"`
 	StateAfter         string    `gorm:"column:state_after;type:varchar(32);not null"`
-	Actor              string    `gorm:"column:actor;type:varchar(32);not null"`
+	Actor              string    `gorm:"column:actor;type:varchar(128);not null"`
 	TraceID            string    `gorm:"column:trace_id;type:varchar(128)"`
 	RuntimeVersion     string    `gorm:"column:runtime_version;type:varchar(64);not null"`
 	IdempotencyKey     string    `gorm:"column:idempotency_key;type:varchar(128);not null;uniqueIndex:uk_episode_idempotency"`

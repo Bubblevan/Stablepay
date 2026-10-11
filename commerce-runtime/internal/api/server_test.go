@@ -9,6 +9,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,6 +24,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
 	"github.com/stablepay/commerce-runtime/internal/evidence"
+	mysqlstore "github.com/stablepay/commerce-runtime/internal/infrastructure/mysql"
 	"github.com/stablepay/commerce-runtime/internal/invocation"
 	"github.com/stablepay/commerce-runtime/internal/payment"
 	"github.com/stablepay/commerce-runtime/internal/recovery"
@@ -226,12 +229,47 @@ func TestExternalHTTPAndMCPDriveDurableEpisode(t *testing.T) {
 }
 
 func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
+	runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t, repository.NewInMemoryStore(), "buyer-confirmation-http-e2e")
+}
+
+func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlowMySQL(t *testing.T) {
+	if os.Getenv("COMMERCE_RUNTIME_M1_MYSQL_E2E") != "1" {
+		t.Skip("set COMMERCE_RUNTIME_M1_MYSQL_E2E=1 to run against the dedicated M1 test database")
+	}
+	dsn := os.Getenv("COMMERCE_RUNTIME_MYSQL_DSN")
+	if !strings.Contains(dsn, "tcp(127.0.0.1:") || !strings.Contains(dsn, ")/stablepay_commerce_m1_test?") {
+		t.Fatal("M1 MySQL E2E requires the isolated loopback stablepay_commerce_m1_test database")
+	}
+	db, err := mysqlstore.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := sqlDB.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := mysqlstore.AutoMigrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	requestID := "buyer-confirmation-mysql-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t, mysqlstore.NewStore(db), requestID)
+}
+
+func runBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T, store repository.TransitionStore, requestID string) {
+	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	requesterDID := "did:solana:" + solana.PublicKeyFromBytes(publicKey).String()
-	store := repository.NewInMemoryStore()
+	paymentIntents, ok := store.(repository.PaymentIntentRepository)
+	if !ok {
+		t.Fatal("test store does not support payment intent reads")
+	}
 	merchant := &apiMerchant{}
 	paymentAdapter := &apiPayment{}
 	quoteValidator := &currentBuyerQuote{}
@@ -242,10 +280,12 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 		application.WithBuyerQuoteValidator(quoteValidator),
 	)
 	now := time.Now().UTC()
-	if err := service.RegisterCapabilityVersion(context.Background(), testCapability(now)); err != nil {
+	capability := testCapability(now)
+	capability.CatalogVersion = requestID
+	if err := service.RegisterCapabilityVersion(context.Background(), capability); err != nil {
 		t.Fatal(err)
 	}
-	request := testAcquireRequest("buyer-confirmation-http-e2e", now)
+	request := testAcquireRequest(requestID, now)
 	request.RequesterDID = requesterDID
 	request.Constraints.RequireBuyerConfirmation = true
 	body, err := json.Marshal(request)
@@ -266,11 +306,12 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil || created.Episode == nil {
 		t.Fatalf("decode created episode: episode=%#v err=%v body=%s", created.Episode, err, create.Body.String())
 	}
+	t.Logf("buyer-confirmation-e2e episode_id=%s request_id=%s", created.Episode.EpisodeID, requestID)
 	paused, err := runner.RunEpisode(context.Background(), created.Episode.EpisodeID)
 	if err != nil || paused.Episode.State != episode.StateAwaitingBuyer || !paused.Paused {
 		t.Fatalf("runner did not pause for buyer approval: state=%s paused=%v err=%v", paused.Episode.State, paused.Paused, err)
 	}
-	intents, err := store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	intents, err := paymentIntents.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
 		t.Fatalf("economic side effect before approval: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
 	}
@@ -314,7 +355,7 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if stale.Code != http.StatusConflict {
 		t.Fatalf("stale quote status=%d body=%s", stale.Code, stale.Body.String())
 	}
-	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	intents, err = paymentIntents.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
 		t.Fatalf("tampered/stale approval caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
 	}
@@ -344,7 +385,7 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if merchant.refreshCalls.Load() != 1 || replayedRefreshBody.BuyerOffer.QuoteHash != refreshedBody.BuyerOffer.QuoteHash {
 		t.Fatalf("refresh replay invoked merchant again or changed terms: calls=%d first=%q replay=%q", merchant.refreshCalls.Load(), refreshedBody.BuyerOffer.QuoteHash, replayedRefreshBody.BuyerOffer.QuoteHash)
 	}
-	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	intents, err = paymentIntents.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
 		t.Fatalf("quote refresh caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
 	}
@@ -370,7 +411,7 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if err != nil || reopened.Episode.State != episode.StateAwaitingBuyer || !reopened.Paused {
 		t.Fatalf("stale post-approval quote did not return to buyer gate: state=%s paused=%v err=%v", reopened.Episode.State, reopened.Paused, err)
 	}
-	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	intents, err = paymentIntents.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 0 || paymentAdapter.submits.Load() != 0 {
 		t.Fatalf("post-approval stale quote caused an economic effect: intents=%d submits=%d err=%v", len(intents), paymentAdapter.submits.Load(), err)
 	}
@@ -424,7 +465,7 @@ func TestBuyerConfirmationGatesUnifiedRuntimePaymentFlow(t *testing.T) {
 	if paymentAdapter.submits.Load() != 1 {
 		t.Fatalf("payment submits=%d, want exactly one", paymentAdapter.submits.Load())
 	}
-	intents, err = store.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
+	intents, err = paymentIntents.ListPaymentIntents(context.Background(), created.Episode.EpisodeID)
 	if err != nil || len(intents) != 1 || intents[0].QuoteHash != refreshedAgainBody.BuyerOffer.QuoteHash || intents[0].AmountMinor != refreshedAgainBody.BuyerOffer.AmountMinor || intents[0].PaymentRequirementID != refreshedAgainBody.BuyerOffer.OfferRef {
 		t.Fatalf("unexpected runtime intents=%#v err=%v", intents, err)
 	}
