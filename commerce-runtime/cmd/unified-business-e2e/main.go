@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/stablepay/commerce-runtime/internal/adapters"
 	"github.com/stablepay/commerce-runtime/internal/application"
 	"github.com/stablepay/commerce-runtime/internal/catalog"
+	"github.com/stablepay/commerce-runtime/internal/composition"
 	"github.com/stablepay/commerce-runtime/internal/contract"
 	"github.com/stablepay/commerce-runtime/internal/decision"
 	"github.com/stablepay/commerce-runtime/internal/episode"
@@ -41,18 +44,24 @@ type unifiedReport struct {
 		Model    string `json:"model"`
 		Calls    int    `json:"calls"`
 	} `json:"llm"`
-	Merchant         string `json:"merchant"`
-	MerchantMode     string `json:"merchant_mode"`
-	PaymentIntentID  string `json:"payment_intent_id"`
-	TxID             string `json:"tx_id"`
-	TxHash           string `json:"tx_hash"`
-	AmountMinor      int64  `json:"amount_minor"`
-	Currency         string `json:"currency"`
-	PaymentStatus    string `json:"payment_status"`
-	Verification     string `json:"verification"`
-	DeliveryStatus   int    `json:"delivery_http_status"`
-	TerminalState    string `json:"terminal_state"`
-	DeliveryAttempts int    `json:"delivery_attempts"`
+	Merchant          string `json:"merchant"`
+	MerchantMode      string `json:"merchant_mode"`
+	PaymentIntentID   string `json:"payment_intent_id"`
+	TxID              string `json:"tx_id"`
+	TxHash            string `json:"tx_hash"`
+	AmountMinor       int64  `json:"amount_minor"`
+	Currency          string `json:"currency"`
+	PaymentStatus     string `json:"payment_status"`
+	Verification      string `json:"verification"`
+	DeliveryStatus    int    `json:"delivery_http_status"`
+	TerminalState     string `json:"terminal_state"`
+	DeliveryAttempts  int    `json:"delivery_attempts"`
+	BuyerApproved     bool   `json:"buyer_approved"`
+	BuyerQuoteHash    string `json:"buyer_approved_quote_hash,omitempty"`
+	PayeeDID          string `json:"payee_did,omitempty"`
+	ProductID         string `json:"product_id,omitempty"`
+	SettlementNetwork string `json:"settlement_network,omitempty"`
+	SettlementAsset   string `json:"settlement_asset,omitempty"`
 }
 
 func main() {
@@ -80,6 +89,8 @@ func run(parent context.Context) error {
 	merchantEndpoint := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_ENDPOINT"), "http://127.0.0.1:8787/api/v1/products/ai-agent-job-2025/execute")
 	gatewayURL := firstNonEmptyUnified(os.Getenv("STABLEPAY_GATEWAY_BASE_URL"), "http://127.0.0.1:8080")
 	apiKey := firstNonEmptyUnified(os.Getenv("STABLEPAY_API_KEY"), "stablepay-dev-key")
+	capabilityID := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_CAPABILITY_ID"), "ai-agent-job-2025")
+	taskType := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_TASK_TYPE"), "ai-agent-job-2025")
 	runID := shortUnifiedID()
 	requesterDID := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_REQUESTER_DID"))
 	merchantDID := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_MERCHANT_DID"), "did:merchant:unified-a:"+runID)
@@ -123,10 +134,12 @@ func run(parent context.Context) error {
 	}
 	kitexPayment := &adapters.KitexPaymentAdapter{Client: paymentClient, Credentials: credentials}
 	verification := adapters.NewStablePayVerificationEntitlement(gatewayURL, apiKey)
+	merchantHTTPClient := &http.Client{Timeout: 20 * time.Second}
 	service := application.NewService(store,
 		application.WithSettlementPolicy(application.SettlementPolicy{Network: network, Assets: map[string]string{"USDC": mint}, AllowUnconstrainedForTests: false}),
 		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Status: kitexPayment, Entitlement: verification}),
-		application.WithMerchantAdapter(adapters.NewHTTPMerchantAdapter(nil)),
+		application.WithMerchantAdapter(adapters.NewHTTPMerchantAdapter(merchantHTTPClient)),
+		application.WithBuyerQuoteValidator(composition.NewHTTPBuyerQuoteValidator(merchantHTTPClient)),
 		application.WithPersistentEvidenceStore(store),
 		application.WithMemoryStore(store),
 	)
@@ -139,9 +152,9 @@ func run(parent context.Context) error {
 	}
 	request := contract.AcquireCapabilityRequest{
 		RequestID: "unified-business-e2e-" + runID, ParentSessionID: "unified-business-e2e-session", RequesterDID: requesterDID,
-		AcquisitionGoal: contract.AcquisitionGoal{TaskType: "ai-agent-job-2025", Description: "real StablePay Merchant delivery"},
+		AcquisitionGoal: contract.AcquisitionGoal{TaskType: taskType, Description: "real StablePay Merchant delivery"},
 		Input:           contract.Input{URI: "object://unified-business-e2e/input.json", ContentType: "application/json"},
-		Constraints:     contract.Constraints{BudgetLimitMinor: 1000, Currency: "USDC", DeadlineAt: now.Add(10 * time.Minute), SupportedProtocolVersions: []string{"x402-v2"}, MaxTotalAttempts: 6, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2},
+		Constraints:     contract.Constraints{BudgetLimitMinor: 1000, Currency: "USDC", DeadlineAt: now.Add(10 * time.Minute), SupportedProtocolVersions: []string{"x402-v2"}, MaxTotalAttempts: 6, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2, RequireBuyerConfirmation: true},
 		ExpectedOutput:  contract.ExpectedOutput{Schema: "merchant-delivery", ContentType: "application/json"}, Validator: contract.ValidatorRef{Kind: "builtin", Name: "non-empty", Version: "v1"},
 	}
 	created, err := service.CreateEpisode(ctx, request)
@@ -152,7 +165,7 @@ func run(parent context.Context) error {
 	if err != nil {
 		return fmt.Errorf("discover capability: %w", err)
 	}
-	candidate, ok := discovered.CandidateSet.FindCandidate(merchantDID, "ai-agent-job-2025")
+	candidate, ok := discovered.CandidateSet.FindCandidate(merchantDID, capabilityID)
 	if !ok {
 		return errors.New("unified Merchant capability was not discovered")
 	}
@@ -173,6 +186,52 @@ func run(parent context.Context) error {
 	}
 	if !strings.EqualFold(parsed.Quote.Network, network) || !strings.EqualFold(parsed.Quote.Asset, mint) || !strings.EqualFold(parsed.Quote.Currency, "USDC") {
 		return fmt.Errorf("strict settlement binding mismatch: network=%q asset=%q currency=%q", parsed.Quote.Network, parsed.Quote.Asset, parsed.Quote.Currency)
+	}
+	if !sameUnifiedSolanaPayee(parsed.Quote.PayeeDID, payeeDID) {
+		return fmt.Errorf("strict seller binding mismatch: quote payee=%q configured seller=%q", parsed.Quote.PayeeDID, payeeDID)
+	}
+	maxAmountMinor := int64(1000)
+	if rawLimit := strings.TrimSpace(os.Getenv("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR")); rawLimit != "" {
+		parsedLimit, parseErr := strconv.ParseInt(rawLimit, 10, 64)
+		if parseErr != nil || parsedLimit <= 0 {
+			return errors.New("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR must be a positive integer")
+		}
+		maxAmountMinor = parsedLimit
+	}
+	if parsed.Quote.AmountMinor > maxAmountMinor {
+		return fmt.Errorf("strict Devnet smoke price cap exceeded: quote=%d minor units cap=%d", parsed.Quote.AmountMinor, maxAmountMinor)
+	}
+	if parsed.Quote.ProductID != "" && candidate.ProductID != "" && parsed.Quote.ProductID != candidate.ProductID {
+		return fmt.Errorf("selected SKU mismatch: quote product=%q selected product=%q", parsed.Quote.ProductID, candidate.ProductID)
+	}
+	intentsBeforeApproval, err := store.ListPaymentIntents(ctx, selected.Episode.EpisodeID)
+	if err != nil || len(intentsBeforeApproval) != 0 {
+		return fmt.Errorf("payment intent exists before buyer approval: count=%d err=%v", len(intentsBeforeApproval), err)
+	}
+	if _, err := service.RequestBuyerConfirmation(ctx, selected.Episode.EpisodeID, "unified-buyer-offer-"+runID); err != nil {
+		return fmt.Errorf("request exact-offer buyer approval: %w", err)
+	}
+	offer, err := service.GetBuyerOffer(ctx, selected.Episode.EpisodeID)
+	if err != nil {
+		return fmt.Errorf("read exact buyer offer: %w", err)
+	}
+	if offer.RequesterDID != credentials.AgentDID() || !sameUnifiedSolanaPayee(offer.PayeeDID, payeeDID) || offer.AmountMinor != parsed.Quote.AmountMinor || offer.ProductID != parsed.Quote.ProductID {
+		return fmt.Errorf("buyer offer does not match the selected Agent, seller, product, or current quote")
+	}
+	approvalSignature, err := credentials.SignBuyerApprovalMessage(offer.RequesterDID, offer.AcceptMessage)
+	if err != nil {
+		return fmt.Errorf("sign exact buyer offer: %w", err)
+	}
+	approved, err := service.RecordBuyerConfirmation(ctx, application.BuyerConfirmationRequest{
+		EpisodeID: offer.EpisodeID, OfferRef: offer.OfferRef, QuoteHash: offer.QuoteHash, AmountMinor: offer.AmountMinor,
+		Currency: offer.Currency, Accepted: true, Signature: approvalSignature,
+		IdempotencyKey: "unified-buyer-approval-" + runID, TraceID: "unified-buyer-approval-" + runID,
+	})
+	if err != nil {
+		return fmt.Errorf("record exact buyer approval: %w", err)
+	}
+	if approved.Episode == nil || approved.Episode.State != episode.StateNegotiating {
+		return fmt.Errorf("record exact buyer approval ended in unexpected state: %v", approved.Episode)
 	}
 	settled, err := settleUnified(ctx, service, store, selected.Episode.EpisodeID, parsed.Quote, "unified-payment-"+runID)
 	if err != nil {
@@ -197,6 +256,13 @@ func run(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	report.BuyerApproved = true
+	report.BuyerQuoteHash = offer.QuoteHash
+	report.PayeeDID = offer.PayeeDID
+	report.ProductID = offer.ProductID
+	report.SettlementNetwork = offer.Network
+	report.SettlementAsset = offer.Asset
+	report.MerchantMode = firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_MERCHANT_MODE"), "REAL_ADAPTER_E2E")
 	path := firstNonEmptyUnified(os.Getenv("UNIFIED_BUSINESS_E2E_REPORT_PATH"), filepath.Join(".local-run", "unified-business-e2e-summary.json"))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -561,7 +627,20 @@ func unifiedSelectionProposal(episodeID, candidateSetID string, sequence uint64,
 
 func seedUnifiedCapability(ctx context.Context, service *application.Service, merchantDID, payeeDID, endpoint string, now time.Time, runID string) error {
 	price := int64(200)
-	return service.RegisterCapabilityVersion(ctx, &catalog.MerchantCapability{MerchantDID: merchantDID, CapabilityID: "ai-agent-job-2025", PayeeDID: payeeDID, Name: "AI agent job 2025", Description: "Production Merchant Server unified L2 capability.", TaskTypes: []string{"ai-agent-job-2025"}, SemanticTags: []string{"unified-business-e2e"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: endpoint, Method: "GET"}, InputSchemaRef: "schema:unified-input", OutputSchemaRef: "schema:merchant-delivery", InputContentTypes: []string{"application/json"}, OutputContentTypes: []string{"application/json"}, SupportedProtocolVersions: []string{"x402-v2"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1-" + runID, Source: "unified-business-e2e", SourceRef: "merchant://production/" + runID, SourceHash: evidence.HashString("unified:" + runID), ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(9 * time.Minute), CreatedAt: now, UpdatedAt: now})
+	if rawPrice := strings.TrimSpace(os.Getenv("MERCHANT_E2E_PRICE_MINOR")); rawPrice != "" {
+		parsedPrice, err := strconv.ParseInt(rawPrice, 10, 64)
+		if err != nil || parsedPrice <= 0 {
+			return errors.New("MERCHANT_E2E_PRICE_MINOR must be a positive integer")
+		}
+		price = parsedPrice
+	}
+	capabilityID := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_CAPABILITY_ID"), "ai-agent-job-2025")
+	productID := strings.TrimSpace(os.Getenv("MERCHANT_E2E_PRODUCT_ID"))
+	taskType := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_TASK_TYPE"), "ai-agent-job-2025")
+	if capabilityID == "" || taskType == "" {
+		return errors.New("Merchant capability ID and task type are required")
+	}
+	return service.RegisterCapabilityVersion(ctx, &catalog.MerchantCapability{MerchantDID: merchantDID, CapabilityID: capabilityID, ProductID: productID, PayeeDID: payeeDID, Name: "AgentPay local Merchant capability", Description: "Local Merchant HTTP catalog capability for the unified Devnet E2E.", TaskTypes: []string{taskType}, SemanticTags: []string{"unified-business-e2e"}, InvokeEndpoint: catalog.EndpointRef{Endpoint: endpoint, Method: "GET"}, InputSchemaRef: "schema:unified-input", OutputSchemaRef: "schema:merchant-delivery", InputContentTypes: []string{"application/json"}, OutputContentTypes: []string{"application/json"}, SupportedProtocolVersions: []string{"x402-v2"}, SupportedCurrencies: []string{"USDC"}, PricingModel: "fixed", PriceHintMinor: &price, PriceHintCurrency: "USDC", Status: catalog.StatusActive, Availability: catalog.AvailabilityAvailable, CatalogVersion: "v1-" + runID, Source: "unified-business-e2e", SourceRef: "merchant://local/" + runID, SourceHash: evidence.HashString("unified:" + runID), ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(9 * time.Minute), CreatedAt: now, UpdatedAt: now})
 }
 
 func seedUnifiedEvidence(ctx context.Context, store *mysqlrepo.Store, now time.Time) error {
@@ -587,6 +666,23 @@ func didFromAddress(address string) string {
 		return ""
 	}
 	return "did:solana:" + address
+}
+
+// sameUnifiedSolanaPayee accepts the raw base58 address emitted as payTo and
+// the did:solana form used by the Runtime catalog. Base58 is case-sensitive;
+// only the DID prefix is compared case-insensitively.
+func sameUnifiedSolanaPayee(actual, expected string) bool {
+	const prefix = "did:solana:"
+	stripPrefix := func(value string) string {
+		value = strings.TrimSpace(value)
+		if len(value) >= len(prefix) && strings.EqualFold(value[:len(prefix)], prefix) {
+			return value[len(prefix):]
+		}
+		return value
+	}
+	actual = stripPrefix(actual)
+	expected = stripPrefix(expected)
+	return actual != "" && actual == expected
 }
 
 func firstNonEmptyUnified(values ...string) string {

@@ -45,14 +45,25 @@ type esciRankingMetric struct {
 	NDCGMacro               float64 `json:"esci_ndcg_macro"`
 }
 
+type esciQueryRecallComparison struct {
+	QueryID             string  `json:"query_id"`
+	CandidateCount      int     `json:"candidate_count"`
+	ExactTargetCount    int     `json:"exact_target_count"`
+	BaselineHitsAt5     int     `json:"bm25_baseline_hits_at_5"`
+	ProductionHitsAt5   int     `json:"production_ranker_hits_at_5"`
+	BaselineRecallAt5   float64 `json:"bm25_baseline_recall_at_5"`
+	ProductionRecallAt5 float64 `json:"production_ranker_recall_at_5"`
+}
+
 type esciRankingReport struct {
-	SchemaVersion string              `json:"schema_version"`
-	DatasetRole   string              `json:"dataset_role"`
-	SamplePath    string              `json:"sample_path"`
-	SampleSHA256  string              `json:"sample_sha256"`
-	TaskCount     int                 `json:"task_count"`
-	Boundary      string              `json:"boundary"`
-	Metrics       []esciRankingMetric `json:"metrics"`
+	SchemaVersion  string                      `json:"schema_version"`
+	DatasetRole    string                      `json:"dataset_role"`
+	SamplePath     string                      `json:"sample_path"`
+	SampleSHA256   string                      `json:"sample_sha256"`
+	TaskCount      int                         `json:"task_count"`
+	Boundary       string                      `json:"boundary"`
+	Metrics        []esciRankingMetric         `json:"metrics"`
+	QueryRecallAt5 []esciQueryRecallComparison `json:"query_recall_at_5,omitempty"`
 }
 
 // TestRunESCIReferenceThroughRuntimeRanking is an opt-in local benchmark. It
@@ -160,6 +171,11 @@ func TestRunESCIReferenceThroughRuntimeRanking(t *testing.T) {
 			report.Metrics = append(report.Metrics, metric)
 		}
 	}
+	queryRecallAt5, err := compareESCIQueryRecallAt5(groups)
+	if err != nil {
+		t.Fatalf("compare per-query ESCI recall: %v", err)
+	}
+	report.QueryRecallAt5 = queryRecallAt5
 
 	outputRoot := filepath.Join(root, ".local-run", "agent-shopping", "reference-evaluations")
 	if err := os.MkdirAll(outputRoot, 0o700); err != nil {
@@ -178,6 +194,47 @@ func TestRunESCIReferenceThroughRuntimeRanking(t *testing.T) {
 	}
 	t.Logf("ESCI runtime-ranking diagnostic written: %s", outputDir)
 	t.Logf("ESCI runtime-ranking metrics: %s", encoded)
+}
+
+func compareESCIQueryRecallAt5(groups []esciReferenceGroup) ([]esciQueryRecallComparison, error) {
+	comparisons := make([]esciQueryRecallComparison, 0, len(groups))
+	for _, group := range groups {
+		products := make([]Product, len(group.Candidates))
+		exactTargets := make(map[string]struct{})
+		for index, candidate := range group.Candidates {
+			products[index] = Product{SKUID: candidate.ProductID, Category: "esci-reference", Item: group.QueryID,
+				Format: "judged-candidate", Title: candidate.Title, Description: candidate.Description,
+				Tags: []string{candidate.BulletPoint}, Attributes: map[string]any{"brand": candidate.Brand, "color": candidate.Color},
+				Currency: "USDC", Status: "active"}
+			if candidate.Label == "E" {
+				exactTargets[candidate.ProductID] = struct{}{}
+			}
+		}
+		if len(exactTargets) == 0 {
+			return nil, fmt.Errorf("query %s has no exact-target judgments", group.QueryID)
+		}
+		intent := Intent{Category: "esci-reference", Item: group.QueryID, RequiredFormat: "judged-candidate"}.WithSearchText(group.Query)
+		baseline := rankDiscoveryProductsWithTitleCoverageWeight(products, intent, DefaultDiscoveryCandidateWindow, 0)
+		production := rankDiscoveryProducts(products, intent, DefaultDiscoveryCandidateWindow)
+		baselineHits, productionHits := 0, 0
+		for index := 0; index < 5 && index < len(baseline); index++ {
+			if _, exact := exactTargets[baseline[index].SKUID]; exact {
+				baselineHits++
+			}
+		}
+		for index := 0; index < 5 && index < len(production); index++ {
+			if _, exact := exactTargets[production[index].SKUID]; exact {
+				productionHits++
+			}
+		}
+		comparisons = append(comparisons, esciQueryRecallComparison{
+			QueryID: group.QueryID, CandidateCount: len(group.Candidates), ExactTargetCount: len(exactTargets),
+			BaselineHitsAt5: baselineHits, ProductionHitsAt5: productionHits,
+			BaselineRecallAt5:   float64(baselineHits) / float64(len(exactTargets)),
+			ProductionRecallAt5: float64(productionHits) / float64(len(exactTargets)),
+		})
+	}
+	return comparisons, nil
 }
 
 func readESCIReferenceGroups(data []byte) ([]esciReferenceGroup, error) {

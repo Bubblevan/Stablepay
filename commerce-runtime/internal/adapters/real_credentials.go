@@ -6,8 +6,11 @@ package adapters
 // remains the cryptographic authority for the supplied signature.
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -97,6 +100,24 @@ func NewRealCredentialProvider(cfg RealCredentialProviderConfig) (*RealCredentia
 }
 
 func (p *RealCredentialProvider) AgentDID() string { return p.agentDID }
+
+// SignBuyerApprovalMessage signs only the domain-separated exact-offer message
+// used by the local Devnet E2E harness. The caller must independently verify
+// the payee and amount before requesting this signature.
+func (p *RealCredentialProvider) SignBuyerApprovalMessage(requesterDID, encodedMessage string) (string, error) {
+	if p == nil || strings.TrimSpace(requesterDID) == "" || strings.TrimSpace(requesterDID) != p.agentDID {
+		return "", errors.New("buyer approval requester does not match the configured Agent")
+	}
+	message, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedMessage))
+	if err != nil || !bytes.HasPrefix(message, []byte("StablePay Buyer Confirmation V1\n")) {
+		return "", errors.New("buyer approval message is not a canonical StablePay offer")
+	}
+	if len(p.agentKey) != ed25519.PrivateKeySize {
+		return "", errors.New("configured Agent signing key is invalid")
+	}
+	signature := ed25519.Sign(ed25519.PrivateKey(p.agentKey), message)
+	return base64.StdEncoding.EncodeToString(signature), nil
+}
 
 // EnsureIdentities makes the real DID service the registry of both identities.
 // The payment-service later verifies the actual payment signature through that

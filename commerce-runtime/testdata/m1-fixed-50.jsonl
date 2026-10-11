@@ -1,0 +1,50 @@
+{"task_id":"m1-001","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a practical ebook on note-taking for my team; cap the spend at $2.00 and pause for my exact-quote approval."}
+{"task_id":"m1-002","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Could you source a beginner's book about personal finance, maximum $2.00; do not pay before I approve the quote."}
+{"task_id":"m1-003","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I need an e-book about the Go language, budget ceiling $2.00; show me the final quote and wait."}
+{"task_id":"m1-004","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Please locate a book for learning photography, no more than $2.00; ask before checkout."}
+{"task_id":"m1-005","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find an ebook for an introduction to databases under $2.00 and wait for my explicit approval."}
+{"task_id":"m1-006","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Source a book about productivity habits, spending limit $2.00; don't purchase until I sign off."}
+{"task_id":"m1-007","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I want an e-book about design basics for $2.00 or less; present the exact quote first."}
+{"task_id":"m1-008","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Look for a beginner book on cloud computing, limit $2.00; stop at buyer approval."}
+{"task_id":"m1-009","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find an ebook covering APIs, up to $2.00; request my approval before payment."}
+{"task_id":"m1-010","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Get me a book on writing better documentation, under $2.00; no payment without confirmation."}
+{"task_id":"m1-011","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a coding tool for Go syntax help; cap it at $2.00 and get my approval before buying."}
+{"task_id":"m1-012","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Show a developer tool for API testing; maximum $2.00, wait for exact-quote approval."}
+{"task_id":"m1-013","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Source an SDK helper for JSON validation; budget $2.00; don't pay until approved."}
+{"task_id":"m1-014","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I need a code editor add-on for refactoring, at most $2.00; pause for confirmation."}
+{"task_id":"m1-015","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Pick a developer tool to inspect HTTP requests, up to $2.00; ask before checkout."}
+{"task_id":"m1-016","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a coding utility for shell scripts, spend no more than $2.00; I approve the quote first."}
+{"task_id":"m1-017","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Locate a programming tool for database migrations, budget $2.00; no purchase before sign-off."}
+{"task_id":"m1-018","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I need a developer toolkit for testing webhooks under $2.00; show the quote and pause."}
+{"task_id":"m1-019","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Choose a code tool for linting, maximum $2.00, and require my buyer approval."}
+{"task_id":"m1-020","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a developer tool for creating API docs; under $2.00; wait for me to approve."}
+{"task_id":"m1-021","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a cloud storage utility for project files; budget $2.00; wait for my exact-quote approval."}
+{"task_id":"m1-022","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Source a cloud backup tool for reports under $2.00; do not pay before confirmation."}
+{"task_id":"m1-023","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I need a hosting dashboard for a small project, cap $2.00; ask for approval."}
+{"task_id":"m1-024","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Pick a cloud deployment utility no more than $2.00; pause at the quote."}
+{"task_id":"m1-025","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a cloud operations tool for alerts, up to $2.00; let me approve first."}
+{"task_id":"m1-026","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Locate a cloud tool to manage storage buckets, limit $2.00; don't purchase until I approve."}
+{"task_id":"m1-027","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Show a cloud backup utility for less than $2.00; wait for my sign-off."}
+{"task_id":"m1-028","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Find a small cloud service tool for monitoring, maximum budget $2.00, and get exact approval."}
+{"task_id":"m1-029","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"I need a deployment tool for cloud workloads, $2.00 ceiling; no payment until approved."}
+{"task_id":"m1-030","scenario":"purchase","expected_outcome":"FULFILLED","prompt":"Choose a cloud storage tool for my archive, under $2.00, and ask me to approve the final price."}
+{"task_id":"m1-031","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Find a book about distributed systems, maximum $2.00; re-check the exact price and ask for approval before paying."}
+{"task_id":"m1-032","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Quote a coding tool for Go tests, ceiling $2.00; if its price changes, get my approval again."}
+{"task_id":"m1-033","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Source a cloud backup utility under $2.00; refresh the quote and wait for my confirmation."}
+{"task_id":"m1-034","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"I need an ebook about secure APIs, max $2.00; show any updated price and request approval again."}
+{"task_id":"m1-035","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Find a developer tool for linting, budget $2.00; never pay against a changed quote without a new sign-off."}
+{"task_id":"m1-036","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Locate a cloud hosting dashboard for at most $2.00; refresh its terms and obtain my renewed approval."}
+{"task_id":"m1-037","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Choose a book on system design, under $2.00; if the merchant changes the amount, pause for reapproval."}
+{"task_id":"m1-038","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Show me a coding utility for JSON, no more than $2.00; reconfirm the current quote before paying."}
+{"task_id":"m1-039","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Find a cloud monitoring tool within $2.00; if the quote moves, ask me to approve the new amount."}
+{"task_id":"m1-040","scenario":"price_change","expected_outcome":"FULFILLED_AFTER_RECONFIRMATION","prompt":"Source a book for learning SQL, cap $2.00; only proceed after I confirm the refreshed price."}
+{"task_id":"m1-041","scenario":"budget_refusal","expected_outcome":"BUDGET_REFUSED","prompt":"Find a coding tool for Go, but never spend more than $0.50; refuse if no eligible listing fits."}
+{"task_id":"m1-042","scenario":"budget_refusal","expected_outcome":"BUDGET_REFUSED","prompt":"Locate an ebook about databases with a hard $0.50 limit; do not exceed my budget."}
+{"task_id":"m1-043","scenario":"budget_refusal","expected_outcome":"BUDGET_REFUSED","prompt":"Show a cloud backup utility only if it costs at most $0.50; otherwise reject the purchase."}
+{"task_id":"m1-044","scenario":"budget_refusal","expected_outcome":"BUDGET_REFUSED","prompt":"I want a developer tool for API checks, but the ceiling is $0.50 and must not be exceeded."}
+{"task_id":"m1-045","scenario":"buyer_reject","expected_outcome":"BUYER_REJECTED","prompt":"Show me a book about documentation under $2.00, but I do not authorize a purchase; display the exact offer and record my rejection."}
+{"task_id":"m1-046","scenario":"buyer_reject","expected_outcome":"BUYER_REJECTED","prompt":"Find a developer tool for Go under $2.00, then stop at the quote; I am explicitly declining any purchase."}
+{"task_id":"m1-047","scenario":"buyer_reject","expected_outcome":"BUYER_REJECTED","prompt":"Show a cloud backup option below $2.00 for review only; I will reject the offer and do not authorize payment."}
+{"task_id":"m1-048","scenario":"clarify","expected_outcome":"CLARIFY_REQUIRED","prompt":"Help me find a home fragrance item for my office; ask me what scent and format I want before choosing."}
+{"task_id":"m1-049","scenario":"clarify","expected_outcome":"CLARIFY_REQUIRED","prompt":"I need a meal delivery option for a team event, but first clarify the date and dietary requirements."}
+{"task_id":"m1-050","scenario":"clarify","expected_outcome":"CLARIFY_REQUIRED","prompt":"Find a physical desk lamp for my workspace; ask whether I prefer a clamp or a standing model."}

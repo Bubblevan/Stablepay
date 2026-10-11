@@ -81,6 +81,7 @@ foreach ($svc in $services) {
     $process = Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-Command", $command) `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr `
         -PassThru

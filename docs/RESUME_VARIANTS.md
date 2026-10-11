@@ -1,6 +1,6 @@
 # StablePay Resume Variants
 
-These variants describe the current working tree and retained run evidence. They are positioning choices, not new product claims; check the evidence ledger for working-tree-only changes and run qualifiers.
+These variants describe the current working tree and retained run evidence. They are positioning choices, not new product claims; check the evidence ledger for working-tree-only changes and run qualifiers. The current six-bullet BOSS-ready draft is `docs/RESUME_BOSS_FINAL.md`; it keeps Mock, synthetic-evaluation, ACK-attested, and Devnet claims explicitly separated.
 
 ## Candidate project title
 
@@ -25,6 +25,8 @@ Avoid “AI payment platform”, “intelligent payment Agent”, and “LLM pay
 
 ## Recommended project bullets
 
+- **AgentPay 全链路（50 条隔离 MySQL + Mock 评测）：** 50 条冻结任务经 Runtime 商品搜索、Merchant/SKU 选择、报价复核、签名买家确认、Mock x402 支付、持久化 PaymentIntent/Ledger、验单和数字服务交付；预期终态 **50/50**，可购买任务有效交付 **40/40**，10/10 报价变化均重新确认；MySQL 审计确认 43 个 Episode 终态（40 `FULFILLED`、3 `ABORTED`）、40 个确认 PaymentIntent 对应 40 条 `PAYMENT_SETTLED`，孤立/重复/非终态记录均为 **0**。任务 P95 **442 ms**、Mock 支付确认至有效交付 P95 **127 ms**。这是规则解析 + 三个本地 Merchant 目录映射 + 确定性 Mock 的单机诊断，**不是实时模型或 Devnet 交易结果**。
+- **AgentPay Devnet 实付（独立单次验收）：** 以 12 家本地模拟 Merchant 之一 `sim-m11` 的合成 SKU 完成 **1 笔 0.99 USDC** Solana Devnet 购买，精确买家确认后支付、验单并交付；Episode `FULFILLED`，MySQL 确认 1 个 PaymentIntent、1 条 settlement、1 条验证记录、1 个 HTTP 200 交付，无重复记录；Devnet RPC 核对卖家 `+0.99 USDC`、买家 `−0.99 USDC`，Hot Wallet 为 fee payer。该结果是本地模拟商户的单次链路验收，不是实商或重复支付成功率。
 - 构建 Agent Commerce Runtime 持久化执行层，以 Episode 状态机编排商户发现、稳定 SKU 选择、精确报价签名确认、x402/Solana 支付、验单交付和恢复；LLM 仅提交带证据的 proposal，支付副作用由 `RuntimeGuard` 与确定性执行路径控制。Runtime 提供只读 HTTP/MCP 商品搜索并在购买 Episode 内重新发现、核验报价。
 - 在 12 家本地模拟 Merchant、24,000 条商品和隔离 MySQL 上打通约束筛选、库存/价格复核、报价预留、二次确认与模拟支付；回放 500 条锁定意图后全部到达终态（483 次模拟结算、17 次模拟拒付），覆盖 50 次价格变化、50 次缺货和 100 次过期确认拒绝，SQL invariant violations 为 0。另以 9 个定向 MySQL/API 场景验证买家许可的同格式替代品、缺货后基于新报价重新确认；不相关替代、不可行预算/区域和澄清路径均未产生购买副作用。该 9 场景窄范围测试未并入 500 条回放，也不是独立商品相关性评测。
 - 在隔离 MySQL 的 300 次本地模拟购买回放中注入 200 次提交后响应丢失、100 次 API 重建/重试（含 1 次 checkout OS 进程重启）及 100 组并发重复请求；**287/300** 订单端到端到达模拟 `FULFILLED`，其余 **13/300** 被确定性 mock 支付拒绝。对 29 个预设单次瞬态配送故障，均在同一幂等键下重试恢复；SQL 与离线审计未发现重复订单/支付/结算/履约/退款、金额/货币或终态不一致。固定合成任务池、mock 支付与履约；不是外部支付 sandbox、Devnet 或生产成功率。
@@ -33,7 +35,11 @@ Avoid “AI payment platform”, “intelligent payment Agent”, and “LLM pay
 
 The local shopping lifecycle and 300-order replay use isolated deterministic mocks; keep that qualifier next to their results. The 500-task product-quality figures `94.2%` and `72.6% → 91.8%` are not established: no independent, double-reviewed holdout has been evaluated. Do not headline `48/56`; the 56 include the expected `guard-rejected` safety-negative group.
 
-The direct Runtime integration has a separate 50-template deterministic Mock regression (50/50 valid deliveries, zero duplicate settlement facts), but intent was already normalized and the test used in-memory persistence. Keep it as an engineering/interview diagnostic until a public Agent/client path and a durable isolated-MySQL audit are attached; its sub-millisecond payment-to-delivery P95 is not a resume performance claim.
+The direct Runtime path now has separate in-memory and isolated-MySQL Mock diagnostics. The latest fixed natural-language matrix used 50 frozen prompts and three mapped capabilities read from local Merchant HTTP APIs: 50/50 expected outcomes were correct, 40/40 approved purchases reached valid delivery, all 10 changed quotes required fresh buyer approval, and duplicate PaymentIntents/settlements/transaction IDs were zero. The independent SQL audit found 40 `FULFILLED` and 3 `ABORTED` terminal Episodes, 40 confirmed PaymentIntents matched to 40 `PAYMENT_SETTLED` rows, and zero nonterminal or orphan records. It used a deterministic rule parser and Mock payment/entitlement/delivery—not a live model or chain settlement. On this single host, task E2E P95 was 442.024 ms and payment-confirmation-to-valid-delivery P95 was 126.561 ms; these are engineering diagnostics, not production SLOs. The seller wallet is now funded on Devnet, but no real payment was made in this matrix. Artifact: `.local-run/commerce-runtime/m1-fixed-50/m1-runtime-fixed-50-matrix-20261011T165230.796739600Z/`; earlier InMemory artifact remains `.local-run/commerce-runtime/m1-fixed-50/m1-runtime-fixed-50-matrix-20261011T163822.455546500Z/`; fixed input: `commerce-runtime/testdata/m1-fixed-50.jsonl`.
+
+Separate from that Mock matrix, a one-off 2026-10-12 Devnet run paid `0.99 USDC` to the exact `sim-m11` synthetic Merchant SKU, then verified and delivered it. The transaction and independent on-chain balance audit are in `docs/SP-RESUME-B1.md` and `.local-run/unified-business-e2e-devnet-m11-20261012.json`; it is one local simulated-Merchant acceptance, not a real-Merchant or repeated-payment claim.
+
+The earlier 50-template deterministic regression remains separately recorded at `.local-run/commerce-runtime/m1-fixed-50/m1-runtime-fixed-50-20261011T154158.262357400Z/`; its intent was pre-normalized and it should not be conflated with the newer fixed-prompt matrix.
 
 ### Optional public retrieval-reference result (separate from the StablePay holdout)
 
