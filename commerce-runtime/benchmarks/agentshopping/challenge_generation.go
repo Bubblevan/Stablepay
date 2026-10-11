@@ -520,6 +520,10 @@ func addOptionalStylePlanCases(catalog ImportedCatalog, tasks []ChallengeTask, s
 		for _, candidate := range candidates {
 			task.GoldSKUs = append(task.GoldSKUs, candidate.SKUID)
 		}
+		// Removing a style-derived hard attribute changes the exact-target
+		// relevance set too. Recompute it from the final intent rather than
+		// carrying labels derived from the pre-omission constraints.
+		task.RelevantSKUs = exactChallengeRelevantSKUs(catalog.Products, task.Intent)
 	}
 	return nil
 }

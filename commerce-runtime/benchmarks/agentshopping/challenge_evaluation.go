@@ -131,55 +131,59 @@ type ChallengeEvaluationHashes struct {
 }
 
 type ChallengeStratum struct {
-	TaskCount                    int                                 `json:"task_count"`
-	PlanTasks                    int                                 `json:"plan_tasks"`
-	CorrectDecisionRate          ChallengeRate                       `json:"correct_decision_rate_all_tasks"`
-	FeasibleSKURecallAtK         ChallengeSKURecallSummary           `json:"feasible_sku_recall_at_k"`
-	TargetProductRecallAtK       ChallengeTargetProductRecallSummary `json:"target_product_recall_at_k"`
-	PlanTaskHitAtK               ChallengeRate                       `json:"plan_task_hit_at_k"`
-	TargetProductTaskHitAtK      ChallengeRate                       `json:"target_product_task_hit_at_k"`
-	PlanComparison               ChallengePlanComparison             `json:"plan_comparison"`
-	ValidPlanRate                ChallengeRate                       `json:"valid_plan_rate"`
-	AcceptedSubstituteHitsAtK    int                                 `json:"accepted_substitute_hits_at_k"`
-	ValidSubstitutePlans         int                                 `json:"valid_substitute_plans"`
-	NoPlanTasks                  int                                 `json:"no_plan_tasks"`
-	CorrectNoPlanRate            ChallengeRate                       `json:"correct_no_plan_rate"`
-	ClarificationTasks           int                                 `json:"clarification_tasks"`
-	CorrectClarifyRate           ChallengeRate                       `json:"correct_clarification_rate"`
-	ClarificationQuestionRate    ChallengeRate                       `json:"clarification_question_provided_rate"`
-	ClarificationQuestionCueRate ChallengeRate                       `json:"clarification_question_missing_field_cue_rate"`
-	UnexpectedPlanCount          int                                 `json:"unexpected_plan_for_non_plan_count"`
-	ParseFailures                int                                 `json:"parse_failures"`
+	TaskCount                          int                                 `json:"task_count"`
+	PlanTasks                          int                                 `json:"plan_tasks"`
+	CorrectDecisionRate                ChallengeRate                       `json:"correct_decision_rate_all_tasks"`
+	FeasibleSKURecallAtK               ChallengeSKURecallSummary           `json:"feasible_sku_recall_at_k"`
+	TreatmentFeasibleOfferSKURecallAtK ChallengeSKURecallSummary           `json:"treatment_feasible_offer_sku_recall_at_k"`
+	TargetProductRecallAtK             ChallengeTargetProductRecallSummary `json:"target_product_recall_at_k"`
+	PlanTaskHitAtK                     ChallengeRate                       `json:"plan_task_hit_at_k"`
+	TreatmentFeasibleOfferTaskHitAtK   ChallengeRate                       `json:"treatment_feasible_offer_task_hit_at_k"`
+	TargetProductTaskHitAtK            ChallengeRate                       `json:"target_product_task_hit_at_k"`
+	PlanComparison                     ChallengePlanComparison             `json:"plan_comparison"`
+	ValidPlanRate                      ChallengeRate                       `json:"valid_plan_rate"`
+	AcceptedSubstituteHitsAtK          int                                 `json:"accepted_substitute_hits_at_k"`
+	ValidSubstitutePlans               int                                 `json:"valid_substitute_plans"`
+	NoPlanTasks                        int                                 `json:"no_plan_tasks"`
+	CorrectNoPlanRate                  ChallengeRate                       `json:"correct_no_plan_rate"`
+	ClarificationTasks                 int                                 `json:"clarification_tasks"`
+	CorrectClarifyRate                 ChallengeRate                       `json:"correct_clarification_rate"`
+	ClarificationQuestionRate          ChallengeRate                       `json:"clarification_question_provided_rate"`
+	ClarificationQuestionCueRate       ChallengeRate                       `json:"clarification_question_missing_field_cue_rate"`
+	UnexpectedPlanCount                int                                 `json:"unexpected_plan_for_non_plan_count"`
+	ParseFailures                      int                                 `json:"parse_failures"`
 }
 
 type ChallengeEvaluationReport struct {
-	SchemaVersion                string                              `json:"schema_version"`
-	Evaluation                   string                              `json:"evaluation"`
-	DataOrigin                   string                              `json:"data_origin"`
-	Hashes                       ChallengeEvaluationHashes           `json:"hashes"`
-	TaskCount                    int                                 `json:"task_count"`
-	RecallCutoff                 int                                 `json:"recall_cutoff"`
-	DiscoveryCandidateWindow     int                                 `json:"discovery_candidate_window"`
-	ExactIntentRate              ChallengeRate                       `json:"exact_intent_rate_on_complete_intents"`
-	CorrectDecisionRate          ChallengeRate                       `json:"correct_decision_rate_all_tasks"`
-	PlanTasks                    int                                 `json:"plan_tasks"`
-	FeasibleSKURecallAtK         ChallengeSKURecallSummary           `json:"feasible_sku_recall_at_k"`
-	TargetProductRecallAtK       ChallengeTargetProductRecallSummary `json:"target_product_recall_at_k"`
-	PlanTaskHitAtK               ChallengeRate                       `json:"plan_task_hit_at_k"`
-	TargetProductTaskHitAtK      ChallengeRate                       `json:"target_product_task_hit_at_k"`
-	PlanComparison               ChallengePlanComparison             `json:"plan_comparison"`
-	ValidPlanRate                ChallengeRate                       `json:"valid_plan_rate"`
-	AcceptedSubstituteHitsAtK    int                                 `json:"accepted_substitute_hits_at_k"`
-	ValidSubstitutePlans         int                                 `json:"valid_substitute_plans"`
-	NoPlanTasks                  int                                 `json:"no_plan_tasks"`
-	CorrectNoPlanRate            ChallengeRate                       `json:"correct_no_plan_rate"`
-	ClarificationTasks           int                                 `json:"clarification_tasks"`
-	CorrectClarifyRate           ChallengeRate                       `json:"correct_clarification_rate"`
-	ClarificationQuestionRate    ChallengeRate                       `json:"clarification_question_provided_rate"`
-	ClarificationQuestionCueRate ChallengeRate                       `json:"clarification_question_missing_field_cue_rate"`
-	UnexpectedPlanCount          int                                 `json:"unexpected_plan_for_non_plan_count"`
-	ParseFailures                int                                 `json:"parse_failures"`
-	ByScenario                   map[string]ChallengeStratum         `json:"by_scenario"`
+	SchemaVersion                      string                              `json:"schema_version"`
+	Evaluation                         string                              `json:"evaluation"`
+	DataOrigin                         string                              `json:"data_origin"`
+	Hashes                             ChallengeEvaluationHashes           `json:"hashes"`
+	TaskCount                          int                                 `json:"task_count"`
+	RecallCutoff                       int                                 `json:"recall_cutoff"`
+	DiscoveryCandidateWindow           int                                 `json:"discovery_candidate_window"`
+	ExactIntentRate                    ChallengeRate                       `json:"exact_intent_rate_on_complete_intents"`
+	CorrectDecisionRate                ChallengeRate                       `json:"correct_decision_rate_all_tasks"`
+	PlanTasks                          int                                 `json:"plan_tasks"`
+	FeasibleSKURecallAtK               ChallengeSKURecallSummary           `json:"feasible_sku_recall_at_k"`
+	TreatmentFeasibleOfferSKURecallAtK ChallengeSKURecallSummary           `json:"treatment_feasible_offer_sku_recall_at_k"`
+	TargetProductRecallAtK             ChallengeTargetProductRecallSummary `json:"target_product_recall_at_k"`
+	PlanTaskHitAtK                     ChallengeRate                       `json:"plan_task_hit_at_k"`
+	TreatmentFeasibleOfferTaskHitAtK   ChallengeRate                       `json:"treatment_feasible_offer_task_hit_at_k"`
+	TargetProductTaskHitAtK            ChallengeRate                       `json:"target_product_task_hit_at_k"`
+	PlanComparison                     ChallengePlanComparison             `json:"plan_comparison"`
+	ValidPlanRate                      ChallengeRate                       `json:"valid_plan_rate"`
+	AcceptedSubstituteHitsAtK          int                                 `json:"accepted_substitute_hits_at_k"`
+	ValidSubstitutePlans               int                                 `json:"valid_substitute_plans"`
+	NoPlanTasks                        int                                 `json:"no_plan_tasks"`
+	CorrectNoPlanRate                  ChallengeRate                       `json:"correct_no_plan_rate"`
+	ClarificationTasks                 int                                 `json:"clarification_tasks"`
+	CorrectClarifyRate                 ChallengeRate                       `json:"correct_clarification_rate"`
+	ClarificationQuestionRate          ChallengeRate                       `json:"clarification_question_provided_rate"`
+	ClarificationQuestionCueRate       ChallengeRate                       `json:"clarification_question_missing_field_cue_rate"`
+	UnexpectedPlanCount                int                                 `json:"unexpected_plan_for_non_plan_count"`
+	ParseFailures                      int                                 `json:"parse_failures"`
+	ByScenario                         map[string]ChallengeStratum         `json:"by_scenario"`
 }
 
 type ChallengeTrial struct {
@@ -198,11 +202,14 @@ type ChallengeTrial struct {
 	CandidateCount                            int                  `json:"feasible_candidate_count"`
 	GoldSKUCount                              int                  `json:"gold_sku_count,omitempty"`
 	RetrievedGoldSKUCount                     int                  `json:"retrieved_gold_sku_count,omitempty"`
+	TreatmentFeasibleOfferSKUs                []string             `json:"treatment_feasible_offer_skus,omitempty"`
+	RetrievedTreatmentFeasibleGoldSKUCount    int                  `json:"retrieved_treatment_feasible_gold_sku_count,omitempty"`
 	RelevantSKUCount                          int                  `json:"relevant_sku_count,omitempty"`
 	RetrievedRelevantSKUCount                 int                  `json:"retrieved_relevant_sku_count,omitempty"`
 	TopSKU                                    string               `json:"top_sku,omitempty"`
 	TopMatchType                              string               `json:"top_match_type,omitempty"`
 	GoldHitAtK                                bool                 `json:"discovery_hit_any_gold_at_k"`
+	TreatmentFeasibleOfferGoldHitAtK          bool                 `json:"treatment_feasible_offer_hit_any_gold_at_k"`
 	TargetProductHitAtK                       bool                 `json:"discovery_hit_any_relevant_product_at_k"`
 	AcceptedSubstituteHitAtK                  bool                 `json:"accepted_substitute_hit_at_k"`
 	ValidPlan                                 bool                 `json:"valid_plan"`
@@ -302,7 +309,7 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 		resultByID[result.TaskID] = result
 	}
 
-	report := ChallengeEvaluationReport{SchemaVersion: "stablepay.agent-shopping-challenge.v7",
+	report := ChallengeEvaluationReport{SchemaVersion: "stablepay.agent-shopping-challenge.v8",
 		Evaluation: "paired-b0-b1-two-stage-discovery-and-plan-quality", DataOrigin: "CHALLENGE_INPUT_PROVENANCE_UNVERIFIED",
 		TaskCount: len(tasks), RecallCutoff: cutoff, DiscoveryCandidateWindow: DefaultDiscoveryCandidateWindow,
 		ByScenario: make(map[string]ChallengeStratum)}
@@ -422,6 +429,13 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 						trial.AcceptedSubstituteHitAtK = true
 					}
 				}
+				for _, candidate := range candidates {
+					trial.TreatmentFeasibleOfferSKUs = append(trial.TreatmentFeasibleOfferSKUs, candidate.product.SKUID)
+					if gold[candidate.product.SKUID] {
+						trial.RetrievedTreatmentFeasibleGoldSKUCount++
+						trial.TreatmentFeasibleOfferGoldHitAtK = true
+					}
+				}
 				if len(candidates) > 0 {
 					treatmentTask := Task{TaskID: task.TaskID, Intent: task.Intent, GoldSKUs: task.GoldSKUs}
 					treatmentPlan := makePolicyTrial(treatmentTask, candidates, offers)
@@ -447,6 +461,10 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 			if trial.AcceptedSubstituteHitAtK {
 				report.AcceptedSubstituteHitsAtK++
 				stratum.AcceptedSubstituteHitsAtK++
+			}
+			if trial.TreatmentFeasibleOfferGoldHitAtK {
+				report.TreatmentFeasibleOfferTaskHitAtK.Numerator++
+				stratum.TreatmentFeasibleOfferTaskHitAtK.Numerator++
 			}
 			if trial.ValidPlan {
 				report.ValidPlanRate.Numerator++
@@ -485,8 +503,10 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 	}
 	report.CorrectDecisionRate = challengeRate(correctDecisions, len(tasks))
 	report.FeasibleSKURecallAtK = summarizeChallengeSKURecall(tasks, trials, "")
+	report.TreatmentFeasibleOfferSKURecallAtK = summarizeTreatmentFeasibleOfferSKURecall(tasks, trials, "")
 	report.TargetProductRecallAtK = summarizeChallengeTargetProductRecall(tasks, trials, "", doubleReviewedLabels, cutoff)
 	report.PlanTaskHitAtK = challengeRate(report.PlanTaskHitAtK.Numerator, report.PlanTasks)
+	report.TreatmentFeasibleOfferTaskHitAtK = challengeRate(report.TreatmentFeasibleOfferTaskHitAtK.Numerator, report.PlanTasks)
 	report.TargetProductTaskHitAtK = challengeRate(countTargetProductTaskHits(trials, ""), countLabeledPlanTasks(tasks, ""))
 	report.TargetProductTaskHitAtK.Status = report.TargetProductRecallAtK.Status
 	report.PlanComparison = summarizeChallengePlanComparison(tasks, trials, "")
@@ -504,8 +524,10 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 		}
 		stratum.CorrectDecisionRate = challengeRate(correctScenarioDecisions, stratum.TaskCount)
 		stratum.FeasibleSKURecallAtK = summarizeChallengeSKURecall(tasks, trials, scenario)
+		stratum.TreatmentFeasibleOfferSKURecallAtK = summarizeTreatmentFeasibleOfferSKURecall(tasks, trials, scenario)
 		stratum.TargetProductRecallAtK = summarizeChallengeTargetProductRecall(tasks, trials, scenario, doubleReviewedLabels, cutoff)
 		stratum.PlanTaskHitAtK = challengeRate(stratum.PlanTaskHitAtK.Numerator, stratum.PlanTasks)
+		stratum.TreatmentFeasibleOfferTaskHitAtK = challengeRate(stratum.TreatmentFeasibleOfferTaskHitAtK.Numerator, stratum.PlanTasks)
 		stratum.TargetProductTaskHitAtK = challengeRate(countTargetProductTaskHits(trials, scenario), countLabeledPlanTasks(tasks, scenario))
 		stratum.TargetProductTaskHitAtK.Status = stratum.TargetProductRecallAtK.Status
 		stratum.PlanComparison = summarizeChallengePlanComparison(tasks, trials, scenario)
@@ -517,6 +539,36 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 		report.ByScenario[scenario] = stratum
 	}
 	return report, trials, nil
+}
+
+func summarizeTreatmentFeasibleOfferSKURecall(tasks []ChallengeTask, trials []ChallengeTrial, scenario string) ChallengeSKURecallSummary {
+	trialByID := make(map[string]ChallengeTrial, len(trials))
+	for _, trial := range trials {
+		trialByID[trial.TaskID] = trial
+	}
+	var summary ChallengeSKURecallSummary
+	taskRecalls := make([]float64, 0, len(tasks))
+	for _, task := range tasks {
+		if task.ExpectedDisposition != ChallengePlan || (scenario != "" && task.Scenario != scenario) || len(task.GoldSKUs) == 0 {
+			continue
+		}
+		trial := trialByID[task.TaskID]
+		hits := trial.RetrievedTreatmentFeasibleGoldSKUCount
+		if hits > len(task.GoldSKUs) {
+			hits = len(task.GoldSKUs)
+		}
+		summary.TaskCount++
+		summary.GoldSKUCount += len(task.GoldSKUs)
+		summary.RetrievedGoldSKUCount += hits
+		taskRecalls = append(taskRecalls, float64(hits)/float64(len(task.GoldSKUs)))
+	}
+	if summary.GoldSKUCount > 0 {
+		summary.MicroRecallAtK = float64(summary.RetrievedGoldSKUCount) / float64(summary.GoldSKUCount)
+	}
+	if len(taskRecalls) > 0 {
+		summary.MacroRecallAtK, summary.MacroRecallAtKCI95 = bootstrapMeanCI(taskRecalls, 10000, 0xa54ff53a)
+	}
+	return summary
 }
 
 func summarizeChallengePlanComparison(tasks []ChallengeTask, trials []ChallengeTrial, scenario string) ChallengePlanComparison {

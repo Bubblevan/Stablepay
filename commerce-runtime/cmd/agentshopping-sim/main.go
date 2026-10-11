@@ -64,7 +64,7 @@ func usage() {
   agentshopping-sim.exe evaluate [--manifest path] [--seed 20261010] [--tasks 500] [--cutoff 20]
   agentshopping-sim.exe evaluate-intents [--manifest path] [--seed 20261010]
   agentshopping-sim.exe evaluate-challenge --tasks <explicit-suite.jsonl> [--manifest path] [--seed 20261010] [--cutoff 20] [--oracle-intents | --replay-parse-results <prior-run/parse-results.jsonl> | --require-human-review --review-bundle <bundle-dir> | --allow-unreviewed-diagnostic-model-run]
-  agentshopping-sim.exe generate-challenge-draft [--manifest path] [--seed 20261010] [--tasks 500] [--mixed-decisions] [--out-dir .local-run/agent-shopping/challenge-suites/draft-auto-v1]
+  agentshopping-sim.exe generate-challenge-draft [--manifest path] [--seed 20261010] [--task-seed 20261010] [--tasks 500] [--mixed-decisions] [--natural-language-v2] [--out-dir .local-run/agent-shopping/challenge-suites/draft-auto-v1]
   agentshopping-sim.exe prepare-challenge-review --prompts <master-prompts.jsonl> --manifest .local-run/simulated-merchants/manifest.json --out-dir <new-packet-dir>
   agentshopping-sim finalize-challenge-review --prompts <master-prompts.jsonl> --reviewer-a-prompts <reviewer-a-prompts.jsonl> --reviewer-b-prompts <reviewer-b-prompts.jsonl> --reviewer-catalog <reviewer-catalog.jsonl> --packet-manifest <packet-manifest.json> --reviewer-a <reviewer-a.jsonl> --reviewer-b <reviewer-b.jsonl> --adjudications <adjudications.jsonl> --out-dir <new-bundle-dir>
   agentshopping-sim.exe serve

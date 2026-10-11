@@ -321,6 +321,52 @@ func TestGenerateChallengeDecisionDraftAddsNearMissNoPlanAndClarificationTasks(t
 	}
 }
 
+func TestNaturalizeChallengeTaskPromptsIsDeterministicAndPreservesLabels(t *testing.T) {
+	catalog := mixedDecisionFixtureCatalog()
+	generated, err := GenerateChallengeDecisionDraft(catalog, 73, 40)
+	if err != nil {
+		t.Fatalf("GenerateChallengeDecisionDraft: %v", err)
+	}
+	before := append([]ChallengeTask(nil), generated...)
+	first := append([]ChallengeTask(nil), generated...)
+	second := append([]ChallengeTask(nil), generated...)
+	if err := NaturalizeChallengeTaskPrompts(first, 73); err != nil {
+		t.Fatalf("NaturalizeChallengeTaskPrompts: %v", err)
+	}
+	if err := NaturalizeChallengeTaskPrompts(second, 73); err != nil {
+		t.Fatalf("repeat NaturalizeChallengeTaskPrompts: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatal("same task seed must produce identical natural-language prompts")
+	}
+	shapes := make(map[string]bool)
+	for index, task := range first {
+		if task.TaskID != before[index].TaskID || !reflect.DeepEqual(task.Intent, before[index].Intent) ||
+			!reflect.DeepEqual(task.GoldSKUs, before[index].GoldSKUs) ||
+			!reflect.DeepEqual(task.RelevantSKUs, before[index].RelevantSKUs) ||
+			task.ExpectedDisposition != before[index].ExpectedDisposition {
+			t.Fatalf("naturalization changed a label or structured intent: before=%+v after=%+v", before[index], task)
+		}
+		if task.Prompt == "" || strings.Contains(task.Prompt, "%!") || !strings.Contains(task.Prompt, FormatMinorUnits(task.Intent.MaxPriceMinor)) {
+			t.Fatalf("naturalized prompt is malformed or omits its budget: %q", task.Prompt)
+		}
+		shape := task.Prompt
+		for _, value := range []string{task.Intent.Item, task.Intent.RequiredFormat, task.Intent.Region,
+			task.Intent.PreferredStyle, FormatMinorUnits(task.Intent.MaxPriceMinor)} {
+			if value != "" {
+				shape = strings.ReplaceAll(shape, value, "<FIELD>")
+			}
+		}
+		shapes[shape] = true
+	}
+	if len(shapes) < 8 {
+		t.Fatalf("naturalized suite should express several distinct request forms, got %d shapes", len(shapes))
+	}
+	if err := ValidateChallengeTaskSet(catalog, first); err != nil {
+		t.Fatalf("naturalization must preserve snapshot-valid labels: %v", err)
+	}
+}
+
 func TestGenerateChallengeDecisionDraftRedistributesUnsupportedScenarioQuota(t *testing.T) {
 	catalog := mixedDecisionFixtureCatalog()
 	offers := challengeOffers(catalog)

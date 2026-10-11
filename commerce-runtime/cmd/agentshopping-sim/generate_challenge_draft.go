@@ -23,7 +23,9 @@ type challengeDraftManifest struct {
 	ReviewGate       string                                  `json:"review_gate"`
 	CreatedAtUTC     string                                  `json:"created_at_utc"`
 	Seed             int64                                   `json:"seed"`
+	TaskSeed         int64                                   `json:"task_seed"`
 	TaskCount        int                                     `json:"task_count"`
+	PromptStyle      string                                  `json:"prompt_style"`
 	ScenarioCounts   map[string]int                          `json:"scenario_counts"`
 	DecisionCounts   map[string]int                          `json:"decision_counts"`
 	GoldSetSizeMin   int                                     `json:"gold_set_size_min"`
@@ -39,8 +41,10 @@ func generateChallengeDraft(args []string) error {
 	flags := flag.NewFlagSet("generate-challenge-draft", flag.ContinueOnError)
 	manifestPath := flags.String("manifest", filepath.Join(".local-run", "simulated-merchants", "manifest.json"), "local synthetic Merchant manifest")
 	seed := flags.Int64("seed", 20261010, "expected synthetic Merchant catalog seed")
+	taskSeed := flags.Int64("task-seed", 20261010, "independent challenge task generation seed")
 	count := flags.Int("tasks", 500, "draft task count (1–500)")
 	mixedDecisions := flags.Bool("mixed-decisions", false, "include generated PLAN, NO_PLAN, and CLARIFY tasks (diagnostic only)")
+	naturalLanguageV2 := flags.Bool("natural-language-v2", false, "use varied user-style prompts while preserving structured intents and labels")
 	outputDir := flags.String("out-dir", filepath.Join(".local-run", "agent-shopping", "challenge-suites", "draft-auto-v1"), "new output directory under .local-run/agent-shopping/challenge-suites")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -88,12 +92,19 @@ func generateChallengeDraft(args []string) error {
 	}
 	var tasks []agentshopping.ChallengeTask
 	if *mixedDecisions {
-		tasks, err = agentshopping.GenerateChallengeDecisionDraft(catalog, *seed, *count)
+		tasks, err = agentshopping.GenerateChallengeDecisionDraft(catalog, *taskSeed, *count)
 	} else {
-		tasks, err = agentshopping.GenerateChallengePlanDraft(catalog, *seed, *count)
+		tasks, err = agentshopping.GenerateChallengePlanDraft(catalog, *taskSeed, *count)
 	}
 	if err != nil {
 		return err
+	}
+	promptStyle := "catalog-seeded-template-v1"
+	if *naturalLanguageV2 {
+		if err := agentshopping.NaturalizeChallengeTaskPrompts(tasks, *taskSeed); err != nil {
+			return fmt.Errorf("naturalize challenge prompts: %w", err)
+		}
+		promptStyle = "varied-user-language-v2; intents-and-labels-unchanged"
 	}
 	hashes, err := agentshopping.ComputeChallengeHashes(catalog, tasks, manifestBytes)
 	if err != nil {
@@ -117,7 +128,8 @@ func generateChallengeDraft(args []string) error {
 	manifest := challengeDraftManifest{SchemaVersion: "stablepay.agent-shopping-challenge-draft.v1",
 		Status: "AUTO_GENERATED_UNREVIEWED_DRAFT", TaskProvenance: "GENERATED_FROM_LOCAL_SYNTHETIC_MERCHANT_SNAPSHOT",
 		ReviewGate:   "INDEPENDENT_PROMPT_AND_GOLD_LABEL_REVIEW_REQUIRED_BEFORE_HOLDOUT_OR_RESUME_CLAIM",
-		CreatedAtUTC: time.Now().UTC().Format(time.RFC3339Nano), Seed: *seed, TaskCount: len(tasks),
+		CreatedAtUTC: time.Now().UTC().Format(time.RFC3339Nano), Seed: *seed, TaskSeed: *taskSeed,
+		TaskCount: len(tasks), PromptStyle: promptStyle,
 		ScenarioCounts: scenarioCounts, DecisionCounts: decisionCounts, GoldSetSizeMin: minGold, GoldSetSizeMax: maxGold,
 		GoldSetSizeMean: float64(goldTotal) / float64(len(tasks)),
 		SourceManifest:  filepath.ToSlash(filepath.Join(".local-run", "simulated-merchants", filepath.Base(manifestAbs))),
@@ -155,6 +167,7 @@ func generateChallengeDraft(args []string) error {
 	digest := sha256.Sum256(manifestBytes)
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"output_dir": outputAbs, "tasks_file": filepath.Join(outputAbs, "tasks.jsonl"), "task_count": len(tasks),
+		"task_seed": *taskSeed, "prompt_style": promptStyle,
 		"status": manifest.Status, "review_gate": manifest.ReviewGate, "decision_counts": decisionCounts,
 		"tasks_sha256": hashes.TasksSHA256, "catalog_sha256": hashes.CatalogSHA256,
 		"inventory_sha256": hashes.InventorySHA256, "source_manifest_sha256": "sha256:" + hex.EncodeToString(digest[:]),

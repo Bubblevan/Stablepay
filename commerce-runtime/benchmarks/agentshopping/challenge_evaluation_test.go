@@ -127,6 +127,12 @@ func TestChallengeEvaluationKeepsFeasibleNoPlanAndClarificationDenominatorsSepar
 		report.FeasibleSKURecallAtK.MicroRecallAtK != 1.0/3 {
 		t.Fatalf("SKU-level retrieval recall must include parse failures as misses: %+v", report.FeasibleSKURecallAtK)
 	}
+	if report.TreatmentFeasibleOfferSKURecallAtK.TaskCount != 3 || report.TreatmentFeasibleOfferSKURecallAtK.GoldSKUCount != 3 ||
+		report.TreatmentFeasibleOfferSKURecallAtK.RetrievedGoldSKUCount != 1 ||
+		report.TreatmentFeasibleOfferTaskHitAtK.Numerator != 1 || report.TreatmentFeasibleOfferTaskHitAtK.Denominator != 3 {
+		t.Fatalf("post-filter offered SKU metrics must retain parse failures in the plan-task denominator: recall=%+v hit=%+v",
+			report.TreatmentFeasibleOfferSKURecallAtK, report.TreatmentFeasibleOfferTaskHitAtK)
+	}
 	if report.TargetProductRecallAtK.Status != "NOT_AVAILABLE_NO_INDEPENDENT_RELEVANCE_LABELS" ||
 		report.TargetProductRecallAtK.LabeledPlanTaskCount != 0 || report.TargetProductRecallAtK.RelevantSKUCount != 0 ||
 		report.TargetProductTaskHitAtK.Denominator != 0 {
@@ -256,11 +262,12 @@ func TestChallengeEvaluationMeasuresDiscoveryRecallBeforeHardFiltering(t *testin
 	if err != nil {
 		t.Fatalf("EvaluateChallengeTasks: %v", err)
 	}
-	if report.SchemaVersion != "stablepay.agent-shopping-challenge.v7" || report.DiscoveryCandidateWindow != DefaultDiscoveryCandidateWindow {
-		t.Fatalf("separate accepted-substitute/relevance metrics and recall ceiling must use the v7 schema, report=%+v", report)
+	if report.SchemaVersion != "stablepay.agent-shopping-challenge.v8" || report.DiscoveryCandidateWindow != DefaultDiscoveryCandidateWindow {
+		t.Fatalf("separate discovery/feasible-offer/relevance metrics and recall ceiling must use the v8 schema, report=%+v", report)
 	}
 	if len(trials) != 1 || trials[0].DiscoveryCandidateCount != 21 || trials[0].DiscoveryTopKCount != 20 || trials[0].CandidateCount != 2 ||
 		trials[0].RetrievedGoldSKUCount != 2 || trials[0].RetrievedRelevantSKUCount != 3 ||
+		trials[0].RetrievedTreatmentFeasibleGoldSKUCount != 2 || len(trials[0].TreatmentFeasibleOfferSKUs) != 2 ||
 		!trials[0].GoldHitAtK || !trials[0].TargetProductHitAtK || !trials[0].ValidPlan {
 		t.Fatalf("runtime-sized discovery window, Recall@K prefix, and feasibility filtering were not separated: trial=%+v", trials)
 	}
@@ -271,7 +278,8 @@ func TestChallengeEvaluationMeasuresDiscoveryRecallBeforeHardFiltering(t *testin
 		report.TargetProductTaskHitAtK.Status != report.TargetProductRecallAtK.Status ||
 		report.FeasibleSKURecallAtK.GoldSKUCount != 2 || report.FeasibleSKURecallAtK.RetrievedGoldSKUCount != 2 ||
 		report.FeasibleSKURecallAtK.MicroRecallAtK != 1 || report.FeasibleSKURecallAtK.MacroRecallAtK != 1 ||
-		report.PlanTaskHitAtK.Rate != 1 || report.TargetProductRecallAtK.RelevantSKUCount != 3 ||
+		report.PlanTaskHitAtK.Rate != 1 || report.TreatmentFeasibleOfferTaskHitAtK.Rate != 1 ||
+		report.TreatmentFeasibleOfferSKURecallAtK.MicroRecallAtK != 1 || report.TargetProductRecallAtK.RelevantSKUCount != 3 ||
 		report.TargetProductRecallAtK.RetrievedRelevantSKUCount != 3 || report.TargetProductRecallAtK.MicroRecallAtK != 1 ||
 		report.TargetProductTaskHitAtK.Rate != 1 {
 		t.Fatalf("feasible-plan recall, human relevance recall, and task-hit should remain distinct: feasible=%+v target=%+v target_hit=%+v",
@@ -345,6 +353,38 @@ func TestChallengeEvaluationMeasuresDiscoveryRecallBeforeHardFiltering(t *testin
 	wrongAttributeGold.Intent.RequiredAttributes = map[string]string{"roast_level": "dark"}
 	if err := ValidateChallengeTaskSet(catalog, []ChallengeTask{wrongAttributeGold}); err == nil {
 		t.Fatal("feasible plan labels must honor the task's structured hard attributes")
+	}
+}
+
+func TestTreatmentFeasibleOfferHitCanDifferFromRawDiscoveryHit(t *testing.T) {
+	intent := Intent{Category: "coffee", Item: "beans", RequiredFormat: "bag", Region: "CN-EAST",
+		MaxPriceMinor: 1000, ConfirmationNeeded: true}
+	products := make([]Product, 0, 6)
+	for index := 0; index < 5; index++ {
+		products = append(products, Product{SKUID: fmt.Sprintf("a-unavailable-%02d", index), MerchantID: "merchant-1",
+			Category: "coffee", Item: "beans", Format: "bag", Currency: "USDC", Status: "active"})
+	}
+	products = append(products, Product{SKUID: "z-available-gold", MerchantID: "merchant-1", Category: "coffee",
+		Item: "beans", Format: "bag", Currency: "USDC", Status: "active"})
+	catalog := ImportedCatalog{Products: products, Inventory: []Inventory{{TenantID: SimulationTenantID,
+		MerchantID: "merchant-1", SKUID: "z-available-gold", Region: "CN-EAST", OnHand: 1,
+		Eligible: true, PriceMinor: 500, Revision: 1}}}
+	task := ChallengeTask{TaskID: "post-filter-hit", Scenario: "DISCOVERY_VS_OFFER", Prompt: "buy beans",
+		ExpectedDisposition: ChallengePlan, Intent: intent, GoldSKUs: []string{"z-available-gold"}}
+	report, trials, err := EvaluateChallengeTasks(catalog, []ChallengeTask{task}, []BatchIntentResult{{TaskID: task.TaskID, Intent: intent}}, 5)
+	if err != nil {
+		t.Fatalf("EvaluateChallengeTasks: %v", err)
+	}
+	if len(trials) != 1 || trials[0].GoldHitAtK || trials[0].RetrievedGoldSKUCount != 0 ||
+		!trials[0].TreatmentFeasibleOfferGoldHitAtK || trials[0].RetrievedTreatmentFeasibleGoldSKUCount != 1 ||
+		!reflect.DeepEqual(trials[0].TreatmentFeasibleOfferSKUs, []string{"z-available-gold"}) || !trials[0].ValidPlan {
+		t.Fatalf("pre-filter discovery and post-filter feasible offers must be traced separately: %+v", trials)
+	}
+	if report.PlanTaskHitAtK.Rate != 0 || report.TreatmentFeasibleOfferTaskHitAtK.Rate != 1 ||
+		report.TreatmentFeasibleOfferSKURecallAtK.MicroRecallAtK != 1 ||
+		report.TreatmentFeasibleOfferSKURecallAtK.MacroRecallAtK != 1 {
+		t.Fatalf("summary should credit the feasible offer without rewriting raw discovery recall: discovery=%+v treatment=%+v",
+			report.PlanTaskHitAtK, report.TreatmentFeasibleOfferSKURecallAtK)
 	}
 }
 

@@ -41,6 +41,7 @@ type challengeRunManifest struct {
 	SourceManifest               string                                  `json:"source_manifest"`
 	Hashes                       agentshopping.ChallengeEvaluationHashes `json:"hashes"`
 	ArtifactsSHA256              map[string]string                       `json:"artifacts_sha256"`
+	ScoringSourceSHA256          map[string]string                       `json:"scoring_source_sha256"`
 	Provider                     string                                  `json:"provider"`
 	Model                        string                                  `json:"model"`
 	Reasoning                    string                                  `json:"reasoning"`
@@ -359,6 +360,10 @@ func evaluateChallenge(args []string) error {
 	}
 	metrics.Hashes = hashes
 	metrics.DataOrigin = provenanceStatus
+	scoringSourceHashes, err := hashChallengeScoringSources(localRunRoot)
+	if err != nil {
+		return fmt.Errorf("hash challenge scoring sources: %w", err)
+	}
 	scenarioCounts := make(map[string]int)
 	for _, task := range tasks {
 		scenarioCounts[task.Scenario]++
@@ -413,7 +418,8 @@ func evaluateChallenge(args []string) error {
 		HumanReviewAuditSHA256: reviewAuditDigest,
 		TaskCount:              len(tasks), RecallCutoff: *cutoff, DiscoveryWindow: metrics.DiscoveryCandidateWindow, ScenarioCounts: scenarioCounts,
 		SourceManifest: filepath.ToSlash(filepath.Join(".local-run", "simulated-merchants", filepath.Base(manifestAbs))), Hashes: hashes,
-		Provider: provider, Model: model, Reasoning: usage.Reasoning,
+		ScoringSourceSHA256: scoringSourceHashes,
+		Provider:            provider, Model: model, Reasoning: usage.Reasoning,
 		Temperature: temperature, TopP: topP, MaxTokens: maxTokens,
 		PromptTemplateSHA256: usage.TemplateSHA256, PromptSHA256: usage.PromptSHA256, ResponseSHA256: usage.ResponseSHA256,
 		UsageStatus: usage.UsageStatus, APICallsStatus: usage.APICallsStatus, Usage: usage,
@@ -486,7 +492,9 @@ func evaluateChallenge(args []string) error {
 		"correct_decision_rate_all_tasks": metrics.CorrectDecisionRate,
 		"discovery_candidate_window":      metrics.DiscoveryCandidateWindow,
 		"feasible_sku_recall_at_k":        metrics.FeasibleSKURecallAtK, "plan_task_hit_at_k": metrics.PlanTaskHitAtK,
-		"target_product_recall_at_k": metrics.TargetProductRecallAtK, "target_product_task_hit_at_k": metrics.TargetProductTaskHitAtK,
+		"treatment_feasible_offer_sku_recall_at_k": metrics.TreatmentFeasibleOfferSKURecallAtK,
+		"treatment_feasible_offer_task_hit_at_k":   metrics.TreatmentFeasibleOfferTaskHitAtK,
+		"target_product_recall_at_k":               metrics.TargetProductRecallAtK, "target_product_task_hit_at_k": metrics.TargetProductTaskHitAtK,
 		"baseline_valid_plan_rate": metrics.PlanComparison.BaselineValidPlanRate,
 		"valid_plan_rate":          metrics.ValidPlanRate,
 		"valid_plan_rate_delta":    metrics.PlanComparison.TreatmentMinusBaselineValidPlanRate,
@@ -701,6 +709,35 @@ func challengeTasksEqualExceptRelevantSKUs(sourceTasks, evaluationTasks []agents
 var challengeRunArtifactNames = []string{
 	"suite.jsonl", "parse-results.jsonl", "trials.jsonl", "metrics.json",
 	"model-responses.jsonl", "model-streams.jsonl",
+}
+
+var challengeScoringSourceNames = []string{
+	"commerce-runtime/benchmarks/agentshopping/challenge_evaluation.go",
+	"commerce-runtime/benchmarks/agentshopping/evaluation.go",
+	"commerce-runtime/benchmarks/agentshopping/retrieval.go",
+	"commerce-runtime/benchmarks/agentshopping/substitution.go",
+	"commerce-runtime/benchmarks/agentshopping/attributes.go",
+	"commerce-runtime/cmd/agentshopping-sim/evaluate_challenge.go",
+}
+
+func hashChallengeScoringSources(repositoryRoot string) (map[string]string, error) {
+	hashes := make(map[string]string, len(challengeScoringSourceNames))
+	for _, name := range challengeScoringSourceNames {
+		path := filepath.Join(repositoryRoot, filepath.FromSlash(name))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, fmt.Errorf("inspect %s: %w", name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("scoring source %s is not a regular file", name)
+		}
+		digest, err := hashFileSHA256(path)
+		if err != nil {
+			return nil, fmt.Errorf("hash %s: %w", name, err)
+		}
+		hashes[name] = digest
+	}
+	return hashes, nil
 }
 
 func hashChallengeRunArtifacts(runDir string) (map[string]string, error) {
