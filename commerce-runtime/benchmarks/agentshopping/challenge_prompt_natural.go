@@ -136,9 +136,9 @@ func naturalClarificationPrompt(task ChallengeTask, context string, selector [32
 		prompt = fmt.Sprintf(openers[int(selector[1])%len(openers)], context, category, intent.RequiredFormat)
 	case intent.RequiredFormat == "":
 		openers := []string{
-			"%s，我想买%s，有哪些选择比较合适？",
-			"%s，最近需要%s，什么规格都可以先看看。",
-			"能帮我找一下%s吗？我打算%s，想听听怎么选。",
+			"%s，我想买%s，有哪些选择比较合适？你能先问问我需要什么规格吗？",
+			"%s，最近需要%s；下单前请先确认我想要的规格。",
+			"%s，能帮我找一下%s吗？先确认我需要哪种规格，再给购买建议。",
 		}
 		prompt = fmt.Sprintf(openers[int(selector[1])%len(openers)], context, intent.Item)
 	default:

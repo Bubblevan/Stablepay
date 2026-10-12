@@ -501,7 +501,8 @@ func evaluateChallenge(args []string) error {
 		"valid_plan_rate":          metrics.ValidPlanRate,
 		"valid_plan_rate_delta":    metrics.PlanComparison.TreatmentMinusBaselineValidPlanRate,
 		"paired_plan_outcomes":     metrics.PlanComparison.PairedOutcomes, "no_plan_tasks": metrics.NoPlanTasks,
-		"correct_no_plan_rate": metrics.CorrectNoPlanRate, "clarification_tasks": metrics.ClarificationTasks,
+		"independent_synthetic_oracle": metrics.IndependentOracle,
+		"correct_no_plan_rate":         metrics.CorrectNoPlanRate, "clarification_tasks": metrics.ClarificationTasks,
 		"correct_clarification_rate":                    metrics.CorrectClarifyRate,
 		"clarification_question_provided_rate":          metrics.ClarificationQuestionRate,
 		"clarification_question_missing_field_cue_rate": metrics.ClarificationQuestionCueRate,
@@ -715,6 +716,7 @@ var challengeRunArtifactNames = []string{
 
 var challengeEvaluationSourceNames = []string{
 	"commerce-runtime/benchmarks/agentshopping/challenge_evaluation.go",
+	"commerce-runtime/benchmarks/agentshopping/challenge_independent_oracle.go",
 	"commerce-runtime/benchmarks/agentshopping/challenge_parser.go",
 	"commerce-runtime/benchmarks/agentshopping/evaluation.go",
 	"commerce-runtime/benchmarks/agentshopping/hermes_batch.go",

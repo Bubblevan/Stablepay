@@ -80,6 +80,7 @@ func ReplayChallengeBatchResults(requests []BatchIntentRequest, previous []Batch
 			request.BuyerBudgetMinor, taxonomy)
 		if validationErr == nil {
 			result.Intent = intent
+			result.Intent.searchText = request.Prompt
 			if explicitFormatRecovered {
 				canonicalized = append(canonicalized, "required_format_from_explicit_request")
 			}

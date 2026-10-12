@@ -171,6 +171,7 @@ type ChallengeEvaluationReport struct {
 	PlanTaskHitAtK                     ChallengeRate                       `json:"plan_task_hit_at_k"`
 	TreatmentFeasibleOfferTaskHitAtK   ChallengeRate                       `json:"treatment_feasible_offer_task_hit_at_k"`
 	TargetProductTaskHitAtK            ChallengeRate                       `json:"target_product_task_hit_at_k"`
+	IndependentOracle                  IndependentShoppingOracleSummary    `json:"independent_synthetic_oracle"`
 	PlanComparison                     ChallengePlanComparison             `json:"plan_comparison"`
 	ValidPlanRate                      ChallengeRate                       `json:"valid_plan_rate"`
 	AcceptedSubstituteHitsAtK          int                                 `json:"accepted_substitute_hits_at_k"`
@@ -213,6 +214,13 @@ type ChallengeTrial struct {
 	TargetProductHitAtK                       bool                 `json:"discovery_hit_any_relevant_product_at_k"`
 	AcceptedSubstituteHitAtK                  bool                 `json:"accepted_substitute_hit_at_k"`
 	ValidPlan                                 bool                 `json:"valid_plan"`
+	IndependentRelevantProductCount           int                  `json:"independent_relevant_product_count,omitempty"`
+	IndependentBaselineTop5SKUs               []string             `json:"independent_baseline_top5_skus,omitempty"`
+	IndependentTreatmentTop5SKUs              []string             `json:"independent_treatment_top5_skus,omitempty"`
+	IndependentBaselineRelevantHitsAtK        int                  `json:"independent_baseline_relevant_hits_at_k,omitempty"`
+	IndependentTreatmentRelevantHitsAtK       int                  `json:"independent_treatment_relevant_hits_at_k,omitempty"`
+	IndependentBaselinePlanValid              bool                 `json:"independent_baseline_valid_plan"`
+	IndependentTreatmentPlanValid             bool                 `json:"independent_treatment_valid_plan"`
 	CorrectDecision                           bool                 `json:"correct_decision"`
 	ClarificationQuestion                     bool                 `json:"clarification_question_provided"`
 	ClarificationQuestionTargetsMissingFields bool                 `json:"clarification_question_targets_missing_fields"`
@@ -301,6 +309,7 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 	for _, product := range activeProducts {
 		productBySKU[product.SKUID] = product
 	}
+	independentOffers := independentOfferIndex(catalog.Inventory)
 	resultByID := make(map[string]BatchIntentResult, len(results))
 	for _, result := range results {
 		if result.TaskID == "" || resultByID[result.TaskID].TaskID != "" {
@@ -309,7 +318,7 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 		resultByID[result.TaskID] = result
 	}
 
-	report := ChallengeEvaluationReport{SchemaVersion: "stablepay.agent-shopping-challenge.v8",
+	report := ChallengeEvaluationReport{SchemaVersion: "stablepay.agent-shopping-challenge.v9",
 		Evaluation: "paired-b0-b1-two-stage-discovery-and-plan-quality", DataOrigin: "CHALLENGE_INPUT_PROVENANCE_UNVERIFIED",
 		TaskCount: len(tasks), RecallCutoff: cutoff, DiscoveryCandidateWindow: DefaultDiscoveryCandidateWindow,
 		ByScenario: make(map[string]ChallengeStratum)}
@@ -324,6 +333,8 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 			ExpectedDisposition: task.ExpectedDisposition, ActualDisposition: ChallengeParseFail}
 		if task.ExpectedDisposition == ChallengePlan {
 			trial.RelevantSKUCount = len(task.RelevantSKUs)
+			independentlyRelevant := independentTargetProductSet(activeProducts, task.Intent)
+			trial.IndependentRelevantProductCount = len(independentlyRelevant)
 		}
 		stratum := report.ByScenario[task.Scenario]
 		stratum.TaskCount++
@@ -395,6 +406,21 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 				}
 			}
 		} else {
+			var independentRelevant map[string]bool
+			if task.ExpectedDisposition == ChallengePlan {
+				independentRelevant = independentTargetProductSet(activeProducts, task.Intent)
+			}
+			baselineDiscovery := rankDiscoveryProductsWithWeights(activeProducts, parsed,
+				DefaultDiscoveryCandidateWindow, 0, 0)
+			if task.ExpectedDisposition == ChallengePlan {
+				trial.IndependentBaselineTop5SKUs = independentTopSKUs(baselineDiscovery, cutoff)
+				trial.IndependentBaselineRelevantHitsAtK = independentHitsAtK(
+					trial.IndependentBaselineTop5SKUs, independentRelevant)
+				if len(baselineDiscovery) > 0 {
+					trial.IndependentBaselinePlanValid = independentCandidateIsValid(task, parsed,
+						baselineDiscovery[0], catalog.Products, independentOffers)
+				}
+			}
 			discovery := rankDiscoveryProducts(activeProducts, parsed, DefaultDiscoveryCandidateWindow)
 			trial.DiscoveryCandidateCount = len(discovery)
 			recallCandidates := discovery
@@ -402,6 +428,11 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 				recallCandidates = recallCandidates[:cutoff]
 			}
 			trial.DiscoveryTopKCount = len(recallCandidates)
+			if task.ExpectedDisposition == ChallengePlan {
+				trial.IndependentTreatmentTop5SKUs = independentTopSKUs(recallCandidates, cutoff)
+				trial.IndependentTreatmentRelevantHitsAtK = independentHitsAtK(
+					trial.IndependentTreatmentTop5SKUs, independentRelevant)
+			}
 			candidates := rankTreatment(discovery, offers, parsed, cutoff)
 			trial.CandidateCount = len(candidates)
 			if len(candidates) == 0 {
@@ -410,6 +441,10 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 				trial.ActualDisposition = ChallengePlan
 				trial.TopSKU = candidates[0].product.SKUID
 				trial.TopMatchType = candidates[0].matchType
+				if task.ExpectedDisposition == ChallengePlan {
+					trial.IndependentTreatmentPlanValid = independentCandidateIsValid(task, parsed,
+						candidates[0].product, catalog.Products, independentOffers)
+				}
 			}
 			if task.ExpectedDisposition == ChallengePlan {
 				trial.GoldSKUCount = len(task.GoldSKUs)
@@ -492,6 +527,7 @@ func EvaluateChallengeTasks(catalog ImportedCatalog, tasks []ChallengeTask, resu
 		trials = append(trials, trial)
 		report.ByScenario[task.Scenario] = stratum
 	}
+	report.IndependentOracle = independentPlanComparison(tasks, trials)
 	if completeIntentCount > 0 {
 		report.ExactIntentRate = challengeRate(exactIntentCorrect, completeIntentCount)
 	}

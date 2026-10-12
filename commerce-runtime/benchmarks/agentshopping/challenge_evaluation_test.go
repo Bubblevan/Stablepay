@@ -262,7 +262,7 @@ func TestChallengeEvaluationMeasuresDiscoveryRecallBeforeHardFiltering(t *testin
 	if err != nil {
 		t.Fatalf("EvaluateChallengeTasks: %v", err)
 	}
-	if report.SchemaVersion != "stablepay.agent-shopping-challenge.v8" || report.DiscoveryCandidateWindow != DefaultDiscoveryCandidateWindow {
+	if report.SchemaVersion != "stablepay.agent-shopping-challenge.v9" || report.DiscoveryCandidateWindow != DefaultDiscoveryCandidateWindow {
 		t.Fatalf("separate discovery/feasible-offer/relevance metrics and recall ceiling must use the v8 schema, report=%+v", report)
 	}
 	if len(trials) != 1 || trials[0].DiscoveryCandidateCount != 21 || trials[0].DiscoveryTopKCount != 20 || trials[0].CandidateCount != 2 ||

@@ -154,6 +154,10 @@ func TestReplayChallengeBatchResultsRevalidatesRawOutputWithoutMutatingIt(t *tes
 		len(replayed[0].CanonicalizedFields) != 1 || replayed[0].CanonicalizedFields[0] != "required_format_from_explicit_request" {
 		t.Fatalf("explicit slot was not deterministically recovered: %+v", replayed[0])
 	}
+	if replayed[0].Intent.searchText != requests[0].Prompt || replayed[1].Intent.searchText != requests[1].Prompt {
+		t.Fatalf("replay must restore each frozen user prompt for discovery ranking: first=%q second=%q",
+			replayed[0].Intent.searchText, replayed[1].Intent.searchText)
+	}
 	if replayed[0].RawIntent.RequiredFormat != "" || firstRaw.RequiredFormat != "" {
 		t.Fatalf("replay mutated the original model output: %+v", replayed[0].RawIntent)
 	}

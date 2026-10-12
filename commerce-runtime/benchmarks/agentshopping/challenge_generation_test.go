@@ -367,6 +367,22 @@ func TestNaturalizeChallengeTaskPromptsIsDeterministicAndPreservesLabels(t *test
 	}
 }
 
+func TestNaturalClarificationForMissingFormatActuallyRequestsIt(t *testing.T) {
+	task := ChallengeTask{TaskID: "missing-format", ExpectedDisposition: ChallengeClarify,
+		Intent: Intent{Category: "coffee", Item: "埃塞俄比亚咖啡", RequiredFormat: "",
+			Region: "CN-EAST", MaxPriceMinor: 2500, ConfirmationNeeded: true},
+		RequiredMissingFields: []string{"format"}}
+	for variant := byte(0); variant < 3; variant++ {
+		selector := [32]byte{}
+		selector[1] = variant
+		prompt := naturalClarificationPrompt(task, "准备给团队做分享", selector)
+		if !strings.Contains(prompt, task.Intent.Item) || !strings.Contains(prompt, "规格") ||
+			strings.Contains(prompt, "什么规格都可以") || strings.Contains(prompt, "我打算准备给团队") {
+			t.Fatalf("missing-format variant %d must preserve the requested item and ask about its missing specification, got %q", variant, prompt)
+		}
+	}
+}
+
 func TestGenerateChallengeDecisionDraftRedistributesUnsupportedScenarioQuota(t *testing.T) {
 	catalog := mixedDecisionFixtureCatalog()
 	offers := challengeOffers(catalog)
