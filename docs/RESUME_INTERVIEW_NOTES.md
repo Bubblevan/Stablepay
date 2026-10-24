@@ -8,6 +8,43 @@
 **问：如何避免重复支付？**<br>
 答：支付尝试关联 PaymentIntent、幂等键、请求指纹与 Ledger 事实。固定任务审计中没有重复结算；Devnet 只有一笔，不能据此推断生产重复率。
 
+### Bullet 1 源码攻防（按当前 main 核对）
+
+**90 秒介绍：**<br>
+StablePay 面向 Agent Commerce。外部 Agent 负责理解用户目标并发起能力搜索/购买请求；Commerce Runtime 把结构化购买契约持久化为 Episode，再按业务状态驱动商户调用、x402 报价解析、买家授权、PaymentIntent、支付确认、权益核验和交付验证。MCP 是 Agent 接入协议，不是推理引擎；资金事实由支付执行面和链上/账本事实确认，Runtime 不以模型输出代替支付结果。正常路径主要由确定性状态机执行，恢复路径可让规则或 LLM 提出受限建议，再经 Guard 和应用逻辑校验。
+
+**问：从外部 Agent 调用到 FULFILLED，源码里经过什么？**<br>
+答：Agent 可先调用 `stablepay.search_catalog`，再把结构化 `AcquireCapabilityRequest` 提交给 `stablepay.acquire`。Runtime 创建 Episode 后，Runner 的 `RunEpisode` 和 `ResumeEpisode` 共用 `run()`：按持久化状态执行发现、商户调用、解析 HTTP 402、验证报价与授权、支付/对账、权益和交付验证。成功必须到 `FULFILLED` 并通过配置的 Validator；HTTP 402、支付成功或 HTTP 200 单独都不等于业务完成。源码入口：`commerce-runtime/internal/api/server.go`、`commerce-runtime/internal/application/service.go::CreateEpisode`、`commerce-runtime/internal/runtime/runner.go::run/step`。
+
+**问：LLM 会不会在每一步自由决定买什么、付不付？**<br>
+答：当前 Runtime 主执行路径不是通用 ReAct Loop。`runner.go::selectMerchant` 从候选集按确定性规则选择首个候选；`StateRecovering` 才调用 `ExecuteRecoveryDecision` 选择允许的恢复动作。外部 Agent 可以先搜索并在购买请求中给出明确选择，但这不意味着 Runtime 内部每一步都由 LLM 决策。模型提出的恢复建议不是支付事实，也不能绕过 Guard。
+
+**问：`stablepay.approve` 是买家确认吗？**<br>
+答：不是。当前 MCP 共 7 个工具；`stablepay.approve` 记录的是已存在的 parent approval，`stablepay.workflow_approve` 则委托给活动子 Episode 的 parent-decision authority。买家确认报价走 `POST /v1/episodes/{id}/buyer-confirmations`，包含 offer ref、quote hash、金额、币种、接受/拒绝及买家签名；应用层会重建当前报价、逐字段核对、验证签名与有效期，然后才记录确认。商品选择、父级审批和买家对具体报价的签名是三种不同事实。源码：`server.go::mcpTools/mcpCall/buyerConfirmation`、`application/buyer_confirmation.go::RecordBuyerConfirmation`、`internal/buyer/confirmation.go::ApprovalMessage`。
+
+**问：报价变化后旧确认还能用吗？**<br>
+答：不应使用。Runner 在准备预留支付前按当前报价查找与同一 `OfferRef` 关联的确认，并调用 `ValidateCurrentBuyerOffer`；过期或报价不匹配会拒绝继续或要求重新确认。`PurchaseSelection` 只确定购买对象，不是付款授权。源码：`runner.go` 的 `StateNegotiating` 分支、`application/payment_runtime.go::ReservePaymentIntentForEpisode`。
+
+**问：支付 RPC 超时，怎么保证 Exactly Once？**<br>
+答：我不会声称跨进程或链上端到端严格 Exactly Once。系统用 PaymentIntent 的经济身份/幂等键、持久化状态和 Ledger 事实识别重放；对未知结果应查询/对账已存在 Intent，而不是把超时直接当失败并创建新的经济动作。恢复结果仍以支付服务和链上事实为准。源码：`application/payment_runtime.go`、`internal/decision/payment_guard.go`。
+
+**源码边界，面试时不要说过头：**<br>
+当前 MCP `approve` 不能代替签名买家确认；Runtime 默认候选选择不是模型排序；静态 Workflow DAG 不等于已支持并行调度或通用跨步骤退款；Devnet 成功也不证明 Mainnet。当前冻结简历及证据写的是一笔 `0.99 USDC` Devnet 验收，不是 Mainnet。
+
+### SP-B1 外部 Agent E2E 运行前置检查
+
+附件建议的 `真实自然语言 → 外部 Agent Host → MCP → Runtime → 买家签名批准 → Devnet → 验单交付` 是一项新的统一会话验收；现有 50 项 Mock 和单笔 Devnet 证据不能冒充这条统一 Trace。2026-10-15 的实测状态：
+
+- 已用缓存的 MySQL 8.0 镜像启动独立 Docker 容器，数据卷单独隔离，只绑定 loopback `127.0.0.1:13328`；在其中创建 `stablepay_commerce_m1_test`。仓库测试 `TestBuyerConfirmationGatesUnifiedRuntimePaymentFlowMySQL` 通过，覆盖买家确认、报价变更/篡改拒绝、批准前无支付副作用及后续支付/交付门控。该测试使用 Mock 支付适配器，不是 Devnet 交易。
+- 买家和卖家 keypair 文件均在位。买家文件通过热钱包 loader 校验；卖家文件是标准 64-byte JSON 数组，曾被旧 loader 拒绝。本轮让 loader 支持该格式并校验 seed 与公钥半部一致，相关单测和卖家钱包校验通过；原始卖家文件未改写。
+- `.local-run/simulated-merchants/manifest.json` 的 12 家目录商户仍标记 `purchase_enabled=false`、`payment_ready=false`，不能直接当作可收 Devnet USDC 并交付的商户。当前没有 Runtime 监听 `8090`，也没有启动与该隔离库绑定的完整支付/验单服务栈；仓库默认 `.env` 仍是内存模式和另一套既有 DSN，本轮没有连接或写入那套库。
+- `openclaw` 不可执行；Codex CLI 可用，但尚未配置并验证外部 Agent Host 经 MCP 调用此 Runtime。
+- 买家/卖家 Devnet SOL 与 USDC 余额尚未核验：沙盒内 RPC 请求失败，浏览器 Explorer 页面显示数据抓取失败，权限审核也超时。失败响应不能解释成余额为零。本轮没有签名、广播或发起新交易。
+
+因此，已得到 MySQL 持久化的 Runtime HTTP 状态机 smoke，但完整的外部 Agent Host + MCP + 可支付商户 + Devnet 统一 Trace 尚未完成。下一阶段应在可访问 Devnet RPC 的环境中先只读核验余额，再启动与独立 MySQL 绑定的依赖栈，并使用一笔明确报价完成验单交付。具体商户、商品、金额、网络和收款地址须绑定在买家签名中；拒绝授权、请求重放和报价变化要作为不产生未授权第二次结算的负例单独验收。
+
+Trace 应自动关联 Agent Session、Episode、候选集、Merchant/SKU、报价哈希、签名确认引用、PaymentIntent、交易签名、验证证据、Artifact 哈希和终态；公开材料只保存必要标识/哈希，禁止写入私钥、API Key、完整签名材料或敏感原始输入输出。
+
 ## 2. 商品发现与动态决策
 
 **问：简历里的 12 家、2.4 万商品和排序数字分别说明什么？**<br>

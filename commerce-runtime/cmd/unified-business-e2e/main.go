@@ -86,6 +86,14 @@ func run(parent context.Context) error {
 	if network == "" || mint == "" {
 		return errors.New("production unified E2E requires settlement network and USDC mint")
 	}
+	maxAmountMinor := int64(1000)
+	if rawLimit := strings.TrimSpace(os.Getenv("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR")); rawLimit != "" {
+		parsedLimit, parseErr := strconv.ParseInt(rawLimit, 10, 64)
+		if parseErr != nil || parsedLimit <= 0 {
+			return errors.New("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR must be a positive integer")
+		}
+		maxAmountMinor = parsedLimit
+	}
 	merchantEndpoint := firstNonEmptyUnified(os.Getenv("MERCHANT_E2E_ENDPOINT"), "http://127.0.0.1:8787/api/v1/products/ai-agent-job-2025/execute")
 	gatewayURL := firstNonEmptyUnified(os.Getenv("STABLEPAY_GATEWAY_BASE_URL"), "http://127.0.0.1:8080")
 	apiKey := firstNonEmptyUnified(os.Getenv("STABLEPAY_API_KEY"), "stablepay-dev-key")
@@ -100,6 +108,9 @@ func run(parent context.Context) error {
 	}
 	if payeeDID == "" {
 		return errors.New("MERCHANT_E2E_PAYEE_DID or MERCHANT_SELLER_ADDRESS is required")
+	}
+	if hotWallet := strings.TrimSpace(os.Getenv("STABLEPAY_HOTWALLET_ADDRESS")); hotWallet != "" && sameUnifiedSolanaPayee(payeeDID, didFromAddress(hotWallet)) {
+		return errors.New("Merchant payTo must not be the Blockchain Adapter hot wallet")
 	}
 
 	db, err := mysqlrepo.Open(dsn)
@@ -154,7 +165,7 @@ func run(parent context.Context) error {
 		RequestID: "unified-business-e2e-" + runID, ParentSessionID: "unified-business-e2e-session", RequesterDID: requesterDID,
 		AcquisitionGoal: contract.AcquisitionGoal{TaskType: taskType, Description: "real StablePay Merchant delivery"},
 		Input:           contract.Input{URI: "object://unified-business-e2e/input.json", ContentType: "application/json"},
-		Constraints:     contract.Constraints{BudgetLimitMinor: 1000, Currency: "USDC", DeadlineAt: now.Add(10 * time.Minute), SupportedProtocolVersions: []string{"x402-v2"}, MaxTotalAttempts: 6, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2, RequireBuyerConfirmation: true},
+		Constraints:     contract.Constraints{BudgetLimitMinor: maxAmountMinor, Currency: "USDC", DeadlineAt: now.Add(10 * time.Minute), SupportedProtocolVersions: []string{"x402-v2"}, MaxTotalAttempts: 6, MaxPaymentAttempts: 2, MaxDeliveryAttempts: 2, RequireBuyerConfirmation: true},
 		ExpectedOutput:  contract.ExpectedOutput{Schema: "merchant-delivery", ContentType: "application/json"}, Validator: contract.ValidatorRef{Kind: "builtin", Name: "non-empty", Version: "v1"},
 	}
 	created, err := service.CreateEpisode(ctx, request)
@@ -189,14 +200,6 @@ func run(parent context.Context) error {
 	}
 	if !sameUnifiedSolanaPayee(parsed.Quote.PayeeDID, payeeDID) {
 		return fmt.Errorf("strict seller binding mismatch: quote payee=%q configured seller=%q", parsed.Quote.PayeeDID, payeeDID)
-	}
-	maxAmountMinor := int64(1000)
-	if rawLimit := strings.TrimSpace(os.Getenv("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR")); rawLimit != "" {
-		parsedLimit, parseErr := strconv.ParseInt(rawLimit, 10, 64)
-		if parseErr != nil || parsedLimit <= 0 {
-			return errors.New("UNIFIED_BUSINESS_E2E_MAX_AMOUNT_MINOR must be a positive integer")
-		}
-		maxAmountMinor = parsedLimit
 	}
 	if parsed.Quote.AmountMinor > maxAmountMinor {
 		return fmt.Errorf("strict Devnet smoke price cap exceeded: quote=%d minor units cap=%d", parsed.Quote.AmountMinor, maxAmountMinor)

@@ -2,6 +2,8 @@
 package blockchain
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -32,7 +34,35 @@ func NewHotWallet(path string) (gateway.HotWalletGateway, error) {
 	}
 
 	var hw HotWalletImpl
-	if err := json.Unmarshal(data, &hw); err != nil {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var values []int
+		if err := json.Unmarshal(trimmed, &values); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Solana keypair array: %w", err)
+		}
+		if len(values) != 64 {
+			return nil, fmt.Errorf("invalid Solana keypair array length: expected 64, got %d", len(values))
+		}
+		secret := make([]byte, len(values))
+		for index, value := range values {
+			if value < 0 || value > 255 {
+				return nil, fmt.Errorf("invalid Solana keypair byte at index %d", index)
+			}
+			secret[index] = byte(value)
+		}
+		derivedPrivateKey := ed25519.NewKeyFromSeed(secret[:ed25519.SeedSize])
+		if !bytes.Equal(secret, derivedPrivateKey) {
+			return nil, fmt.Errorf("Solana keypair public half does not match its seed")
+		}
+		address := base58.Encode(derivedPrivateKey[ed25519.SeedSize:])
+		hw = HotWalletImpl{
+			Address:    address,
+			DID:        "did:solana:" + address,
+			PublicKey:  address,
+			PrivateKey: base58.Encode(derivedPrivateKey),
+			Role:       "hot_wallet",
+		}
+	} else if err := json.Unmarshal(data, &hw); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal hot wallet: %w", err)
 	}
 

@@ -42,3 +42,47 @@ func TestNewHotWalletValidatesKeyAndAddress(t *testing.T) {
 		t.Fatal("expected mismatched wallet address to fail")
 	}
 }
+
+func TestNewHotWalletAcceptsSolanaKeypairArray(t *testing.T) {
+	wallet := solana.NewWallet()
+	values := make([]int, len(wallet.PrivateKey))
+	for index, value := range wallet.PrivateKey {
+		values[index] = int(value)
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "solana-keypair.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := NewHotWallet(path)
+	if err != nil {
+		t.Fatalf("expected Solana keypair array to load, got %v", err)
+	}
+	if loaded.GetAddress() != wallet.PublicKey().String() {
+		t.Fatalf("loaded address = %s, want %s", loaded.GetAddress(), wallet.PublicKey())
+	}
+}
+
+func TestNewHotWalletRejectsMismatchedSolanaKeypairArray(t *testing.T) {
+	wallet := solana.NewWallet()
+	values := make([]int, len(wallet.PrivateKey))
+	for index, value := range wallet.PrivateKey {
+		values[index] = int(value)
+	}
+	values[63] ^= 1
+	data, err := json.Marshal(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "mismatched-keypair.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHotWallet(path); err == nil {
+		t.Fatal("expected mismatched Solana keypair array to fail")
+	}
+}
