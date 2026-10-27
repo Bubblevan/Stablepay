@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLanguage } from './LanguageContext'
 import { translations } from './translations'
+import CampusProcurementApp from './CampusProcurementApp'
 
 const navItems = [
   { key: 'forAIUsers', href: '#quickstart' },
@@ -145,6 +146,7 @@ function Header() {
               {t.nav[item.key]}
             </a>
           ))}
+          <a href="/" className="campus-nav-link">校园采购预审</a>
         </nav>
         <button
           className="language-toggle"
@@ -740,7 +742,7 @@ function Footer() {
   )
 }
 
-export default function App() {
+function StablePayMarketingSite() {
   return (
     <>
       <Header />
@@ -758,4 +760,10 @@ export default function App() {
       {/* <Footer /> */}
     </>
   )
+}
+
+export default function App() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (path !== '/stablepay') return <CampusProcurementApp />
+  return <StablePayMarketingSite />
 }
