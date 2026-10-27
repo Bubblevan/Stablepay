@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -109,6 +110,9 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 		middleware.ReplayProtection(cfg.Security, nonceStore),
 		middleware.RateLimit(limiter),
 	)
+	if err := http.RegisterProcurementProxy(h, os.Getenv("PROCUREMENT_MVP_URL"), os.Getenv("FIAT_PAYMENT_HTTP_URL")); err != nil {
+		return nil, err
+	}
 
 	return &Instance{Engine: h, ReadyState: readyState}, nil
 }

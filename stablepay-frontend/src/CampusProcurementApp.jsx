@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const initialItems = [
   {
@@ -51,8 +51,10 @@ const currency = new Intl.NumberFormat('zh-CN', {
 })
 
 function toCents(value) {
-  const amount = Number(value)
-  return Number.isFinite(amount) ? Math.round(amount * 100) : 0
+  const raw = String(value).trim()
+  if (!/^\d{1,9}(?:\.\d{1,2})?$/.test(raw)) return 0
+  const [whole, fraction = ''] = raw.split('.')
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
 }
 
 function money(cents) {
@@ -65,7 +67,7 @@ function normalizeSpec(value) {
 
 function lineAmount(item) {
   const quantity = Number(item.quantity)
-  const count = Number.isFinite(quantity) && quantity > 0 ? quantity : 0
+  const count = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 0
   const priceCents = toCents(item.unitPrice)
   return priceCents > 0 ? Math.round(count * priceCents) : 0
 }
@@ -125,7 +127,7 @@ function runChecks({ budgetCents, budgetEvidence, approvalStatus, items }) {
     const quantity = Number(item.quantity)
     const priceCents = toCents(item.unitPrice)
 
-    if (!item.name.trim() || !Number.isFinite(quantity) || quantity <= 0 || priceCents <= 0) {
+    if (!item.name.trim() || !Number.isSafeInteger(quantity) || quantity <= 0 || priceCents <= 0) {
       risks.push({
         key: `incomplete-${item.id}`,
         severity: 'review',
@@ -210,7 +212,7 @@ function makeReport({ eventName, schoolName, budgetCents, budgetEvidence, approv
     '## 风险与建议',
     riskLines,
     '',
-    '> 本清单由浏览器内的演示规则生成，不是学校审批意见或报销保证。请以适用学校的现行制度、审批记录和供应商原始凭证为准。',
+    '> 本清单根据填写资料执行确定性检查，不是学校审批意见或报销保证。请以适用学校的现行制度、审批记录和供应商原始凭证为准。',
   ].join('\n')
 }
 
@@ -236,6 +238,11 @@ export default function CampusProcurementApp() {
   const [approvalStatus, setApprovalStatus] = useState('approved')
   const [items, setItems] = useState(initialItems)
   const [hasAudited, setHasAudited] = useState(false)
+  const [remoteAudit, setRemoteAudit] = useState(null)
+  const [checking, setChecking] = useState(false)
+  const [auditSource, setAuditSource] = useState('浏览器本地规则')
+  const currentInput = useRef('')
+  currentInput.current = JSON.stringify([eventName, schoolName, budget, budgetEvidence, approvalStatus, items])
 
   useEffect(() => {
     const previousTitle = document.title
@@ -245,10 +252,42 @@ export default function CampusProcurementApp() {
 
   const budgetCents = toCents(budget)
   const previewTotal = useMemo(() => items.reduce((total, item) => total + lineAmount(item), 0), [items])
-  const audit = useMemo(
+  const localAudit = useMemo(
     () => runChecks({ budgetCents, budgetEvidence, approvalStatus, items }),
     [budgetCents, budgetEvidence, approvalStatus, items],
   )
+  const audit = remoteAudit || localAudit
+
+  const runAudit = async () => {
+    const reviewedInput = currentInput.current
+    setChecking(true)
+    setRemoteAudit(null)
+    setAuditSource('浏览器本地规则')
+    try {
+      const statusResponse = await fetch('/api/mvp/status', { signal: AbortSignal.timeout(5000) })
+      const status = statusResponse.ok ? await statusResponse.json() : null
+      if (status?.review_profile) {
+        const response = await fetch('/api/mvp/reviews', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'StablePay' },
+          signal: AbortSignal.timeout(10000),
+          body: JSON.stringify({ activity: eventName, school: schoolName, budget, budget_evidence: budgetEvidence, approved: approvalStatus === 'approved', items: items.map((item) => ({ name: item.name, requested_spec: item.requestedSpec, quoted_spec: item.quotedSpec, quantity: Number(item.quantity), unit_price: item.unitPrice, quote_source: item.quoteSource, invoice_confirmed: item.invoiceStatus === 'confirmed' })) }),
+        })
+        if (!response.ok) throw new Error('server review unavailable')
+        const report = await response.json()
+        if (reviewedInput !== currentInput.current) return
+        const risks = report.findings.map((finding, index) => ({ key: `${finding.code}-${index}`, severity: finding.severity, title: finding.title, detail: finding.evidence, action: finding.action }))
+        const blockingCount = risks.filter((risk) => risk.severity === 'block').length
+        const reviewCount = risks.length - blockingCount
+        setRemoteAudit({ totalCents: report.total_minor, risks, blockingCount, reviewCount, status: blockingCount ? { label: '暂缓采购确认', tone: 'block' } : reviewCount ? { label: '需要补充核实', tone: 'review' } : { label: '信息齐备，可提交负责人确认', tone: 'ready' } })
+        setAuditSource(`共享服务端核验 · ${report.rules_version}`)
+      }
+    } catch {
+      setAuditSource('浏览器本地规则（共享服务未执行）')
+    } finally {
+      setChecking(false)
+      if (reviewedInput === currentInput.current) setHasAudited(true)
+    }
+  }
 
   const updateItem = (id, field, value) => {
     setItems((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
@@ -391,13 +430,13 @@ export default function CampusProcurementApp() {
 
             <div className="campus-submit-row">
               <div><strong>所有检查都基于当前填写内容</strong><span>修改报价或审批状态后，需要重新预审。</span></div>
-              <button type="button" className="campus-primary-button" onClick={() => setHasAudited(true)}><span>⌕</span>开始采购预审</button>
+              <button type="button" className="campus-primary-button" disabled={checking} onClick={runAudit}><span>⌕</span>{checking ? '正在核验…' : '开始采购预审'}</button>
             </div>
           </section>
 
           <aside className="campus-side-column">
             <article className="campus-panel campus-result-panel">
-              <div className="campus-result-topline"><span>预审结果</span><span className="campus-demo-tag">规则演示</span></div>
+              <div className="campus-result-topline"><span>预审结果</span><span className="campus-demo-tag">{hasAudited ? auditSource : '规则演示'}</span></div>
               {!hasAudited ? (
                 <div className="campus-result-empty">
                   <div className="campus-empty-orbit"><span>✓</span></div>

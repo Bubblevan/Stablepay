@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: StablePay Payment Service CNY Provider Extension
+  version: 0.1.0
+  description: Internal authenticated CNY API. Amounts are integer fen, independent of USDC atomic units. Local simulation and Alipay sandbox are distinct providers.
+servers:
+  - url: http://127.0.0.1:8092
+security:
+  - internalBearer: []
+paths:
+  /v1/fiat/status:
+    get:
+      responses:
+        '200':
+          description: Provider mode, CNY currency and configured maximum amount
+  /v1/fiat/orders:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrder'
+      responses:
+        '200':
+          description: New order or exact idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '409':
+          description: Same request_id with different immutable payment intent
+  /v1/fiat/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/OrderID'
+    get:
+      responses:
+        '200':
+          description: Persisted provider-scoped payment order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+  /v1/fiat/orders/{id}/checkout:
+    parameters:
+      - $ref: '#/components/parameters/OrderID'
+    post:
+      responses:
+        '200':
+          description: mode and signed cashier_url; empty URL for local mode; not proof of payment
+  /v1/fiat/orders/{id}/reconcile:
+    parameters:
+      - $ref: '#/components/parameters/OrderID'
+    post:
+      responses:
+        '200':
+          description: State after verified provider query; unknown/error states never imply PAID
+  /v1/fiat/orders/{id}/simulate:
+    parameters:
+      - $ref: '#/components/parameters/OrderID'
+    post:
+      responses:
+        '200':
+          description: Local simulated receipt only
+        '400':
+          description: Disabled in any Alipay environment
+  /v1/fiat/alipay/notify:
+    post:
+      security: []
+      description: Alipay-authenticated RSA2 form notification. Duplicate keys, incorrect identity, wrong amount and unknown orders are rejected. This is the only public payment-service route.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: Plain text success only after verification and durable processing
+        '400':
+          description: Plain text failure
+components:
+  securitySchemes:
+    internalBearer:
+      type: http
+      scheme: bearer
+  parameters:
+    OrderID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateOrder:
+      type: object
+      additionalProperties: false
+      required: [request_id, product_id, subject, quote_hash, approval_ref, amount_minor, currency]
+      properties:
+        request_id: {type: string, maxLength: 128}
+        product_id: {type: string}
+        subject: {type: string, description: Alipay-compatible order title}
+        quote_hash: {type: string}
+        approval_ref: {type: string}
+        amount_minor: {type: integer, format: int64, minimum: 1, maximum: 10000}
+        currency: {type: string, enum: [CNY]}
+    Order:
+      type: object
+      required: [id, request_id, product_id, quote_hash, approval_ref, amount_minor, currency, mode, status]
+      properties:
+        id: {type: string}
+        request_id: {type: string}
+        product_id: {type: string}
+        subject: {type: string}
+        quote_hash: {type: string}
+        approval_ref: {type: string}
+        amount_minor: {type: integer, format: int64}
+        currency: {type: string, enum: [CNY]}
+        mode: {type: string, enum: [local, alipay_sandbox]}
+        status: {type: string, enum: [AWAITING_PAYMENT, PAID, CLOSED]}
+        trade_no: {type: string}
+        verified_by: {type: string}
+        created_at: {type: string, format: date-time}
+        paid_at: {type: string, format: date-time}

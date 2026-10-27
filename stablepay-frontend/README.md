@@ -16,6 +16,12 @@ npm run dev
 
 当前检查器使用用户填写的事实做规则核验，不调用 LLM，也没有绑定任何学校的正式制度。预审输出不构成学校审批或报销保证。
 
+## PAYATHON 共用 MVP
+
+新增 `/payathon` 入口，串联现有 Commerce Runtime 与 Payment Service 的 CNY 支付扩展。使用 `npm run dev:payathon` 或 `npm run build:payathon` 可将它设为默认首页。校园首页在普通构建中保持默认；`MVP_PROFILE=campus` 时可调用共用服务端核验。
+
+完整的一键启动、支付环境配置与验收见 [共享 MVP](../docs/competitions/SHARED-MVP.md)。官方要求与未完成的真实支付条件见 [PAYATHON 准备记录](../docs/competitions/PAYATHON-2026.md)。
+
 ## 1. 本地运行
 
 ```bash
