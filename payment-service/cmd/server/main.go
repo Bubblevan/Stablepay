@@ -18,6 +18,7 @@ import (
 	"github.com/stablepay/payment-service/internal/adapter/rpc"
 	appservice "github.com/stablepay/payment-service/internal/application/service"
 	domainservice "github.com/stablepay/payment-service/internal/domain/service"
+	"github.com/stablepay/payment-service/internal/fiat"
 	"github.com/stablepay/payment-service/internal/infrastructure/config"
 	"github.com/stablepay/payment-service/internal/infrastructure/mysql"
 	"github.com/stablepay/payment-service/internal/infrastructure/redis"
@@ -53,6 +54,14 @@ func main() {
 		}
 	} else {
 		logger.Info("Skip MySQL AutoMigrate outside local environment", zap.String("env", cfg.App.Env))
+	}
+
+	fiatServer, err := fiat.StartWithMySQL(db, cfg.App.Env == "local")
+	if err != nil {
+		logger.Fatal("Failed to start CNY payment listener", zap.Error(err))
+	}
+	if fiatServer != nil {
+		defer fiatServer.Close()
 	}
 
 	redisClient, err := redis.NewRedisClient(cfg)

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLanguage } from './LanguageContext'
 import { translations } from './translations'
 import CampusProcurementApp from './CampusProcurementApp'
+import PayathonApp from './PayathonApp'
 
 const navItems = [
   { key: 'forAIUsers', href: '#quickstart' },
@@ -764,6 +765,7 @@ function StablePayMarketingSite() {
 
 export default function App() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (path === '/payathon' || (path === '/' && import.meta.env.MODE === 'payathon')) return <PayathonApp />
   if (path !== '/stablepay') return <CampusProcurementApp />
   return <StablePayMarketingSite />
 }
