@@ -52,7 +52,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-procurement-re
 
 升级增加现有采购订单的Agent Pay工具接管接口、限流与容量保护，不新增运行服务；完整Commerce Runtime CNY适配器已在代码中接入原composition，但该生产路径未在小服务器启用。原有¥0.01订单仍为 `PAID`、报告仍为 `DELIVERED` 且内容摘要未变。两个业务服务当前合计约11MiB内存，上限192MiB，已有网关和8080站点正常。证据在 `.local-run/procurement-deploy/validation/agentpay-deploy-20261028.json`。官方CLI已在本机安装；完整工具接管付款尚未执行，不能将本次更新称为Agent Pay已联调完成。
 
-后续实际联调已推进到官方signal成功、submit返回 `SIGN_VERIFY_FAILED`，新订单仍待付款；官方钱包检查为未开通。启动兼容修复已发布为 `20261028-104227-linux-amd64`，源码 `02a4c65`，发布包SHA256为 `142631cc8683164df5758255b9e4e6d651ce98ca001e6a5243afb6f463299c82`。用户已同意生成官方授权入口，二维码已在本机生成，绑定仍待用户确认。完整过程与独立签名核对见[官方工具实际联调记录](AGENTPAY-LIVE-2026-10-28.md)，不将失败提交或生成授权入口当作付款成功。
+后续实际联调已推进到官方signal成功、submit返回 `SIGN_VERIFY_FAILED`，该订单仍待付款。首次官方钱包检查为未开通；用户完成官方授权后，已只读查到 `status:bound`、`code:200`。启动兼容修复已发布为 `20261028-104227-linux-amd64`，源码 `02a4c65`，发布包SHA256为 `142631cc8683164df5758255b9e4e6d651ce98ca001e6a5243afb6f463299c82`。原工具请求只读查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，旧收银台已过期，下一笔新订单需另行确认。完整过程与独立签名核对见[官方工具实际联调记录](AGENTPAY-LIVE-2026-10-28.md)，不将失败提交、生成授权入口或钱包绑定当作付款成功。
 
 ## 下一步
 

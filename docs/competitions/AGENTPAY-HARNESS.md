@@ -76,7 +76,7 @@ Payment Service增加仅内部可见的 `GET /v1/fiat/requests/{request_id}`，�
 
 ## 当前验收边界与下一步
 
-已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。之后已实际调用官方工具：signal成功，submit返回 `SIGN_VERIFY_FAILED`；钱包检查为 `unbound`。本机公钥可验证原始收银台签名，支付别名传递一致。见[实际联调记录](AGENTPAY-LIVE-2026-10-28.md)。没有将工具失败写成付款成功。
+已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。之后已实际调用官方工具：signal成功，submit返回 `SIGN_VERIFY_FAILED`；首次钱包检查为 `unbound`，用户完成官方授权后已实际查到 `bound / code:200`。原失败请求查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，未获付款确认；本机公钥可验证原始收银台签名，支付别名传递一致。见[实际联调记录](AGENTPAY-LIVE-2026-10-28.md)。没有将工具失败或钱包绑定写成付款成功。
 
 新版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。接下来由用户明确确认一笔新的沙箱订单，再验证 `trigger-payment-signal → submit-payment → 用户官方付款 → 服务端验签 → 报告`。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 若官方流程不支持沙箱，应记录阻断原因并向官方核实测试/产品权限；不能偷偷切换生产资金或伪造工具成功。本轮未新增或执行测试套件；Go编译、Node语法检查与部署健康检查不替代支付、恢复或回归验收。
 
