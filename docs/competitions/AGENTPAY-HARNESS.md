@@ -42,7 +42,7 @@ node scripts/procurement-agent.mjs receipt --purchase-id <id>
 
 `task.json` 沿用原 `plan` 请求：`prompt`、`service_budget` 和采购 `input`。`quote-request.json` 包含上一步返回的 `plan_id` 和目录中的 `product_id`。`approval.json` 包含本次报价的 `quote_id`、`quote_hash`、`accepted:true`。用户没有逐笔确认商品、商户、金额前，不能替用户执行 `approve` 或补 `--confirm`。
 
-默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网。**本轮采购工具接口已发布于 `20261028-092856-linux-amd64`**，源码为 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`；完整Runtime生产composition路径尚未在该小服务器启用。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
+默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网。采购工具接口首次发布于 `20261028-092856-linux-amd64`；当前发布为 `20261028-104227-linux-amd64`，源码 `02a4c65`，增加启动预检与非付款signal恢复。完整Runtime生产composition路径尚未在该小服务器启用。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
 
 客户端先用官方CLI的 `--version` 检查子进程能否启动，再由服务端记录 `STARTED` 后调用工具。`submit`每单只有一次调用机会，超时或进程退出后保留不明状态，不能自动重放。只有尚无任何submit记录、上次signal为UNKNOWN时，操作人排查后可显式执行 `agentpay-prepare --recover-signal` 恢复非付款的链接/安全信号步骤；旧记录保留，总工具尝试数受限。这不允许再次提交支付。客户端只保存官方 `paymentLink` 原始值，并在同一 `purchase_id` 作为官方 `session-id` 的隔离范围内传递；不向用户展示、不打开、不改写。
 
@@ -78,6 +78,6 @@ Payment Service增加仅内部可见的 `GET /v1/fiat/requests/{request_id}`，�
 
 已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。之后已实际调用官方工具：signal成功，submit返回 `SIGN_VERIFY_FAILED`；首次钱包检查为 `unbound`，用户完成官方授权后已实际查到 `bound / code:200`。原失败请求查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，未获付款确认；本机公钥可验证原始收银台签名，支付别名传递一致。见[实际联调记录](AGENTPAY-LIVE-2026-10-28.md)。没有将工具失败或钱包绑定写成付款成功。
 
-新版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。接下来由用户明确确认一笔新的沙箱订单，再验证 `trigger-payment-signal → submit-payment → 用户官方付款 → 服务端验签 → 报告`。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 若官方流程不支持沙箱，应记录阻断原因并向官方核实测试/产品权限；不能偷偷切换生产资金或伪造工具成功。本轮未新增或执行测试套件；Go编译、Node语法检查与部署健康检查不替代支付、恢复或回归验收。
+新版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。钱包绑定后，已在用户明确确认下创建第二笔¥0.01沙箱订单：signal成功，submit仍返回 `SIGN_VERIFY_FAILED`，没有进入用户付款确认或报告交付。新订单的原始URL也通过本机公钥验证，别名原样传递；官方只读查询仍为UNKNOWN。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 下一步按[官方排查问题](AGENTPAY-SUPPORT-REQUEST.md)核实支持条件和签名层；不能通过反复新订单规避错误，也不能自动切换正式资金。本轮未新增或执行测试套件；Go编译、Node语法检查与部署健康检查不替代支付、恢复或回归验收。
 
 完整Runtime路径还需要实际CNY商户目录、报价/履约协议和买家签名联调，不能把适配器已编译写成完整Harness链路已通过。公网真实LLM、校园原文抽取与引用部署、真实试用、正式收款资格和投稿材料继续按实际结果完成。QMuse不是本轮工程前置条件。
