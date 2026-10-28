@@ -46,7 +46,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-procurement-re
 
 服务器安装入口为 `deploy/procurement-mvp/install.sh`，先检查内存和磁盘，校验包摘要，安装独立systemd服务，等待本机健康检查成功，再校验并reload Caddy。原Caddy配置会备份，已有快照不会重置。业务进程使用专用低权限用户，私钥限制访问；安装和网络例外配置需root权限。
 
-部署的发布目录为 `20261028-074605-linux-amd64`，应用来源为校园分支 `806ac2b` 中的共享代码，前端以PAYATHON mode构建。上线证据在本机忽略目录 `.local-run/procurement-deploy/validation/public.json`，测试Cookie和签名链接另存私有目录，不能公开提交。
+首次部署的发布目录为 `20261028-074605-linux-amd64`，应用来源为校园分支 `806ac2b` 中的共享代码，前端以PAYATHON mode构建。最初上线证据在本机忽略目录 `.local-run/procurement-deploy/validation/public.json`，测试Cookie和签名链接另存私有目录，不能公开提交。
+
+2026-10-28 17:30完成现有服务升级，当前发布目录为 `20261028-092856-linux-amd64`。完整源码提交 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`，发布包SHA-256为 `dde757abaf116125499cfd87e7fc4264a3df9a1e7e9bb07b5e91ee7ca56c8650`。包内 `release-manifest.json` 记录完整提交、分支、构建时间以及二进制/网页文件SHA-256；发布脚本拒绝未提交工作区。服务器逐文件摘要与manifest一致。
+
+升级增加现有采购订单的Agent Pay工具接管接口、限流与容量保护，不新增运行服务；完整Commerce Runtime CNY适配器已在代码中接入原composition，但该生产路径未在小服务器启用。原有¥0.01订单仍为 `PAID`、报告仍为 `DELIVERED` 且内容摘要未变。两个业务服务当前合计约11MiB内存，上限192MiB，已有网关和8080站点正常。证据在 `.local-run/procurement-deploy/validation/agentpay-deploy-20261028.json`。官方CLI已在本机安装；完整工具接管付款尚未执行，不能将本次更新称为Agent Pay已联调完成。
 
 ## 下一步
 
