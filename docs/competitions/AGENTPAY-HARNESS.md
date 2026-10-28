@@ -42,7 +42,7 @@ node scripts/procurement-agent.mjs receipt --purchase-id <id>
 
 `task.json` 沿用原 `plan` 请求：`prompt`、`service_budget` 和采购 `input`。`quote-request.json` 包含上一步返回的 `plan_id` 和目录中的 `product_id`。`approval.json` 包含本次报价的 `quote_id`、`quote_hash`、`accepted:true`。用户没有逐笔确认商品、商户、金额前，不能替用户执行 `approve` 或补 `--confirm`。
 
-默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网；**需要先部署包含本轮接口的版本，原线上版本尚无这些新接口**。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
+默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网。**本轮采购工具接口已发布于 `20261028-092856-linux-amd64`**，源码为 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`；完整Runtime生产composition路径尚未在该小服务器启用。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
 
 服务端先记录 `STARTED` 再允许客户端调用工具。`signal`、`submit`各订单各有一次调用机会；超时或进程退出后保留不明状态，不能自动重放。客户端只保存官方 `paymentLink` 原始值，并在同一 `purchase_id` 作为官方 `session-id` 的隔离范围内传递；不向用户展示、不打开、不改写。
 
@@ -78,6 +78,6 @@ Payment Service增加仅内部可见的 `GET /v1/fiat/requests/{request_id}`，�
 
 已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。新适配代码已做Go编译检查；没有用测试输出冒充工具真实联调。
 
-仍需在部署新版本后，由用户明确确认一笔新的沙箱订单，再验证 `trigger-payment-signal → submit-payment → 用户官方付款 → 服务端验签 → 报告`。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 若官方流程不支持沙箱，应记录阻断原因并向官方核实测试/产品权限；不能偷偷切换生产资金或伪造工具成功。
+新版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。接下来由用户明确确认一笔新的沙箱订单，再验证 `trigger-payment-signal → submit-payment → 用户官方付款 → 服务端验签 → 报告`。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 若官方流程不支持沙箱，应记录阻断原因并向官方核实测试/产品权限；不能偷偷切换生产资金或伪造工具成功。本轮未新增或执行测试套件；Go编译、Node语法检查与部署健康检查不替代支付、恢复或回归验收。
 
 完整Runtime路径还需要实际CNY商户目录、报价/履约协议和买家签名联调，不能把适配器已编译写成完整Harness链路已通过。公网真实LLM、校园原文抽取与引用部署、真实试用、正式收款资格和投稿材料继续按实际结果完成。QMuse不是本轮工程前置条件。
