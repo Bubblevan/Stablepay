@@ -37,6 +37,27 @@ function decoded(stdout) {
   return value
 }
 
+function rejectionSummary(raw) {
+  try {
+    const data=JSON.parse(raw)
+    if (data.success===false && /^[A-Z0-9_]{1,80}$/.test(data.errorCode || '')) {
+      const message=String(data.errorMsg || '').replace(/https?:\/\/\S+/g,'[redacted-url]').slice(0,160)
+      return `${data.errorCode}${message ? ` (${message})` : ''}`
+    }
+  } catch {}
+  return ''
+}
+
+export async function inspectAgentPayEnvironment({ sessionDir }) {
+  const version=await exec(await executable(),['--version'],{shell:false,windowsHide:true,timeout:10000,maxBuffer:65536})
+  const response=await tool('check-wallet',[])
+  const wallet=JSON.parse(response.stdout.trim())
+  await mkdir(sessionDir,{recursive:true,mode:0o700})
+  await writeFile(path.join(sessionDir,'wallet-check-private.json'),response.stdout,{mode:0o600})
+  // Only expose readiness, never wallet identifiers, credentials or account data.
+  return { cli_version:version.stdout.trim(), wallet_status:wallet.status || 'unknown', wallet_never_created:wallet.neverCreated===true, ready_for_submit:wallet.status==='bound', requires_user_authorization:wallet.status==='unbound' }
+}
+
 export async function runAgentPay({ command, purchaseId, call, sessionDir, confirm, recoverSignal = false }) {
   const dir = path.join(sessionDir, 'agentpay')
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -77,6 +98,8 @@ export async function runAgentPay({ command, purchaseId, call, sessionDir, confi
   }
 
   if (!confirm) throw new Error('agentpay-submit requires --confirm after the user authorizes this exact merchant, service and amount')
+  const readiness=await inspectAgentPayEnvironment({sessionDir:dir})
+  if (!readiness.ready_for_submit) throw new Error(`Official Agent wallet is ${readiness.wallet_status}. Complete user authorization in Alipay before payment submission; no submit claim was taken.`)
   const state = JSON.parse(await readFile(stateFile, 'utf8'))
   const amount = `${Math.trunc(purchase.quote.product.amount_minor / 100)}.${String(purchase.quote.product.amount_minor % 100).padStart(2, '0')}`
   const merchantInfo = `${purchase.quote.product.merchant}，${purchase.quote.product.name}，人民币${amount}元（沙箱）`
@@ -98,6 +121,7 @@ export async function runAgentPay({ command, purchaseId, call, sessionDir, confi
     const raw = output || String(error.stdout || '') || JSON.stringify({ error: 'Official payment submission outcome uncertain', code: error.code ?? null, syscall: error.syscall ?? null, stderr: String(error.stderr || '') })
     await writeFile(path.join(dir, `${attempt.id}.json`), raw, { mode: 0o600 })
     await call(`purchases/${purchaseId}/agentpay-result`, { attempt_id: attempt.id, status: 'UNKNOWN', output_digest: sha(raw), link_digest: state.link_digest }).catch(() => {})
-    throw new Error('Payment tool outcome is uncertain. Reconcile this order; do not submit again or create a replacement payment automatically.')
+    const rejected=rejectionSummary(raw)
+    throw new Error(`${rejected ? `Official payment tool rejected the request: ${rejected}.` : 'Payment tool outcome is uncertain.'} Reconcile this order; do not submit again or create a replacement payment automatically.`)
   }
 }

@@ -20,6 +20,8 @@ description: 通过StablePay已有采购Runtime发现服务、获取报价、由
 
 在用户的Agent宿主上安装支付宝官方CLI，服务器不安装钱包工具。脚本优先使用 `ALIPAY_BOT_PATH` 指定的绝对路径，Windows也支持官方安装器默认路径。
 
+先执行 `node scripts/procurement-agent.mjs agentpay-doctor`，仅检查CLI与钱包状态。当前官方 `check-wallet` 返回 `unbound` 表示未开通；需要用户在官方界面授权。生成授权入口或开通真实账户能力不能被沙箱付款授权替代。若工具在系统沙箱内无法启动或创建BlueShield目录，按执行环境要求申请沙箱外运行，不能绕过系统批准。客户端会在取得submit执行记录前检查钱包，避免把未开通状态记成付款提交。
+
 ```text
 node scripts/procurement-agent.mjs agentpay-prepare --purchase-id <purchase_id>
 node scripts/procurement-agent.mjs agentpay-submit --purchase-id <purchase_id> --confirm

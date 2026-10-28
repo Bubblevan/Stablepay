@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { runAgentPay } from './lib/alipay-agentpay.mjs'
+import { runAgentPay, inspectAgentPayEnvironment } from './lib/alipay-agentpay.mjs'
 
 const [command, ...argv] = process.argv.slice(2)
 const option = (name) => { const index = argv.indexOf(name); return index < 0 ? undefined : argv[index + 1] }
@@ -33,6 +33,7 @@ async function call(endpoint, body, key) {
 
 const help = `Usage: node scripts/procurement-agent.mjs <command> [options]
   catalog | environment | history
+  agentpay-doctor
   plan --file task.json
   quote --file quote-request.json
   approve --file approval.json --confirm --idempotency-key <stable-key>
@@ -60,6 +61,7 @@ if (!command || command === 'help' || command === '--help') {
     case 'catalog': result = await call('catalog'); break
     case 'environment': result = await call('status'); break
     case 'history': result = await call('purchases'); break
+    case 'agentpay-doctor': result=await inspectAgentPayEnvironment({sessionDir:path.join(sessionDir,createHash('sha256').update(base.origin).digest('hex').slice(0,16),'agentpay')}); break
     case 'plan': result = await call('plans', body); break
     case 'quote': result = await call('quotes', body); break
     case 'approve': {
