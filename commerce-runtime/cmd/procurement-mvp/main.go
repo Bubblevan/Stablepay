@@ -35,7 +35,14 @@ func main() {
 	}
 	service := &procurementmvp.Service{Store: store, Payment: procurementmvp.PaymentClient{BaseURL: paymentURL, Token: token}}
 	if os.Getenv("MVP_USE_LLM") == "1" {
-		client, err := llm.NewConfiguredClient(os.Getenv("LLM_PROVIDER"), os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL"), nil)
+		provider, model := os.Getenv("LLM_PROVIDER"), os.Getenv("LLM_MODEL")
+		if provider == "" {
+			provider = "openai-compatible"
+		}
+		if model == "" {
+			model = os.Getenv("LLM_MODEL_ID")
+		}
+		client, err := llm.NewConfiguredClient(provider, os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), model, nil)
 		if err != nil {
 			log.Fatal("invalid MVP model configuration")
 		}

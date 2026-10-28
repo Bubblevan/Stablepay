@@ -1,498 +1,964 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  workspaceKey,
+  emptyProof,
+  requirementsExample,
+  quotationsExample,
+  newItem,
+  initialDraft,
+  moneyMinor,
+  previewTotal,
+  reviewPayload,
+  sourceExcerpt,
+  isCurrentReview,
+} from "./campusModel.mjs";
+import "./campus-agent.css";
 
-const initialItems = [
-  {
-    id: 1,
-    name: '活动横幅',
-    requestedSpec: '3m × 0.8m',
-    quotedSpec: '3m × 0.8m',
-    quoteSource: '演示报价单（非真实来源）',
-    quantity: '1',
-    unitPrice: '180',
-    invoiceStatus: 'confirmed',
-  },
-  {
-    id: 2,
-    name: '宣传展架',
-    requestedSpec: '80cm × 180cm',
-    quotedSpec: '60cm × 160cm',
-    quoteSource: '演示报价单（非真实来源）',
-    quantity: '2',
-    unitPrice: '68',
-    invoiceStatus: 'confirmed',
-  },
-  {
-    id: 3,
-    name: '饮用水',
-    requestedSpec: '24 瓶 / 箱',
-    quotedSpec: '24 瓶 / 箱',
-    quoteSource: '演示报价单（非真实来源）',
-    quantity: '4',
-    unitPrice: '35',
-    invoiceStatus: 'unknown',
-  },
-  {
-    id: 4,
-    name: '签到桌牌',
-    requestedSpec: '亚克力，A5',
-    quotedSpec: '亚克力，A5',
-    quoteSource: '演示报价单（非真实来源）',
-    quantity: '4',
-    unitPrice: '20',
-    invoiceStatus: 'confirmed',
-  },
-]
-
-const currency = new Intl.NumberFormat('zh-CN', {
-  style: 'currency',
-  currency: 'CNY',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
-
-function toCents(value) {
-  const raw = String(value).trim()
-  if (!/^\d{1,9}(?:\.\d{1,2})?$/.test(raw)) return 0
-  const [whole, fraction = ''] = raw.split('.')
-  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+const currency = new Intl.NumberFormat("zh-CN", {
+  style: "currency",
+  currency: "CNY",
+});
+const money = (value) =>
+  value === null ? "待补齐" : currency.format(value / 100);
+const fieldNames = {
+  name: "名称",
+  activity: "活动",
+  budget: "预算",
+  requested_spec: "需求规格",
+  quoted_spec: "报价规格",
+  quantity: "数量",
+  unit_price: "单价",
+  invoice_statement: "票据原文",
+};
+async function api(path, body) {
+  const response = await fetch("/api/mvp/" + path, {
+    method: body === undefined ? "GET" : "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "StablePay",
+    },
+    signal: AbortSignal.timeout(45000),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "服务暂不可用，请重试。");
+  return data;
 }
-
-function money(cents) {
-  return currency.format(cents / 100)
-}
-
-function normalizeSpec(value) {
-  return value.trim().toLocaleLowerCase('zh-CN').replace(/[\s×*]/g, '')
-}
-
-function lineAmount(item) {
-  const quantity = Number(item.quantity)
-  const count = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 0
-  const priceCents = toCents(item.unitPrice)
-  return priceCents > 0 ? Math.round(count * priceCents) : 0
-}
-
-function runChecks({ budgetCents, budgetEvidence, approvalStatus, items }) {
-  const totalCents = items.reduce((total, item) => total + lineAmount(item), 0)
-  const risks = []
-
-  if (budgetCents <= 0) {
-    risks.push({
-      key: 'budget-missing',
-      severity: 'review',
-      title: '尚未填写批准预算',
-      detail: '补充活动可用额度后，才能判断当前方案是否超支。',
-      action: '填写本次活动已确认的预算金额。',
-    })
-  } else if (totalCents > budgetCents) {
-    risks.push({
-      key: 'over-budget',
-      severity: 'block',
-      title: `方案超预算 ${money(totalCents - budgetCents)}`,
-      detail: `采购明细合计 ${money(totalCents)}，比填写的预算 ${money(budgetCents)} 多 ${money(totalCents - budgetCents)}。`,
-      action: `至少压减 ${money(totalCents - budgetCents)}，或先完成追加预算审批并更新额度。`,
-    })
+function loadWorkspace() {
+  try {
+    const raw = localStorage.getItem(workspaceKey);
+    if (raw && raw.length < 2000000) {
+      const value = JSON.parse(raw);
+      if (
+        value.draft &&
+        Array.isArray(value.draft.items) &&
+        value.draft.items.length <= 50 &&
+        typeof value.requirements === "string" &&
+        typeof value.quotations === "string"
+      )
+        return value;
+    }
+  } catch {
+    /* Private browsing can disable storage. */
   }
-
-  if (approvalStatus !== 'approved') {
-    risks.push({
-      key: 'approval-pending',
-      severity: 'block',
-      title: '负责人审批状态待确认',
-      detail: '当前方案标记为尚未完成负责人审批。',
-      action: '按本校流程取得所需审批后，再进入采购确认。',
-    })
-  } else if (!budgetEvidence.trim()) {
-    risks.push({
-      key: 'budget-evidence-missing',
-      severity: 'review',
-      title: '预算审批依据尚未留档',
-      detail: '当前状态由使用者填写为已确认，但没有记录对应审批文件或记录位置，无法独立核实。',
-      action: '补充预算批复文件名、链接或记录编号，并保留可核查材料。',
-    })
-  }
-
-  if (items.length === 0) {
-    risks.push({
-      key: 'items-empty',
-      severity: 'review',
-      title: '采购清单为空',
-      detail: '添加至少一项物资和对应报价后，才能执行清单核验。',
-      action: '补充物资名称、数量、报价与需求规格。',
-    })
-  }
-
-  items.forEach((item) => {
-    const label = item.name.trim() || '未命名物资'
-    const quantity = Number(item.quantity)
-    const priceCents = toCents(item.unitPrice)
-
-    if (!item.name.trim() || !Number.isSafeInteger(quantity) || quantity <= 0 || priceCents <= 0) {
-      risks.push({
-        key: `incomplete-${item.id}`,
-        severity: 'review',
-        title: `${label}的信息不完整`,
-        detail: '需要有效的物资名称、正数数量和单价，才能核算明细金额。',
-        action: '补齐缺失字段后重新预审。',
-      })
-    }
-
-    if (!(item.quoteSource || '').trim()) {
-      risks.push({
-        key: `quote-source-${item.id}`,
-        severity: 'review',
-        title: `${label}尚未记录报价来源`,
-        detail: '当前没有供应商名称、报价文件名或商品链接，无法回查该单价。',
-        action: '填写供应商名称或报价文件 / 链接，并与原始报价核对。',
-      })
-    }
-
-    const requiredSpec = normalizeSpec(item.requestedSpec)
-    const quotedSpec = normalizeSpec(item.quotedSpec)
-    if (!requiredSpec || !quotedSpec) {
-      risks.push({
-        key: `spec-missing-${item.id}`,
-        severity: 'review',
-        title: `${label}的规格信息待补充`,
-        detail: '缺少需求规格或供应商报价规格，暂时无法确认是否为同一规格。',
-        action: '对照活动需求与供应商原始报价补齐规格。',
-      })
-    } else if (requiredSpec !== quotedSpec) {
-      risks.push({
-        key: `spec-mismatch-${item.id}`,
-        severity: 'review',
-        title: `${label}的报价规格与需求不一致`,
-        detail: `需求规格为“${item.requestedSpec}”，报价规格为“${item.quotedSpec}”。当前不能按同规格商品确认。`,
-        action: '请供应商按需求规格重新报价，或由活动负责人确认是否接受替代规格。',
-      })
-    }
-
-    if (item.invoiceStatus !== 'confirmed') {
-      risks.push({
-        key: `invoice-${item.id}`,
-        severity: 'review',
-        title: `${label}的票据条件尚未确认`,
-        detail: '当前记录中没有供应商可按本次经费要求提供票据的确认。',
-        action: '购买前向供应商确认票据类型、抬头及明细要求，并按本校制度留存证明。',
-      })
-    }
-  })
-
-  const blockingCount = risks.filter((risk) => risk.severity === 'block').length
-  const reviewCount = risks.filter((risk) => risk.severity === 'review').length
-  const status = blockingCount > 0
-    ? { label: '暂缓采购确认', tone: 'block' }
-    : reviewCount > 0
-      ? { label: '需要补充核实', tone: 'review' }
-      : { label: '信息齐备，可提交负责人确认', tone: 'ready' }
-
-  return { totalCents, risks, status, blockingCount, reviewCount }
+  return {
+    requirements: requirementsExample,
+    quotations: quotationsExample,
+    draft: initialDraft(),
+    extraction: null,
+    review: null,
+  };
 }
-
-function makeReport({ eventName, schoolName, budgetCents, budgetEvidence, approvalStatus, items, audit }) {
-  const statusText = approvalStatus === 'approved' ? '负责人已确认（由使用者填写）' : '尚未确认'
-  const riskLines = audit.risks.length
-    ? audit.risks.map((risk) => `- **${risk.title}**：${risk.detail}\n  - 建议：${risk.action}`).join('\n')
-    : '- 当前输入未触发演示检查项。仍需按适用的学校制度和原始报价人工确认。'
-
-  return [
-    '# 校园活动采购预审清单',
-    '',
-    `- 活动：${eventName || '未填写'}`,
-    `- 学校 / 单位：${schoolName || '未填写'}`,
-    `- 预算：${budgetCents > 0 ? money(budgetCents) : '未填写'}`,
-    `- 预算依据：${budgetEvidence || '未记录'}`,
-    `- 负责人审批状态：${statusText}`,
-    `- 明细合计：${money(audit.totalCents)}`,
-    `- 预审状态：${audit.status.label}`,
-    '',
-    '## 采购明细',
-    ...items.map((item) => `- ${item.name || '未命名'}：${item.quantity || 0} × ${money(toCents(item.unitPrice))}；需求规格 ${item.requestedSpec || '待补'}；报价规格 ${item.quotedSpec || '待补'}；报价来源 ${item.quoteSource || '未记录'}`),
-    '',
-    '## 风险与建议',
-    riskLines,
-    '',
-    '> 本清单根据填写资料执行确定性检查，不是学校审批意见或报销保证。请以适用学校的现行制度、审批记录和供应商原始凭证为准。',
-  ].join('\n')
-}
-
-function Field({ label, hint, className = '', children }) {
+function Field({ label, hint, children, className = "" }) {
   return (
-    <label className={`campus-field ${className}`}>
+    <label className={"campus-field " + className}>
       <span>{label}</span>
       {children}
       {hint && <small>{hint}</small>}
     </label>
-  )
+  );
 }
-
-function MoneyValue({ cents, className = '' }) {
-  return <span className={className}>{money(cents)}</span>
+function Proof({ label, value, onChange }) {
+  const proof = value || emptyProof();
+  return (
+    <details className="campus-proof">
+      <summary>
+        {label} ·{" "}
+        {
+          {
+            declared: "用户声明",
+            provided: "有材料，未核验",
+            human_verified: "人工核验记录",
+          }[proof.state || "declared"]
+        }
+      </summary>
+      <div className="campus-field-grid">
+        <Field label={label + "状态"}>
+          <select
+            value={proof.state || "declared"}
+            onChange={(e) =>
+              onChange({
+                ...proof,
+                state: e.target.value,
+                reviewed_by: "",
+                reviewed_at: "",
+              })
+            }
+          >
+            <option value="declared">用户声明</option>
+            <option value="provided">有证据但未核验</option>
+            <option value="human_verified">已经人工核验（用户记录）</option>
+          </select>
+        </Field>
+        <Field label={label + "引用"} hint="文件名或链接不会被系统自动验证。">
+          <input
+            value={proof.reference || ""}
+            onChange={(e) =>
+              onChange({
+                ...proof,
+                reference: e.target.value,
+                reviewed_by: "",
+                reviewed_at: "",
+              })
+            }
+          />
+        </Field>
+        {proof.state === "human_verified" && (
+          <>
+            <Field label={label + "复核人"}>
+              <input
+                value={proof.reviewed_by}
+                onChange={(e) =>
+                  onChange({ ...proof, reviewed_by: e.target.value })
+                }
+              />
+            </Field>
+            <Field
+              label={label + "复核时间"}
+              hint="须填写真实复核时间，系统不自动代签。"
+            >
+              <input
+                type="datetime-local"
+                value={proof.reviewed_at ? localDate(proof.reviewed_at) : ""}
+                onChange={(e) =>
+                  onChange({
+                    ...proof,
+                    reviewed_at: e.target.value
+                      ? new Date(e.target.value).toISOString()
+                      : "",
+                  })
+                }
+              />
+            </Field>
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+function localDate(raw) {
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+        .toISOString()
+        .slice(0, 16);
 }
 
 export default function CampusProcurementApp() {
-  const [eventName, setEventName] = useState('社团迎新分享会')
-  const [schoolName, setSchoolName] = useState('')
-  const [budget, setBudget] = useState('500')
-  const [budgetEvidence, setBudgetEvidence] = useState('演示预算记录（非真实审批材料）')
-  const [approvalStatus, setApprovalStatus] = useState('approved')
-  const [items, setItems] = useState(initialItems)
-  const [hasAudited, setHasAudited] = useState(false)
-  const [remoteAudit, setRemoteAudit] = useState(null)
-  const [checking, setChecking] = useState(false)
-  const [auditSource, setAuditSource] = useState('浏览器本地规则')
-  const currentInput = useRef('')
-  currentInput.current = JSON.stringify([eventName, schoolName, budget, budgetEvidence, approvalStatus, items])
-
+  const [workspace, setWorkspace] = useState(loadWorkspace);
+  const { requirements, quotations, draft, extraction, review } = workspace;
+  const [status, setStatus] = useState(null);
+  const [policies, setPolicies] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [storageFailed, setStorageFailed] = useState(false);
+  const current = useRef("");
+  current.current = JSON.stringify(workspace);
   useEffect(() => {
-    const previousTitle = document.title
-    document.title = '校园活动采购守门员 · StablePay'
-    return () => { document.title = previousTitle }
-  }, [])
-
-  const budgetCents = toCents(budget)
-  const previewTotal = useMemo(() => items.reduce((total, item) => total + lineAmount(item), 0), [items])
-  const localAudit = useMemo(
-    () => runChecks({ budgetCents, budgetEvidence, approvalStatus, items }),
-    [budgetCents, budgetEvidence, approvalStatus, items],
-  )
-  const audit = remoteAudit || localAudit
-
-  const runAudit = async () => {
-    const reviewedInput = currentInput.current
-    setChecking(true)
-    setRemoteAudit(null)
-    setAuditSource('浏览器本地规则')
+    const oldTitle = document.title;
+    document.title = "校园采购守门员 · 可追溯 AI 预审";
+    api("campus/status")
+      .then((value) => {
+        setStatus(value);
+        return api("campus/policies")
+          .then(setPolicies)
+          .catch(() => {});
+      })
+      .catch(() => setStatus({ unavailable: true }));
+    const saved = loadWorkspace();
+    if (saved.review?.id)
+      api("campus/reviews/" + saved.review.id)
+        .then((value) =>
+          setWorkspace((w) =>
+            w.review?.id === value.id ? { ...w, review: value } : w,
+          ),
+        )
+        .catch(() => {
+          setWorkspace((w) => ({ ...w, review: null }));
+          setNotice("上次预审记录无法恢复，请重新确认并预审。");
+        });
+    return () => {
+      document.title = oldTitle;
+    };
+  }, []);
+  useEffect(() => {
     try {
-      const statusResponse = await fetch('/api/mvp/status', { signal: AbortSignal.timeout(5000) })
-      const status = statusResponse.ok ? await statusResponse.json() : null
-      if (status?.review_profile) {
-        const response = await fetch('/api/mvp/reviews', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'StablePay' },
-          signal: AbortSignal.timeout(10000),
-          body: JSON.stringify({ activity: eventName, school: schoolName, budget, budget_evidence: budgetEvidence, approved: approvalStatus === 'approved', items: items.map((item) => ({ name: item.name, requested_spec: item.requestedSpec, quoted_spec: item.quotedSpec, quantity: Number(item.quantity), unit_price: item.unitPrice, quote_source: item.quoteSource, invoice_confirmed: item.invoiceStatus === 'confirmed' })) }),
-        })
-        if (!response.ok) throw new Error('server review unavailable')
-        const report = await response.json()
-        if (reviewedInput !== currentInput.current) return
-        const risks = report.findings.map((finding, index) => ({ key: `${finding.code}-${index}`, severity: finding.severity, title: finding.title, detail: finding.evidence, action: finding.action }))
-        const blockingCount = risks.filter((risk) => risk.severity === 'block').length
-        const reviewCount = risks.length - blockingCount
-        setRemoteAudit({ totalCents: report.total_minor, risks, blockingCount, reviewCount, status: blockingCount ? { label: '暂缓采购确认', tone: 'block' } : reviewCount ? { label: '需要补充核实', tone: 'review' } : { label: '信息齐备，可提交负责人确认', tone: 'ready' } })
-        setAuditSource(`共享服务端核验 · ${report.rules_version}`)
-      }
+      localStorage.setItem(workspaceKey, JSON.stringify(workspace));
+      setStorageFailed(false);
     } catch {
-      setAuditSource('浏览器本地规则（共享服务未执行）')
+      setStorageFailed(true);
+    }
+  }, [workspace]);
+  const change = (updates) => {
+    setWorkspace((w) => ({ ...w, ...updates }));
+    setConfirmed(false);
+    setNotice("");
+  };
+  const changeDraft = (key, value) => {
+    setWorkspace((w) => ({
+      ...w,
+      draft: {
+        ...w.draft,
+        [key]: value,
+        ...(key === "budget" || key === "budget_evidence"
+          ? { budget_proof: emptyProof() }
+          : {}),
+        ...(key === "approved" ? { approval_proof: emptyProof() } : {}),
+      },
+    }));
+    setConfirmed(false);
+    setNotice("");
+  };
+  const changeItem = (index, key, value) => {
+    setWorkspace((w) => ({
+      ...w,
+      draft: {
+        ...w.draft,
+        items: w.draft.items.map((item, i) =>
+          i !== index
+            ? item
+            : {
+                ...item,
+                [key]: value,
+                ...([
+                  "name",
+                  "quoted_spec",
+                  "unit_price",
+                  "quote_source",
+                  "quantity",
+                  "requested_spec",
+                ].includes(key)
+                  ? { quote_proof: emptyProof(item.quote_proof?.reference) }
+                  : {}),
+                ...(key === "invoice_confirmed"
+                  ? { invoice_proof: emptyProof(item.invoice_proof?.reference) }
+                  : {}),
+              },
+        ),
+      },
+    }));
+    setConfirmed(false);
+    setNotice("");
+  };
+  const total = useMemo(() => previewTotal(draft.items), [draft.items]);
+  const sourceChanged =
+    extraction &&
+    (requirements !== extraction.source.requirements ||
+      quotations !== extraction.source.quotations ||
+      draft.demo !== extraction.source.demo);
+  const currentReview = isCurrentReview(review, draft) && !sourceChanged;
+  const findings = currentReview ? review.report.findings : [];
+  const blocks = findings.filter((f) => f.severity === "block").length;
+  async function extract() {
+    const snapshot = current.current;
+    setBusy("extract");
+    setNotice("");
+    try {
+      const result = await api("extractions", {
+        requirements,
+        quotations,
+        demo: draft.demo,
+      });
+      if (snapshot !== current.current) {
+        setNotice("处理期间资料已修改，未覆盖你的编辑，请重新抽取。");
+        return;
+      }
+      setWorkspace((w) => ({
+        ...w,
+        extraction: result,
+        draft: result.draft,
+        review: null,
+      }));
+      setConfirmed(false);
+      setNotice(
+        "已完成真实模型抽取。请对照每条原文核对清单，缺失字段须手动补齐；审批与票据仍待人工确认。",
+      );
+    } catch (error) {
+      setNotice(error.message);
     } finally {
-      setChecking(false)
-      if (reviewedInput === currentInput.current) setHasAudited(true)
+      setBusy("");
     }
   }
-
-  const updateItem = (id, field, value) => {
-    setItems((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
-    setHasAudited(false)
+  async function audit() {
+    let payload;
+    try {
+      payload = reviewPayload(draft, extraction?.id, confirmed);
+    } catch (error) {
+      setNotice(error.message);
+      return;
+    }
+    const snapshot = current.current;
+    setBusy("audit");
+    setNotice("");
+    try {
+      const result = await api("campus/reviews", payload);
+      if (snapshot !== current.current) {
+        setNotice("预审期间清单已修改，请重新确认并预审。");
+        return;
+      }
+      setWorkspace((w) => ({ ...w, draft: result.input, review: result }));
+      setConfirmed(false);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
   }
-
-  const addItem = () => {
-    setItems((current) => [...current, {
-      id: Date.now(),
-      name: '',
-      requestedSpec: '',
-      quotedSpec: '',
-      quoteSource: '',
-      quantity: '1',
-      unitPrice: '',
-      invoiceStatus: 'unknown',
-    }])
-    setHasAudited(false)
+  function reset() {
+    change({
+      requirements: requirementsExample,
+      quotations: quotationsExample,
+      draft: initialDraft(),
+      extraction: null,
+      review: null,
+    });
+    setNotice("已恢复合成示例；服务器中已保存的记录不会被删除。");
   }
-
-  const removeItem = (id) => {
-    setItems((current) => current.filter((item) => item.id !== id))
-    setHasAudited(false)
-  }
-
-  const exportReport = () => {
-    const content = makeReport({ eventName, schoolName, budgetCents, budgetEvidence, approvalStatus, items, audit })
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const safeName = (eventName || 'campus-event').replace(/[\\/:*?"<>|]/g, '-').slice(0, 40)
-    link.href = url
-    link.download = `采购预审-${safeName}.md`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
-
   return (
     <div className="campus-app">
       <header className="campus-topbar">
-        <a className="campus-brand" href="/stablepay" aria-label="返回 StablePay">
+        <a className="campus-brand" href="/campus">
           <span className="campus-brand-mark">S</span>
-          <span><strong>StablePay</strong><small>生活好帮手 · 参赛 Demo</small></span>
+          <span>
+            <strong>StablePay</strong>
+            <small>生活好帮手 · 校园采购守门员</small>
+          </span>
         </a>
         <div className="campus-topbar-center">
           <span className="campus-live-dot" />
-          <span>校园活动采购守门员</span>
+          <span>支付宝「智能体涌现奖」参赛 MVP</span>
         </div>
-        <a className="campus-back-link" href="/stablepay">返回 StablePay ↗</a>
+        <button className="campus-reset" onClick={reset}>
+          恢复合成示例
+        </button>
       </header>
-
       <main className="campus-shell">
         <section className="campus-page-heading">
           <div>
-            <div className="campus-eyebrow">采购前检查 · 01</div>
-            <h1>这份采购清单，<br className="campus-mobile-break" />现在可以买吗？</h1>
-            <p>把活动预算、实际报价、规格和票据条件放在一起核对，在付款前发现需要处理的问题。</p>
+            <div className="campus-eyebrow">
+              从原文到预审 · 每个字段有据可查
+            </div>
+            <h1>
+              先读懂采购资料，
+              <br />
+              再决定下一步。
+            </h1>
+            <p>
+              AI
+              整理活动需求和供应商报价；你确认事实，规则核对预算、规格、审批与票据。
+            </p>
           </div>
-          <div className="campus-flow" aria-label="预审流程">
-            <span className="is-current"><i>1</i>整理方案</span><b />
-            <span><i>2</i>联合预审</span><b />
-            <span><i>3</i>负责人确认</span>
+          <div className="campus-flow">
+            <span className="is-current">
+              <i>1</i>读取原文
+            </span>
+            <b />
+            <span>
+              <i>2</i>人工确认
+            </span>
+            <b />
+            <span>
+              <i>3</i>预审导出
+            </span>
           </div>
         </section>
-
         <div className="campus-disclosure">
-          <span aria-hidden="true">ⓘ</span>
-          <p><strong>演示规则范围：</strong>当前未绑定具体学校制度。系统只核对你填写的预算、需求规格、负责人状态和供应商票据答复，不代表学校正式审批或报销保证。</p>
+          <span>ⓘ</span>
+          <p>
+            原文匹配只证明引用可回查，不证明材料真实。人工核验状态由使用者记录。默认不加载学校制度；可选参考包仅覆盖部分条款，不构成审批或报销保证。
+          </p>
         </div>
-
         <div className="campus-workspace">
           <section className="campus-main-column">
             <article className="campus-panel">
               <div className="campus-panel-heading">
-                <div><span className="campus-step-index">01</span><div><h2>活动与经费</h2><p>先明确这笔钱属于哪场活动、可用额度是多少。</p></div></div>
+                <div>
+                  <span className="campus-step-index">01</span>
+                  <div>
+                    <h2>粘贴活动需求与报价</h2>
+                    <p>支持文本。图片请先转为文字；此版本未接入截图识别。</p>
+                  </div>
+                </div>
+              </div>
+              <div className="campus-source-inputs">
+                <Field label="活动需求原文">
+                  <textarea
+                    rows="7"
+                    maxLength={12000}
+                    value={requirements}
+                    onChange={(e) => change({ requirements: e.target.value })}
+                  />
+                </Field>
+                <Field label="供应商报价原文">
+                  <textarea
+                    rows="9"
+                    maxLength={12000}
+                    value={quotations}
+                    onChange={(e) => change({ quotations: e.target.value })}
+                  />
+                </Field>
+                <label className="campus-confirm">
+                  <input
+                    type="checkbox"
+                    checked={draft.demo}
+                    onChange={(e) => changeDraft("demo", e.target.checked)}
+                  />
+                  这些是合成演示资料，不能作为真实采购凭证
+                </label>
+                <p className="campus-agent-hint">
+                  点击后，两份文本将发送到已配置的模型服务。请先去除姓名、手机号等无关个人信息。
+                </p>
+                <div className="campus-ai-actions">
+                  <button
+                    className="campus-primary-button"
+                    disabled={
+                      Boolean(busy) ||
+                      !status?.extraction_configured ||
+                      !requirements.trim() ||
+                      !quotations.trim()
+                    }
+                    onClick={extract}
+                  >
+                    {busy === "extract"
+                      ? "AI 正在读取原文…"
+                      : "用 AI 抽取采购清单"}
+                  </button>
+                  <span>
+                    {status?.unavailable
+                      ? "本机服务不可用，请用校园模式启动"
+                      : status?.extraction_configured
+                        ? "模型已配置 · 结果必须人工确认"
+                        : "模型未配置 · 可手工填表预审"}
+                  </span>
+                </div>
+              </div>
+            </article>
+            {notice && (
+              <div className="campus-notice" role="status">
+                {notice}
+              </div>
+            )}
+            {sourceChanged && (
+              <div className="campus-notice" role="alert">
+                原文或演示标记已变化，请重新抽取，当前引用仍对应上一次原文。
+              </div>
+            )}
+            {extraction && (
+              <article className="campus-panel">
+                <div className="campus-panel-heading">
+                  <div>
+                    <span className="campus-step-index">AI</span>
+                    <div>
+                      <h2>原文引用与待确认问题</h2>
+                      <p>
+                        {extraction.provider} · {extraction.model} ·{" "}
+                        {extraction.fields.length} 条可定位字段
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="campus-citations">
+                  {extraction.questions.map((q, index) => (
+                    <p className="campus-question" key={index}>
+                      待确认：{q}
+                    </p>
+                  ))}
+                  <details className="campus-evidence-list">
+                    <summary>
+                      展开 {extraction.fields.length} 条字段引用
+                    </summary>
+                    {extraction.fields.map((field, index) => {
+                      const source =
+                        field.source === "requirements"
+                          ? extraction.source.requirements
+                          : extraction.source.quotations;
+                      const excerpt = sourceExcerpt(source, field);
+                      return (
+                        <details className="campus-citation" key={index}>
+                          <summary>
+                            {field.item_index === undefined
+                              ? ""
+                              : "物资 " + (field.item_index + 1) + " · "}
+                            {fieldNames[field.field] || field.field}：
+                            {field.value}
+                          </summary>
+                          <blockquote>
+                            {excerpt ? (
+                              <>
+                                {excerpt.before}
+                                <mark>{excerpt.quote}</mark>
+                                {excerpt.after}
+                              </>
+                            ) : (
+                              "引用无法定位，请重新抽取。"
+                            )}
+                          </blockquote>
+                          <small>
+                            {field.source === "requirements"
+                              ? "需求原文"
+                              : "报价原文"}{" "}
+                            · 字符 [{field.start_rune}, {field.end_rune}) ·
+                            SHA256 {field.source_hash.slice(0, 12)}…
+                          </small>
+                        </details>
+                      );
+                    })}
+                  </details>
+                </div>
+              </article>
+            )}
+            <article className="campus-panel">
+              <div className="campus-panel-heading">
+                <div>
+                  <span className="campus-step-index">02</span>
+                  <div>
+                    <h2>核对活动与经费</h2>
+                    <p>模型不会替你确认审批，也不会自动核验文件真实性。</p>
+                  </div>
+                </div>
               </div>
               <div className="campus-field-grid">
                 <Field label="活动名称">
-                  <input value={eventName} onChange={(event) => { setEventName(event.target.value); setHasAudited(false) }} placeholder="例如：学院迎新活动" />
+                  <input
+                    value={draft.activity}
+                    onChange={(e) => changeDraft("activity", e.target.value)}
+                  />
                 </Field>
-                <Field label="学校 / 单位" hint="用于之后匹配适用制度；本 Demo 尚未加载校规。">
-                  <input value={schoolName} onChange={(event) => { setSchoolName(event.target.value); setHasAudited(false) }} placeholder="填写学校或学院（选填）" />
+                <Field label="学校 / 单位" hint="只作记录，不会自动匹配校规。">
+                  <input
+                    value={draft.school}
+                    onChange={(e) => changeDraft("school", e.target.value)}
+                  />
                 </Field>
-                <Field label="已确认的活动预算" hint="请填写审批通过的可用金额。">
-                  <div className="campus-money-input"><span>¥</span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { setBudget(event.target.value); setHasAudited(false) }} /></div>
+                <Field label="活动预算（元）">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={draft.budget}
+                    onChange={(e) => changeDraft("budget", e.target.value)}
+                  />
                 </Field>
-                <Field label="负责人审批状态" hint="由你根据当前实际审批记录填写。">
-                  <select value={approvalStatus} onChange={(event) => { setApprovalStatus(event.target.value); setHasAudited(false) }}>
-                    <option value="approved">已取得负责人确认</option>
-                    <option value="pending">尚未完成审批</option>
+                <Field label="审批状态（使用者声明）">
+                  <select
+                    value={draft.approved ? "yes" : "no"}
+                    onChange={(e) =>
+                      changeDraft("approved", e.target.value === "yes")
+                    }
+                  >
+                    <option value="no">尚未完成审批</option>
+                    <option value="yes">声明已取得审批，仍需核验</option>
                   </select>
                 </Field>
-                <Field label="预算审批依据" hint="填写批复文件名、链接或记录编号；当前示例不是真实材料。">
-                  <input value={budgetEvidence} onChange={(event) => { setBudgetEvidence(event.target.value); setHasAudited(false) }} placeholder="例如：预算批复.pdf / 审批记录编号" />
+                <Field label="预算依据">
+                  <input
+                    value={draft.budget_evidence}
+                    onChange={(e) =>
+                      changeDraft("budget_evidence", e.target.value)
+                    }
+                  />
+                </Field>
+                <Field
+                  label="学校制度参考包（可选）"
+                  hint="不会根据学校名称自动套用。"
+                >
+                  <select
+                    value={draft.policy_id || ""}
+                    onChange={(e) => {
+                      setWorkspace((w) => ({
+                        ...w,
+                        draft: {
+                          ...w.draft,
+                          policy_id: e.target.value,
+                          policy_scope_confirmed: false,
+                        },
+                      }));
+                      setConfirmed(false);
+                    }}
+                  >
+                    <option value="">不加载学校制度，仅做通用预审</option>
+                    {policies.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.school} · {p.version}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
               </div>
-            </article>
-
-            <article className="campus-panel campus-items-panel">
-              <div className="campus-panel-heading campus-items-heading">
-                <div><span className="campus-step-index">02</span><div><h2>采购明细与报价</h2><p>对照活动需求与供应商提供的信息填写。</p></div></div>
-                <span className="campus-item-count">{items.length} 项</span>
+              {draft.policy_id &&
+                policies
+                  .filter((p) => p.id === draft.policy_id)
+                  .map((p) => (
+                    <div className="campus-policy" key={p.id}>
+                      <strong>{p.title}</strong>
+                      <p>{p.scope}</p>
+                      <a href={p.url} target="_blank" rel="noreferrer">
+                        查看学校官网原文 ↗
+                      </a>
+                      <label className="campus-confirm">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(draft.policy_scope_confirmed)}
+                          onChange={(e) =>
+                            changeDraft(
+                              "policy_scope_confirmed",
+                              e.target.checked,
+                            )
+                          }
+                        />
+                        我已确认学校、社团类型和资金来源符合上述范围
+                      </label>
+                    </div>
+                  ))}
+              <div className="campus-proofs">
+                <Proof
+                  label="预算依据"
+                  value={draft.budget_proof}
+                  onChange={(v) => changeDraft("budget_proof", v)}
+                />
+                <Proof
+                  label="负责人审批"
+                  value={draft.approval_proof}
+                  onChange={(v) => changeDraft("approval_proof", v)}
+                />
               </div>
-
+            </article>
+            <article className="campus-panel campus-items-panel">
+              <div className="campus-panel-heading">
+                <div>
+                  <span className="campus-step-index">03</span>
+                  <div>
+                    <h2>确认采购明细</h2>
+                    <p>
+                      支持明确标注的 mm、cm、m 等价长度换算；未知字段请补齐。
+                    </p>
+                  </div>
+                </div>
+                <span className="campus-item-count">
+                  {draft.items.length} 项
+                </span>
+              </div>
               <div className="campus-items-list">
-                {items.map((item, index) => (
-                  <div className="campus-item-card" key={item.id}>
+                {draft.items.map((item, index) => (
+                  <div className="campus-item-card" key={index}>
                     <div className="campus-item-title-row">
-                      <span className="campus-item-number">{String(index + 1).padStart(2, '0')}</span>
-                      <input aria-label={`物资 ${index + 1} 名称`} className="campus-item-name" value={item.name} onChange={(event) => updateItem(item.id, 'name', event.target.value)} placeholder="物资名称" />
-                      <button type="button" className="campus-remove-button" onClick={() => removeItem(item.id)} aria-label={`删除${item.name || '此物资'}`}>移除</button>
+                      <span className="campus-item-number">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <input
+                        aria-label={"物资 " + (index + 1) + " 名称"}
+                        className="campus-item-name"
+                        value={item.name}
+                        onChange={(e) =>
+                          changeItem(index, "name", e.target.value)
+                        }
+                      />
+                      <button
+                        className="campus-remove-button"
+                        onClick={() =>
+                          changeDraft(
+                            "items",
+                            draft.items.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        移除
+                      </button>
                     </div>
                     <div className="campus-item-fields">
-                      <Field label="需求规格"><input value={item.requestedSpec} onChange={(event) => updateItem(item.id, 'requestedSpec', event.target.value)} placeholder="活动需要的规格" /></Field>
-                      <Field label="报价规格"><input value={item.quotedSpec} onChange={(event) => updateItem(item.id, 'quotedSpec', event.target.value)} placeholder="供应商实际报价规格" /></Field>
-                      <Field label="数量"><input type="number" min="0" step="1" value={item.quantity} onChange={(event) => updateItem(item.id, 'quantity', event.target.value)} /></Field>
-                      <Field label="单价（元）"><input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(item.id, 'unitPrice', event.target.value)} placeholder="0.00" /></Field>
-                      <Field className="campus-source-field" label="报价来源" hint="记录供应商、报价文件名或商品链接，方便回查。">
-                        <input value={item.quoteSource} onChange={(event) => updateItem(item.id, 'quoteSource', event.target.value)} placeholder="供应商 / 报价文件 / 商品链接" />
+                      <Field label={"物资 " + (index + 1) + " 需求规格"}>
+                        <input
+                          value={item.requested_spec}
+                          onChange={(e) =>
+                            changeItem(index, "requested_spec", e.target.value)
+                          }
+                        />
+                      </Field>
+                      <Field label={"物资 " + (index + 1) + " 报价规格"}>
+                        <input
+                          value={item.quoted_spec}
+                          onChange={(e) =>
+                            changeItem(index, "quoted_spec", e.target.value)
+                          }
+                        />
+                      </Field>
+                      <Field label={"物资 " + (index + 1) + " 数量"}>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={item.quantity || ""}
+                          onChange={(e) =>
+                            changeItem(index, "quantity", e.target.value)
+                          }
+                        />
+                      </Field>
+                      <Field label={"物资 " + (index + 1) + " 单价（元）"}>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.unit_price}
+                          onChange={(e) =>
+                            changeItem(index, "unit_price", e.target.value)
+                          }
+                        />
+                      </Field>
+                      <Field label={"物资 " + (index + 1) + " 报价来源"}>
+                        <input
+                          value={item.quote_source}
+                          onChange={(e) =>
+                            changeItem(index, "quote_source", e.target.value)
+                          }
+                        />
                       </Field>
                     </div>
                     <div className="campus-item-footer">
-                      <label className="campus-invoice-field"><span className="campus-invoice-icon">票</span><span>票据条件</span>
-                        <select value={item.invoiceStatus} onChange={(event) => updateItem(item.id, 'invoiceStatus', event.target.value)}>
-                          <option value="confirmed">供应商已确认可开具</option>
-                          <option value="unknown">尚未向供应商确认</option>
+                      <Field label={"物资 " + (index + 1) + " 票据声明"}>
+                        <select
+                          value={item.invoice_confirmed ? "yes" : "no"}
+                          onChange={(e) =>
+                            changeItem(
+                              index,
+                              "invoice_confirmed",
+                              e.target.value === "yes",
+                            )
+                          }
+                        >
+                          <option value="no">尚未确认可开票</option>
+                          <option value="yes">
+                            声明供应商可开票，仍需核验
+                          </option>
                         </select>
-                      </label>
-                      <div className="campus-line-total"><span>小计</span><strong><MoneyValue cents={lineAmount(item)} /></strong></div>
+                      </Field>
+                      <div className="campus-line-total">
+                        <span>小计</span>
+                        <strong>{money(previewTotal([item]))}</strong>
+                      </div>
                     </div>
+                    <Proof
+                      label={"物资 " + (index + 1) + " 报价"}
+                      value={item.quote_proof}
+                      onChange={(v) => changeItem(index, "quote_proof", v)}
+                    />
+                    <Proof
+                      label={"物资 " + (index + 1) + " 票据"}
+                      value={item.invoice_proof}
+                      onChange={(v) => changeItem(index, "invoice_proof", v)}
+                    />
                   </div>
                 ))}
               </div>
-
-              <button type="button" className="campus-add-item" onClick={addItem}><span>＋</span>添加采购项</button>
-              <div className="campus-total-row"><span>当前方案合计</span><strong><MoneyValue cents={previewTotal} /></strong></div>
+              <button
+                className="campus-add-item"
+                disabled={draft.items.length >= 50}
+                onClick={() =>
+                  changeDraft("items", [...draft.items, newItem()])
+                }
+              >
+                ＋ 添加采购项
+              </button>
+              <div className="campus-total-row">
+                <span>当前方案合计</span>
+                <strong>{money(total)}</strong>
+              </div>
             </article>
-
-            <div className="campus-submit-row">
-              <div><strong>所有检查都基于当前填写内容</strong><span>修改报价或审批状态后，需要重新预审。</span></div>
-              <button type="button" className="campus-primary-button" disabled={checking} onClick={runAudit}><span>⌕</span>{checking ? '正在核验…' : '开始采购预审'}</button>
+            <div className="campus-confirm-panel">
+              <label className="campus-confirm">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  disabled={Boolean(sourceChanged)}
+                  onChange={(e) => setConfirmed(e.target.checked)}
+                />
+                我已对照原文逐项核对当前清单；这次确认不会代替学校审批。
+              </label>
+              <button
+                className="campus-primary-button"
+                disabled={!confirmed || Boolean(busy) || Boolean(sourceChanged)}
+                onClick={audit}
+              >
+                {busy === "audit" ? "正在预审…" : "确认清单并运行预审"}
+              </button>
             </div>
           </section>
-
           <aside className="campus-side-column">
             <article className="campus-panel campus-result-panel">
-              <div className="campus-result-topline"><span>预审结果</span><span className="campus-demo-tag">{hasAudited ? auditSource : '规则演示'}</span></div>
-              {!hasAudited ? (
+              <div className="campus-result-topline">
+                <span>采购预审结果</span>
+                <span className="campus-demo-tag">确定性规则</span>
+              </div>
+              {!currentReview ? (
                 <div className="campus-result-empty">
-                  <div className="campus-empty-orbit"><span>✓</span></div>
-                  <h2>准备好检查这份方案</h2>
-                  <p>当前明细合计 <strong><MoneyValue cents={previewTotal} /></strong>。点击“开始采购预审”，查看预算、规格、审批和票据条件的逐项核验结果。</p>
-                  <div className="campus-check-preview"><span>◇</span>预算与明细合计 <b>待检查</b></div>
-                  <div className="campus-check-preview"><span>◇</span>需求与报价规格 <b>待检查</b></div>
-                  <div className="campus-check-preview"><span>◇</span>审批与票据准备 <b>待检查</b></div>
+                  <div className="campus-empty-orbit">
+                    <span>✓</span>
+                  </div>
+                  <h2>
+                    {review
+                      ? "清单已修改，需要重新预审"
+                      : "确认事实，再查看风险"}
+                  </h2>
+                  <p>
+                    先用 AI
+                    整理原文或手动填写清单，再核对并明确确认。修改后的旧报告不能继续导出。
+                  </p>
                 </div>
               ) : (
                 <div className="campus-result-content">
-                  <div className={`campus-status-banner ${audit.status.tone}`}>
-                    <span className="campus-status-icon">{audit.status.tone === 'ready' ? '✓' : '!'}</span>
-                    <div><strong>{audit.status.label}</strong><span>{audit.blockingCount} 项需先处理 · {audit.reviewCount} 项待核实</span></div>
+                  <div
+                    className={
+                      "campus-status-banner " +
+                      (blocks ? "block" : findings.length ? "review" : "ready")
+                    }
+                  >
+                    <span className="campus-status-icon">
+                      {findings.length ? "!" : "✓"}
+                    </span>
+                    <div>
+                      <strong>
+                        {blocks
+                          ? "暂缓采购确认"
+                          : findings.length
+                            ? "需要补充核实"
+                            : "当前规则未发现问题"}
+                      </strong>
+                      <span>
+                        {blocks} 项需处理 · {findings.length - blocks} 项待核实
+                      </span>
+                    </div>
                   </div>
-
                   <div className="campus-budget-card">
-                    <div><span>采购方案合计</span><strong><MoneyValue cents={audit.totalCents} /></strong></div>
-                    <div><span>已填写预算</span><strong><MoneyValue cents={budgetCents} /></strong></div>
-                    <div className={`campus-budget-delta ${audit.totalCents > budgetCents && budgetCents > 0 ? 'over' : ''}`}>
-                      <span>{budgetCents <= 0 ? '预算待填写' : audit.totalCents > budgetCents ? '超出预算' : '预算余量'}</span>
-                      <strong>{budgetCents <= 0 ? '待填写' : <MoneyValue cents={Math.abs(budgetCents - audit.totalCents)} />}</strong>
+                    <div>
+                      <span>采购合计</span>
+                      <strong>{money(review.report.total_minor)}</strong>
+                    </div>
+                    <div>
+                      <span>填写预算</span>
+                      <strong>
+                        {review.report.budget_minor > 0
+                          ? money(review.report.budget_minor)
+                          : "待填写"}
+                      </strong>
+                    </div>
+                    <div
+                      className={
+                        "campus-budget-delta " +
+                        (review.report.budget_minor > 0 &&
+                        review.report.total_minor > review.report.budget_minor
+                          ? "over"
+                          : "")
+                      }
+                    >
+                      <span>
+                        {review.report.budget_minor <= 0
+                          ? "预算待填写"
+                          : review.report.total_minor >
+                              review.report.budget_minor
+                            ? "超出预算"
+                            : "预算余量"}
+                      </span>
+                      <strong>
+                        {review.report.budget_minor > 0
+                          ? money(
+                              Math.abs(
+                                review.report.total_minor -
+                                  review.report.budget_minor,
+                              ),
+                            )
+                          : "待填写"}
+                      </strong>
                     </div>
                   </div>
-
-                  <div className="campus-risk-heading"><h3>需要处理</h3><span>{audit.risks.length} 项</span></div>
-                  {audit.risks.length ? (
-                    <div className="campus-risk-list">
-                      {audit.risks.map((risk) => (
-                        <article className={`campus-risk-card ${risk.severity}`} key={risk.key}>
-                          <div className="campus-risk-title"><span>{risk.severity === 'block' ? '!' : '•'}</span><strong>{risk.title}</strong></div>
-                          <p>{risk.detail}</p>
-                          <div className="campus-risk-action"><b>建议</b>{risk.action}</div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="campus-all-clear"><span>✓</span><div><strong>没有触发演示检查项</strong><p>仍需按适用学校制度和原始报价进行人工确认。</p></div></div>
+                  <div className="campus-risk-list">
+                    {findings.map((finding, index) => (
+                      <article
+                        className={"campus-risk-card " + finding.severity}
+                        key={index}
+                      >
+                        <div className="campus-risk-title">
+                          <span>!</span>
+                          <strong>{finding.title}</strong>
+                        </div>
+                        <p>{finding.evidence}</p>
+                        <div className="campus-risk-action">
+                          <b>建议</b>
+                          {finding.action}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  {review.changes_after_extraction.length > 0 && (
+                    <p className="campus-agent-hint">
+                      已记录 {review.changes_after_extraction.length}{" "}
+                      个抽取后修改字段。原始引用保留在导出报告中。
+                    </p>
                   )}
-
-                  <div className="campus-next-step"><span>下一步</span><p>{audit.risks.length ? '逐项确认并修正方案，再重新运行预审。' : '请由活动负责人核对原始材料后确认采购方案。'}</p></div>
-                  <button type="button" className="campus-export-button" onClick={exportReport}>下载预审清单 <span>↓</span></button>
+                  <p className="campus-agent-hint">
+                    {review.report.rules_version} ·{" "}
+                    {review.input_hash.slice(0, 12)}…
+                  </p>
+                  <a
+                    className="campus-export-button"
+                    href={"/api/mvp/campus/reviews/" + review.id + "/export"}
+                    download="校园采购预审.md"
+                  >
+                    下载含原文引用的预审报告 ↓
+                  </a>
                 </div>
               )}
             </article>
-
             <article className="campus-panel campus-scope-panel">
               <div className="campus-scope-icon">i</div>
-              <div><h3>这次检查了什么</h3><p>预算总额、逐项数量与单价、活动需求规格与报价规格、审批状态记录、供应商票据答复。</p><p className="campus-scope-footnote">报价来源与校规文本尚未接入；有信息缺失时，系统会提示人工确认。</p></div>
+              <div>
+                <h3>能力与资料边界</h3>
+                <p>
+                  AI
+                  抽取文本，原文引用由服务端定位；规则检查预算、长度规格和证据状态。AI
+                  不授权审批，也不执行付款。
+                </p>
+                <p className="campus-scope-footnote">
+                  默认不加载校规；可选一所学校的官网制度参考，仅提示部分待办。未验证材料真实性。公网访问与真实学生试用待完成。
+                </p>
+              </div>
             </article>
-            <div className="campus-trust-note"><span>🔒</span><p>当前数据只保存在本次页面状态中，刷新页面会恢复示例方案。</p></div>
+            <div className="campus-trust-note">
+              <span>▣</span>
+              <p>
+                {storageFailed
+                  ? "浏览器未能保存草稿；关闭页面前请完成预审并导出。"
+                  : "草稿自动保存在此浏览器，刷新可恢复。原文和预审快照保存在本机服务中；清除浏览器数据会失去会话访问权限。"}
+              </p>
+            </div>
           </aside>
         </div>
-
-        <footer className="campus-footer"><span>StablePay · 校园活动采购守门员</span><span>预审辅助，不替代学校审批或财务审核</span></footer>
+        <footer className="campus-footer">
+          <span>StablePay · 校园采购守门员</span>
+          <span>预审辅助，不替代学校审批或财务审核</span>
+        </footer>
       </main>
     </div>
-  )
+  );
 }

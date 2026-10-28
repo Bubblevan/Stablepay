@@ -33,6 +33,8 @@ reports/
 stablepay-openclaw-plugin/
 
 # Build and test artifacts
+__pycache__/
+*.py[cod]
 **/bin/
 **/dist/
 **/out/

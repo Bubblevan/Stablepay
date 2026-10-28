@@ -124,7 +124,7 @@ func TestApprovalPaymentAndDeliveryRestart(t *testing.T) {
 	if err != nil || done.Delivery == nil {
 		t.Fatal("no deliverable", err)
 	}
-	if len(done.Delivery.Report.Findings) != 3 || done.VerifiedBy != "local-simulation" {
+	if len(done.Delivery.Report.Findings) != 6 || done.VerifiedBy != "local-simulation" {
 		t.Fatalf("unexpected delivered report: %+v", done)
 	}
 	store, err := OpenStore(path)
@@ -252,7 +252,7 @@ func TestCampusProfileUsesSharedGuardWithoutOpeningPayathonReviewEndpoint(t *tes
 			t.Fatal(response.Code, response.Body.String())
 		}
 		var report procurement.Report
-		if json.Unmarshal(response.Body.Bytes(), &report) != nil || report.TotalMinor != 12000 || len(report.Findings) != 3 {
+		if json.Unmarshal(response.Body.Bytes(), &report) != nil || report.TotalMinor != 12000 || len(report.Findings) != 6 {
 			t.Fatal("campus profile did not use the shared guard")
 		}
 	}

@@ -1,5 +1,7 @@
 # 两场比赛共用的采购 MVP
 
+校园分支已补充真实模型的原文抽取、人工确认、证据分级及导出，详见 [校园AI闭环](AGENT-EMERGENCE-MVP.md)。校园启动使用 `-Competition campus -UseLLM`，只运行Runtime，不启动支付服务；本轮不要求支付。下文的双服务支付联调说明适用于PAYATHON配置。
+
 ## 复用关系
 
 ```mermaid

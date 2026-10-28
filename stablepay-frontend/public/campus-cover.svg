@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+ <rect width="1600" height="900" fill="#f4f5ec"/>
+ <circle cx="1510" cy="100" r="310" fill="#e2e8d6"/>
+ <circle cx="1510" cy="100" r="230" fill="none" stroke="#cad6bc" stroke-width="2"/>
+ <g font-family="Microsoft YaHei,PingFang SC,sans-serif">
+  <rect x="90" y="76" width="52" height="52" rx="14" fill="#24573f"/>
+  <text x="106" y="114" font-size="34" fill="white" font-weight="700">S</text>
+  <text x="164" y="113" font-size="26" fill="#24573f" font-weight="700">StablePay · 生活好帮手</text>
+  <text x="90" y="217" font-size="22" fill="#63745c">支付宝「智能体涌现奖」参赛 MVP</text>
+  <text x="84" y="334" font-size="84" font-weight="700" fill="#1f392b">校园采购守门员</text>
+  <text x="90" y="405" font-size="32" fill="#50634f">读懂需求与报价，把每一条风险追溯到原文。</text>
+  <g transform="translate(90 488)">
+   <rect width="430" height="220" rx="24" fill="#fff" stroke="#d6dfcf"/>
+   <text x="30" y="52" font-size="20" fill="#6b7e5d">01 / AI 整理</text>
+   <text x="30" y="108" font-size="34" fill="#264532" font-weight="700">从原文生成采购清单</text>
+   <text x="30" y="157" font-size="21" fill="#6a7864">字段引用 · 原文定位 · 未知待补</text>
+   <rect x="470" width="430" height="220" rx="24" fill="#fff" stroke="#d6dfcf"/>
+   <text x="500" y="52" font-size="20" fill="#6b7e5d">02 / 人工确认</text>
+   <text x="500" y="108" font-size="34" fill="#264532" font-weight="700">核对事实与证据状态</text>
+   <text x="500" y="157" font-size="21" fill="#6a7864">保留人工修改 · 不自动批准</text>
+   <rect x="940" width="430" height="220" rx="24" fill="#24573f"/>
+   <text x="970" y="52" font-size="20" fill="#d1e2c1">03 / 规则预审</text>
+   <text x="970" y="108" font-size="34" fill="#fff" font-weight="700">发现风险，导出报告</text>
+   <text x="970" y="157" font-size="21" fill="#d1e2c1">预算 · 规格 · 审批 · 票据</text>
+  </g>
+  <text x="90" y="815" font-size="20" fill="#6b7865">预审辅助，不替代学校审批或财务审核。材料真实性仍需人工核实。</text>
+ </g>
+</svg>

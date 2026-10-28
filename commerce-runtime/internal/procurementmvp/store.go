@@ -9,9 +9,11 @@ import (
 )
 
 type state struct {
-	Plans     map[string]Plan     `json:"plans"`
-	Quotes    map[string]Quote    `json:"quotes"`
-	Purchases map[string]Purchase `json:"purchases"`
+	Plans         map[string]Plan         `json:"plans"`
+	Quotes        map[string]Quote        `json:"quotes"`
+	Purchases     map[string]Purchase     `json:"purchases"`
+	Extractions   map[string]Extraction   `json:"extractions,omitempty"`
+	CampusReviews map[string]CampusReview `json:"campus_reviews,omitempty"`
 }
 type Store struct {
 	mu   sync.Mutex

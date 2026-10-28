@@ -4,6 +4,11 @@ import "testing"
 
 func TestJointReviewEvidence(t *testing.T) {
 	input := Input{Activity: "分享会", Budget: "500", Approved: true, BudgetEvidence: "演示批复", Items: []Item{{Name: "横幅", Quantity: 1, UnitPrice: "180", RequestedSpec: "3m", QuotedSpec: "3m", QuoteSource: "报价A", InvoiceConfirmed: true}, {Name: "展架", Quantity: 2, UnitPrice: "68", RequestedSpec: "80cm", QuotedSpec: "60cm", QuoteSource: "报价B", InvoiceConfirmed: true}, {Name: "水", Quantity: 4, UnitPrice: "35", RequestedSpec: "24瓶", QuotedSpec: "24瓶", QuoteSource: "报价C"}, {Name: "桌牌", Quantity: 4, UnitPrice: "20", RequestedSpec: "A5", QuotedSpec: "A5", QuoteSource: "报价D", InvoiceConfirmed: true}}}
+	proof := Evidence{State: "human_verified", Reference: "synthetic fixture only", ReviewedBy: "test fixture", ReviewedAt: "2026-01-01T00:00:00Z"}
+	input.BudgetProof, input.ApprovalProof = proof, proof
+	for i := range input.Items {
+		input.Items[i].QuoteProof, input.Items[i].InvoiceProof = proof, proof
+	}
 	report, err := Audit(input, false)
 	if err != nil {
 		t.Fatal(err)

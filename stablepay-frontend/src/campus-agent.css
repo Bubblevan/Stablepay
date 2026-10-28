@@ -1,0 +1,209 @@
+.campus-source-inputs,
+.campus-citations,
+.campus-proofs {
+  padding: 0 24px 24px;
+  display: grid;
+  gap: 16px;
+}
+.campus-source-inputs textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid #d8e1dd;
+  border-radius: 12px;
+  background: #fbfcfb;
+  color: #173d32;
+  font: inherit;
+  line-height: 1.8;
+  min-height: 130px;
+}
+.campus-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.campus-ai-actions > span,
+.campus-agent-hint {
+  font-size: 12px;
+  color: #65786f;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.campus-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.campus-confirm input {
+  margin-top: 5px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: #21684f;
+}
+.campus-confirm-panel {
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #dbe4df;
+  border-radius: 18px;
+  display: grid;
+  gap: 18px;
+}
+.campus-confirm-panel button {
+  justify-self: start;
+}
+.campus-notice {
+  padding: 16px 20px;
+  background: #fff5da;
+  border: 1px solid #ecd9a0;
+  border-radius: 14px;
+  line-height: 1.8;
+  color: #735724;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.campus-proof {
+  margin: 10px 0;
+  border: 1px solid #e0e7e2;
+  border-radius: 10px;
+  background: #fafcfb;
+}
+.campus-proof summary {
+  padding: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #486456;
+}
+.campus-proof .campus-field-grid {
+  padding: 12px;
+}
+.campus-citation {
+  border-bottom: 1px solid #e4ebe6;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+.campus-citation summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #294f3f;
+}
+.campus-citation blockquote {
+  margin: 12px 0;
+  padding: 12px;
+  border-left: 3px solid #6e9e85;
+  background: #f4f8f5;
+  font-size: 13px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+}
+.campus-citation mark {
+  background: #dfeec2;
+  color: #173f28;
+}
+.campus-citation small {
+  color: #738477;
+  font-size: 11px;
+}
+.campus-evidence-list > summary {
+  cursor: pointer;
+  color: #2a644d;
+  font-size: 13px;
+  padding: 12px;
+  background: #f1f7f2;
+  border-radius: 9px;
+}
+.campus-question {
+  font-size: 13px;
+  color: #856327;
+  line-height: 1.8;
+}
+.campus-reset {
+  background: none;
+  border: 1px solid #d7e2dc;
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  color: #41614d;
+  font: inherit;
+  font-size: 12px;
+}
+.campus-policy {
+  margin: 0 24px 20px;
+  padding: 16px;
+  background: #f3f7f1;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.campus-policy a {
+  color: #28674d;
+}
+.campus-policy .campus-confirm {
+  margin-top: 12px;
+}
+.campus-export-button {
+  text-decoration: none;
+  box-sizing: border-box;
+  text-align: center;
+  display: block;
+}
+.campus-agent-hint {
+  margin: 0;
+}
+.campus-item-footer .campus-field {
+  flex: 1;
+}
+.campus-app input,
+.campus-app select,
+.campus-app textarea {
+  max-width: 100%;
+  min-width: 0;
+}
+.campus-app input[type="checkbox"] {
+  width: 16px;
+  min-width: 16px;
+}
+.campus-app button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (max-width: 720px) {
+  .campus-source-inputs,
+  .campus-citations,
+  .campus-proofs {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .campus-ai-actions .campus-primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+  .campus-confirm-panel button {
+    width: 100%;
+    justify-content: center;
+  }
+  .campus-reset {
+    max-width: 110px;
+  }
+  .campus-proof summary {
+    line-height: 1.8;
+  }
+}
+@media (max-width: 720px) {
+  .campus-app input:not([type="checkbox"]),
+  .campus-app select,
+  .campus-app textarea {
+    font-size: 16px;
+  }
+  .campus-field > span {
+    font-size: 12px;
+  }
+  .campus-risk-card p,
+  .campus-risk-action {
+    font-size: 13px;
+  }
+}

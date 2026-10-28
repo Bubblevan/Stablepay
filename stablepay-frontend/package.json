@@ -4,6 +4,7 @@
   "version": "0.3.19",
   "type": "module",
   "scripts": {
+    "test": "node --test src/campusModel.test.mjs",
     "dev": "vite",
     "dev:payathon": "vite --mode payathon",
     "build": "vite build",

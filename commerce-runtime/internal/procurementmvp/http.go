@@ -19,6 +19,7 @@ type HTTPConfig struct {
 }
 
 func Handler(service *Service, cfg HTTPConfig) http.Handler {
+	extractionSlots := make(chan struct{}, 1)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -64,8 +65,73 @@ func Handler(service *Service, cfg HTTPConfig) http.Handler {
 		hash := sha256.Sum256([]byte(session))
 		owner := hex.EncodeToString(hash[:])
 		path := strings.TrimPrefix(r.URL.Path, "/api/mvp/")
+		if cfg.CampusReview && path == "campus/policies" && r.Method == "GET" {
+			reply(w, 200, procurement.PolicyCatalog())
+			return
+		}
+		if cfg.CampusReview && path == "campus/status" && r.Method == "GET" {
+			reply(w, 200, map[string]any{"extraction_configured": service.Planner.Client != nil, "rules_version": "procurement-guard/v2", "school_policy_loaded": false, "payment_required": false})
+			return
+		}
+		if cfg.CampusReview && path == "extractions" && r.Method == "POST" {
+			var body ExtractionRequest
+			if !decode(w, r, &body) {
+				return
+			}
+			select {
+			case extractionSlots <- struct{}{}:
+				defer func() { <-extractionSlots }()
+			default:
+				replyError(w, errors.New("AI 正在处理另一份资料，请稍后重试"), 429)
+				return
+			}
+			result, err := service.ExtractCampus(r.Context(), owner, body)
+			if errors.Is(err, ErrExtractionUnavailable) {
+				replyError(w, err, 503)
+				return
+			}
+			respond(w, result, err)
+			return
+		}
+		if cfg.CampusReview && strings.HasPrefix(path, "extractions/") && r.Method == "GET" {
+			result, err := service.GetExtraction(owner, strings.TrimPrefix(path, "extractions/"))
+			respond(w, result, err)
+			return
+		}
+		if cfg.CampusReview && path == "campus/reviews" && r.Method == "POST" {
+			var body CampusReviewRequest
+			if !decode(w, r, &body) {
+				return
+			}
+			result, err := service.ReviewCampus(owner, body)
+			respond(w, result, err)
+			return
+		}
+		if cfg.CampusReview && strings.HasPrefix(path, "campus/reviews/") && r.Method == "GET" {
+			parts := strings.Split(strings.TrimPrefix(path, "campus/reviews/"), "/")
+			if len(parts) == 2 && parts[1] == "export" {
+				content, err := service.ExportCampusReview(owner, parts[0])
+				if err != nil {
+					respond(w, nil, err)
+					return
+				}
+				w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+				w.Header().Set("Content-Disposition", `attachment; filename="campus-review.md"`)
+				w.Write([]byte(content))
+				return
+			}
+			if len(parts) == 1 {
+				result, err := service.GetCampusReview(owner, parts[0])
+				respond(w, result, err)
+				return
+			}
+		}
 		switch {
 		case path == "status" && r.Method == "GET":
+			if cfg.CampusReview {
+				reply(w, 200, map[string]any{"payment_mode": "not_used", "planner_configured": service.Planner.Client != nil, "live_payments_enabled": false, "review_profile": true})
+				return
+			}
 			mode, err := service.PaymentMode(r.Context())
 			if err != nil {
 				replyError(w, err, 503)

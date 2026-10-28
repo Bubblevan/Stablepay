@@ -1,0 +1,37 @@
+name: Campus procurement regression
+on:
+  push:
+    branches: [contest/alipay-agent-emergence-2026]
+  pull_request:
+    paths:
+      - 'commerce-runtime/**'
+      - 'stablepay-frontend/**'
+      - '.github/workflows/campus-procurement.yml'
+permissions:
+  contents: read
+jobs:
+  guard-and-extraction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: commerce-runtime/go.mod
+          cache-dependency-path: commerce-runtime/go.sum
+      - run: go test ./internal/procurement ./internal/procurementmvp ./cmd/procurement-mvp
+        working-directory: commerce-runtime
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: stablepay-frontend/package-lock.json
+      - run: npm ci
+        working-directory: stablepay-frontend
+      - run: npm test
+        working-directory: stablepay-frontend
+      - run: npm run build -- --outDir ../.local-run/ci-campus
+        working-directory: stablepay-frontend
