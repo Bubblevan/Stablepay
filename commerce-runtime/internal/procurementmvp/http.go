@@ -150,13 +150,14 @@ func Handler(service *Service, cfg HTTPConfig) http.Handler {
 					return
 				case parts[2] == "agentpay-claim" && r.Method == "POST":
 					var body struct {
-						Stage      string `json:"stage"`
-						LinkDigest string `json:"link_digest"`
+						Stage         string `json:"stage"`
+						LinkDigest    string `json:"link_digest"`
+						RecoverSignal bool   `json:"recover_signal"`
 					}
 					if !decode(w, r, &body) {
 						return
 					}
-					result, err := service.ClaimAgentPay(owner, parts[1], body.Stage, body.LinkDigest)
+					result, err := service.ClaimAgentPay(owner, parts[1], body.Stage, body.LinkDigest, body.RecoverSignal)
 					respond(w, result, err)
 					return
 				case parts[2] == "agentpay-result" && r.Method == "POST":

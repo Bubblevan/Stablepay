@@ -44,7 +44,7 @@ node scripts/procurement-agent.mjs receipt --purchase-id <id>
 
 默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网。**本轮采购工具接口已发布于 `20261028-092856-linux-amd64`**，源码为 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`；完整Runtime生产composition路径尚未在该小服务器启用。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
 
-服务端先记录 `STARTED` 再允许客户端调用工具。`signal`、`submit`各订单各有一次调用机会；超时或进程退出后保留不明状态，不能自动重放。客户端只保存官方 `paymentLink` 原始值，并在同一 `purchase_id` 作为官方 `session-id` 的隔离范围内传递；不向用户展示、不打开、不改写。
+客户端先用官方CLI的 `--version` 检查子进程能否启动，再由服务端记录 `STARTED` 后调用工具。`submit`每单只有一次调用机会，超时或进程退出后保留不明状态，不能自动重放。只有尚无任何submit记录、上次signal为UNKNOWN时，操作人排查后可显式执行 `agentpay-prepare --recover-signal` 恢复非付款的链接/安全信号步骤；旧记录保留，总工具尝试数受限。这不允许再次提交支付。客户端只保存官方 `paymentLink` 原始值，并在同一 `purchase_id` 作为官方 `session-id` 的隔离范围内传递；不向用户展示、不打开、不改写。
 
 工具JSON、支付别名和Cookie只放 `.local-run/procurement-agent/`。服务端保存阶段、时间与SHA256摘要，不保存原始工具输出；客户端成功报告显式标为 `CLIENT_REPORTED_SUCCESS`，不具有付款证明效力。只有Payment Service的RSA2通知或验签查询可以使原订单进入PAID并交付。
 
