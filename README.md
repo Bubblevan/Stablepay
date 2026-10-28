@@ -1,6 +1,6 @@
 # StablePay
 
-> 支付宝「智能体涌现奖」校园采购参赛分支：本机运行与审查修正见 [校园 AI MVP](docs/competitions/AGENT-EMERGENCE-MVP.md)，产品说明及演示素材见 [投稿草稿](docs/competitions/agent-emergence/SUBMISSION.md)。本轮入口为 `/campus`，无需支付；公网部署和真实用户反馈尚待完成。
+> 支付宝「智能体涌现奖」校园采购参赛分支：本机运行与审查修正见 [校园 AI MVP](docs/competitions/AGENT-EMERGENCE-MVP.md)，产品说明及演示素材见 [投稿草稿](docs/competitions/agent-emergence/SUBMISSION.md)。校园入口为 `/campus`，无需支付，校园AI公网体验和真实用户反馈尚待完成。QMuse是可选工具；PAYATHON的[公网沙箱与回调](docs/competitions/PUBLIC-SANDBOX.md)已另行部署。
 
 StablePay is an Agent Commerce Runtime for controlled paid-capability execution. An external agent submits an `AcquireCapabilityRequest`; the Runtime owns discovery, merchant invocation, x402 negotiation, payment, entitlement, delivery validation, recovery, parent approval, and the final artifact.
 
