@@ -1,0 +1,12 @@
+[Unit]
+Description=Stablepay competition MVP resource budget
+
+[Slice]
+MemoryAccounting=yes
+MemoryHigh=128M
+MemoryMax=192M
+MemorySwapMax=0
+CPUAccounting=yes
+CPUQuota=50%
+CPUWeight=20
+TasksMax=64

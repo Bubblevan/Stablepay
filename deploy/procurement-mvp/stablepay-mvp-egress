@@ -1,0 +1,21 @@
+#!/bin/sh
+# A host may transparently redirect HTTPS to its academic SNI gateway.
+# Exempt only these service users; never reset or replace the gateway's rules.
+set -eu
+if ! iptables -t nat -S SNI_GATE_OUTPUT >/dev/null 2>&1; then exit 0; fi
+for principal in stablepay-mvp caddy; do
+    uid=$(id -u "$principal" 2>/dev/null) || continue
+    case "${1:-apply}" in
+        apply)
+            if ! iptables -t nat -C SNI_GATE_OUTPUT -m owner --uid-owner "$uid" -m comment --comment stablepay-mvp-direct-egress -j RETURN 2>/dev/null; then
+                iptables -t nat -I SNI_GATE_OUTPUT 1 -m owner --uid-owner "$uid" -m comment --comment stablepay-mvp-direct-egress -j RETURN
+            fi
+            ;;
+        remove)
+            while iptables -t nat -C SNI_GATE_OUTPUT -m owner --uid-owner "$uid" -m comment --comment stablepay-mvp-direct-egress -j RETURN 2>/dev/null; do
+                iptables -t nat -D SNI_GATE_OUTPUT -m owner --uid-owner "$uid" -m comment --comment stablepay-mvp-direct-egress -j RETURN
+            done
+            ;;
+        *) exit 2 ;;
+    esac
+done

@@ -1,0 +1,40 @@
+[Unit]
+Description=Stablepay payment-service Alipay sandbox listener
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=stablepay-mvp
+Group=stablepay-mvp
+Slice=stablepay-mvp.slice
+WorkingDirectory=/var/lib/stablepay-mvp/payment
+EnvironmentFile=/etc/stablepay-mvp/fiat.env
+Environment=GOMEMLIMIT=48MiB GOGC=80 GOMAXPROCS=1
+ExecStart=/opt/stablepay-mvp/current/bin/payment-fiat
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+MemoryHigh=64M
+MemoryMax=96M
+OOMScoreAdjust=500
+OOMPolicy=stop
+Nice=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/stablepay-mvp/payment
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LimitNOFILE=1024
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target
