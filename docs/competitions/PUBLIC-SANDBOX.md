@@ -11,7 +11,11 @@
 
 HTTPS使用已正常签发的公信证书，本机已通过正常证书校验访问。公开POST通知转发至payment-service的 `/v1/fiat/alipay/notify`。GET通知返回405，无签名的伪造成功通知返回400，公开访问 `/v1/fiat/orders` 返回404。
 
-当前为 `alipay_sandbox`，`live_payments_enabled=false`。使用合成采购资料已验证用户确认、订单创建、沙箱收银台签名URL的通知与返回地址；未付款查询不交付报告。**没有完成沙箱付款，也没有真实资金交易；尚未收到支付宝有效的已付款通知。** 不将网络与路由验证冒充支付成功。
+当前为 `alipay_sandbox`，`live_payments_enabled=false`。使用合成采购资料已验证用户确认、订单创建、沙箱收银台签名URL的通知与返回地址；未付款查询不交付报告。
+
+**2026-10-28已完成一次用户手动沙箱付款及报告交付。** “活动预算核算”服务费CNY 1分，服务器16:36:14（Asia/Shanghai）收到通知并完成RSA2验签，支付状态 `PAID`、确认来源 `alipay-rsa2-notify`；16:36:21业务订单为 `DELIVERED`，报告已持久化。支付和业务订单的商品、金额、币种、报价、用户确认及交易号一致，记录有一次交付事件。报告预算¥500、合计¥536，提示超预算¥36。本次仅核算预算，不宣称已核验规格、审批或票据。
+
+这不是正式收款或真实资金交易，不计入真实付费用户与收入。服务器检查未代替用户端文件下载验收。脱敏记录在 `.local-run/procurement-deploy/validation/paid-20261028.json`，操作步骤见[演示脚本](PAYATHON-DEMO-SCRIPT.md)。
 
 校园AI工作台继续在本机 `http://127.0.0.1:8093/campus` 运行。本次公网部署为PAYATHON沙箱配置，未向服务器上传本机模型密钥，不代表校园AI公网版已部署。无需接入QMuse。
 
@@ -46,4 +50,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-procurement-re
 
 ## 下一步
 
-用户在沙箱页面生成订单，手动使用沙箱买家完成付款，再查询付款结果和交付报告。只有实际签名通知或验签查询确认PAID，才可将沙箱闭环列为通过。正式收款、AgentPay工具链及比赛投稿审核仍未完成。
+用户在原浏览器打开已交付订单，点击“下载报告与交易回执 ↓”保存 `stablepay-receipt.json`，然后按[演示脚本](PAYATHON-DEMO-SCRIPT.md)录制。沙箱支付与服务端交付已通过一次实际交易验证；正式收款、AgentPay工具链及比赛投稿审核仍未完成。校园AI公网体验与真实试用继续作为独立待办。
