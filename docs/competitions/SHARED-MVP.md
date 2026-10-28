@@ -61,9 +61,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-procurement-
 
 ## 可复现验收
 
-Web 与外部 Agent 使用相同 Runtime API。Agent 客户端可执行 `node scripts/procurement-agent.mjs help` 查看服务发现、计划、报价、明确确认、收银台与回执命令。它不会执行支付工具或读取支付宝私钥；会话文件保存在忽略目录。支付确认必须绑定本次商户、服务和金额。
+Web 与外部 Agent 使用相同 Runtime API。Agent 客户端可执行 `node scripts/procurement-agent.mjs help` 查看服务发现、计划、报价、明确确认、收银台与回执命令。显式的 `agentpay-prepare` / `agentpay-submit` 在Agent本机调用官方支付CLI；客户端不读取商家支付宝私钥，会话文件保存在忽略目录。支付确认必须绑定本次商户、服务和金额。
 
-官方 PC 路线是在取得签名收银台 URL 后，按[官方指南](https://aipay.alipay.com/docs/agent-pay/skillpay.html)交给 `alipay-bot trigger-payment-signal`，再将其返回的短链交给 `alipay-bot submit-payment`。2026-10-28已安装官方CLI 0.4.8并核对命令参数，现有客户端增加 `agentpay-prepare` / `agentpay-submit`，详见[Harness接入说明](AGENTPAY-HARNESS.md)。尚未发起官方工具实际付款，不假定它支持当前沙箱；这一步仍属外部联调验收项。
+官方 PC 路线是在取得签名收银台 URL 后，按[官方指南](https://aipay.alipay.com/docs/agent-pay/skillpay.html)交给 `alipay-bot trigger-payment-signal`，再将其返回的短链交给 `alipay-bot submit-payment`。2026-10-28已安装官方CLI 0.4.8并核对命令参数，详见[Harness接入说明](AGENTPAY-HARNESS.md)。已实际执行两笔用户确认的沙箱订单联调：signal成功，submit返回 `SIGN_VERIFY_FAILED`；第二笔在钱包已bound后仍复现，官方查询为UNKNOWN，没有新报告交付。PC工具对当前沙箱的支持及权限要求仍需官方核实，见[实际记录](AGENTPAY-LIVE-2026-10-28.md)和[咨询草稿](AGENTPAY-SUPPORT-REQUEST.md)。普通网页沙箱付款与此工具链结果分别记录。
 
 ```powershell
 cd payment-service

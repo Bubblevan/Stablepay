@@ -48,11 +48,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-procurement-re
 
 首次部署的发布目录为 `20261028-074605-linux-amd64`，应用来源为校园分支 `806ac2b` 中的共享代码，前端以PAYATHON mode构建。最初上线证据在本机忽略目录 `.local-run/procurement-deploy/validation/public.json`，测试Cookie和签名链接另存私有目录，不能公开提交。
 
-2026-10-28 17:30完成现有服务升级，当前发布目录为 `20261028-092856-linux-amd64`。完整源码提交 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`，发布包SHA-256为 `dde757abaf116125499cfd87e7fc4264a3df9a1e7e9bb07b5e91ee7ca56c8650`。包内 `release-manifest.json` 记录完整提交、分支、构建时间以及二进制/网页文件SHA-256；发布脚本拒绝未提交工作区。服务器逐文件摘要与manifest一致。
+2026-10-28 17:30完成现有服务升级，第二个发布目录为 `20261028-092856-linux-amd64`。完整源码提交 `1467c1909dbb1b0f9bf372ba927c7f91ca941639`，发布包SHA-256为 `dde757abaf116125499cfd87e7fc4264a3df9a1e7e9bb07b5e91ee7ca56c8650`。包内 `release-manifest.json` 记录完整提交、分支、构建时间以及二进制/网页文件SHA-256；发布脚本拒绝未提交工作区。服务器逐文件摘要与manifest一致。
 
-升级增加现有采购订单的Agent Pay工具接管接口、限流与容量保护，不新增运行服务；完整Commerce Runtime CNY适配器已在代码中接入原composition，但该生产路径未在小服务器启用。原有¥0.01订单仍为 `PAID`、报告仍为 `DELIVERED` 且内容摘要未变。两个业务服务当前合计约11MiB内存，上限192MiB，已有网关和8080站点正常。证据在 `.local-run/procurement-deploy/validation/agentpay-deploy-20261028.json`。官方CLI已在本机安装；完整工具接管付款尚未执行，不能将本次更新称为Agent Pay已联调完成。
+升级增加现有采购订单的Agent Pay工具接管接口、限流与容量保护，不新增运行服务；完整Commerce Runtime CNY适配器已在代码中接入原composition，但该生产路径未在小服务器启用。原有¥0.01订单仍为 `PAID`、报告仍为 `DELIVERED` 且内容摘要未变。升级后测得两个业务服务合计约11MiB内存，上限192MiB，已有网关和8080站点正常。证据在 `.local-run/procurement-deploy/validation/agentpay-deploy-20261028.json`。当时官方CLI已在本机安装、尚未实际提交；后续工具结果如下，不能将发布本身称为Agent Pay已联调完成。
 
-后续实际联调已推进到官方signal成功、submit返回 `SIGN_VERIFY_FAILED`，该订单仍待付款。首次官方钱包检查为未开通；用户完成官方授权后，已只读查到 `status:bound`、`code:200`。启动兼容修复已发布为 `20261028-104227-linux-amd64`，源码 `02a4c65`，发布包SHA256为 `142631cc8683164df5758255b9e4e6d651ce98ca001e6a5243afb6f463299c82`。原工具请求只读查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，旧收银台已过期，下一笔新订单需另行确认。完整过程与独立签名核对见[官方工具实际联调记录](AGENTPAY-LIVE-2026-10-28.md)，不将失败提交、生成授权入口或钱包绑定当作付款成功。
+后续实际联调已推进到官方signal成功、submit返回 `SIGN_VERIFY_FAILED`，该订单仍待付款。首次官方钱包检查为未开通；用户完成官方授权后，已只读查到 `status:bound`、`code:200`。启动兼容修复已发布为当前版本 `20261028-104227-linux-amd64`，源码 `02a4c65`，发布包SHA256为 `142631cc8683164df5758255b9e4e6d651ce98ca001e6a5243afb6f463299c82`。原工具请求只读查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，旧收银台已过期。
+
+用户随后明确同意新建¥0.01沙箱订单。钱包已bound的新订单于21:01再次完成signal，submit仍返回 `SIGN_VERIFY_FAILED`；签名通过本机应用公钥验证、支付别名原样传递，官方只读查询仍为UNKNOWN，业务订单未交付。需向官方确认PC沙箱支持和签名/权限要求，参见[排查问题草稿](AGENTPAY-SUPPORT-REQUEST.md)。完整过程见[官方工具实际联调记录](AGENTPAY-LIVE-2026-10-28.md)，不将失败提交、生成授权入口或钱包绑定当作付款成功。
 
 ## 下一步
 
