@@ -236,6 +236,20 @@ func (s *Server) episodeRoute(w http.ResponseWriter, r *http.Request) {
 		s.observability(w, r, episodeID)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "payment-handoff" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")
+			return
+		}
+		result, err := s.service.GetPaymentHandoff(r.Context(), episodeID)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "parent-decisions" {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required")

@@ -21,6 +21,22 @@ flowchart LR
 
 The fixed DAG is `Normalize → Policy → Approval → Execute`. The final two stages are deterministic Go code and are independently auditable; probabilistic model output cannot skip them.
 
+## Alipay / CNY extension
+
+The existing Harness now delegates its deterministic cap/allowlist/threshold
+evaluation to `pkg/agentharness`. The CNY fiat boundary reuses that policy;
+currency normalization remains in each adapter. USDC/USDT precision, DID signed
+approval and Redis one-shot consumption retain their original path. CNY does
+not pass through the Solana executor or reuse a token amount conversion.
+
+Commerce Runtime can route CNY through `AlipayPaymentAdapter` after its existing
+buyer confirmation, budget reservation and RuntimeGuard. The merchant Skill
+uses the official PC `trigger-payment-signal` and `submit-payment` tools on the
+buyer's Agent host. A tool response never establishes settlement: only the
+payment-service RSA2 notification/query does. See
+[`AGENTPAY-HARNESS.md`](../../docs/competitions/AGENTPAY-HARNESS.md) for wiring,
+the separate procurement MVP entry, and remaining live integration work.
+
 ## State and security boundary
 
 | State | Meaning | Can transfer? |

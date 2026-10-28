@@ -61,7 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-procurement-
 
 Web 与外部 Agent 使用相同 Runtime API。Agent 客户端可执行 `node scripts/procurement-agent.mjs help` 查看服务发现、计划、报价、明确确认、收银台与回执命令。它不会执行支付工具或读取支付宝私钥；会话文件保存在忽略目录。支付确认必须绑定本次商户、服务和金额。
 
-官方 PC 路线的下一步是取得签名收银台 URL 后，按[官方指南](https://aipay.alipay.com/docs/agent-pay/skillpay.html)交给 `alipay-bot trigger-payment-signal`，再将其返回的短链交给 `alipay-bot submit-payment`。本次没有安装、调用该工具或假设它支持当前沙箱；这一步仍属外部联调验收项。
+官方 PC 路线是在取得签名收银台 URL 后，按[官方指南](https://aipay.alipay.com/docs/agent-pay/skillpay.html)交给 `alipay-bot trigger-payment-signal`，再将其返回的短链交给 `alipay-bot submit-payment`。2026-10-28已安装官方CLI 0.4.8并核对命令参数，现有客户端增加 `agentpay-prepare` / `agentpay-submit`，详见[Harness接入说明](AGENTPAY-HARNESS.md)。尚未发起官方工具实际付款，不假定它支持当前沙箱；这一步仍属外部联调验收项。
 
 ```powershell
 cd payment-service

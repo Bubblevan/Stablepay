@@ -171,6 +171,9 @@ func (s *Service) reservePaymentIntentForEpisode(ctx context.Context, store repo
 	if err := json.Unmarshal(current.ContractSnapshot, &acquire); err != nil {
 		return PaymentIntentResult{}, fmt.Errorf("decode episode contract snapshot: %w", err)
 	}
+	if strings.EqualFold(request.Quote.Currency, "CNY") && !acquire.Constraints.RequireBuyerConfirmation {
+		return PaymentIntentResult{}, ErrBuyerConfirmationRequired
+	}
 	if acquire.Constraints.RequireBuyerConfirmation {
 		if request.Quote.OfferRef == "" {
 			return PaymentIntentResult{}, ErrBuyerConfirmationRequired
@@ -694,7 +697,7 @@ func (s *Service) VerifyPaymentEntitlement(ctx context.Context, intentID, traceI
 	if current.State != episode.StateClaiming {
 		return PaymentExecutionResult{}, decision.ErrActionNotAllowed
 	}
-	result, err := s.paymentDeps.Entitlement.Verify(ctx, adapters.EntitlementQuery{EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, RequesterDID: intent.RequesterDID})
+	result, err := s.paymentDeps.Entitlement.Verify(ctx, adapters.EntitlementQuery{EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID, MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, RequesterDID: intent.RequesterDID, Currency: intent.Currency, AmountMinor: intent.AmountMinor, QuoteHash: intent.QuoteHash, PaymentRequirementID: intent.PaymentRequirementID})
 	if err != nil {
 		return PaymentExecutionResult{}, err
 	}

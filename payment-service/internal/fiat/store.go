@@ -17,6 +17,9 @@ type FileStore struct {
 }
 
 func NewFileStore(path string) (*FileStore, error) {
+	if info, err := os.Stat(path); err == nil && info.Size() > 4<<20 {
+		return nil, errors.New("fiat snapshot exceeds demo capacity")
+	}
 	s := &FileStore{path: path, orders: map[string]Order{}}
 	raw, err := os.ReadFile(path)
 	if err == nil {
@@ -47,6 +50,9 @@ func (s *FileStore) Update(change func(map[string]Order) error) error {
 	updated, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(updated) > 4<<20 {
+		return errors.New("fiat snapshot exceeds demo capacity")
 	}
 	if string(raw) == string(mustJSON(next)) {
 		return nil

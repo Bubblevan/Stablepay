@@ -3,6 +3,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$safeRepoRoot=$repoRoot.Replace('\','/')
+$sourceCommit=& git -c "safe.directory=$safeRepoRoot" -C $repoRoot rev-parse HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve release source commit' }
+$sourceBranch=[string](& git -c "safe.directory=$safeRepoRoot" -C $repoRoot branch --show-current)
+$sourceChanges=& git -c "safe.directory=$safeRepoRoot" -C $repoRoot status --porcelain
+if ($LASTEXITCODE -ne 0 -or $sourceChanges) { throw 'Commit source changes before packaging a traceable release' }
 $releaseID = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + "-linux-$Architecture"
 $outputRoot = Join-Path $repoRoot '.local-run/procurement-deploy'
 $releaseRoot = Join-Path $outputRoot $releaseID
@@ -36,6 +42,11 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed' }
 } finally { Pop-Location }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'deploy/procurement-mvp') -Destination (Join-Path $releaseRoot 'deploy') -Recurse
+$manifest=@{release_id=$releaseID;source_commit=$sourceCommit.Trim();source_branch=$sourceBranch.Trim();built_at_utc=[DateTime]::UtcNow.ToString('o');frontend_mode='payathon';go_version=(& go version);files=@()}
+foreach ($artifact in Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'bin'),(Join-Path $releaseRoot 'web') -File -Recurse) {
+  $manifest.files+=@{path=$artifact.FullName.Substring($releaseRoot.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+}
+[IO.File]::WriteAllText((Join-Path $releaseRoot 'release-manifest.json'),($manifest|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
 foreach ($textFile in Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'deploy') -File) {
   [IO.File]::WriteAllText($textFile.FullName,[IO.File]::ReadAllText($textFile.FullName).Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
 }

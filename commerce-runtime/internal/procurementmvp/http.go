@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/stablepay/commerce-runtime/internal/procurement"
 )
@@ -19,6 +20,7 @@ type HTTPConfig struct {
 }
 
 func Handler(service *Service, cfg HTTPConfig) http.Handler {
+	gate := &requestGate{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -63,6 +65,11 @@ func Handler(service *Service, cfg HTTPConfig) http.Handler {
 		}
 		hash := sha256.Sum256([]byte(session))
 		owner := hex.EncodeToString(hash[:])
+		if r.Method != "GET" && !gate.allow(owner, time.Now()) {
+			w.Header().Set("Retry-After", "60")
+			replyError(w, errors.New("请求过于频繁，请一分钟后重试"), 429)
+			return
+		}
 		path := strings.TrimPrefix(r.URL.Path, "/api/mvp/")
 		switch {
 		case path == "status" && r.Method == "GET":
@@ -137,6 +144,34 @@ func Handler(service *Service, cfg HTTPConfig) http.Handler {
 			}
 			if len(parts) == 3 {
 				switch {
+				case parts[2] == "agentpay-handoff" && r.Method == "POST":
+					result, err := service.AgentPayHandoff(r.Context(), owner, parts[1])
+					respond(w, result, err)
+					return
+				case parts[2] == "agentpay-claim" && r.Method == "POST":
+					var body struct {
+						Stage      string `json:"stage"`
+						LinkDigest string `json:"link_digest"`
+					}
+					if !decode(w, r, &body) {
+						return
+					}
+					result, err := service.ClaimAgentPay(owner, parts[1], body.Stage, body.LinkDigest)
+					respond(w, result, err)
+					return
+				case parts[2] == "agentpay-result" && r.Method == "POST":
+					var body struct {
+						AttemptID    string `json:"attempt_id"`
+						Status       string `json:"status"`
+						OutputDigest string `json:"output_digest"`
+						LinkDigest   string `json:"link_digest"`
+					}
+					if !decode(w, r, &body) {
+						return
+					}
+					result, err := service.RecordAgentPay(owner, parts[1], body.AttemptID, body.Status, body.OutputDigest, body.LinkDigest)
+					respond(w, result, err)
+					return
 				case parts[2] == "checkout" && r.Method == "POST":
 					result, err := service.Checkout(r.Context(), owner, parts[1])
 					respond(w, result, err)
@@ -185,6 +220,9 @@ func respond(w http.ResponseWriter, value any, err error) {
 	}
 	if errors.Is(err, ErrConflict) {
 		status = 409
+	}
+	if errors.Is(err, ErrCapacity) {
+		status = 503
 	}
 	replyError(w, err, status)
 }

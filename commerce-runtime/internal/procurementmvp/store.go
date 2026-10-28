@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type state struct {
@@ -20,6 +21,9 @@ type Store struct {
 }
 
 func OpenStore(path string) (*Store, error) {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxSnapshotBytes {
+		return nil, ErrCapacity
+	}
 	s := &Store{path: path, data: state{Plans: map[string]Plan{}, Quotes: map[string]Quote{}, Purchases: map[string]Purchase{}}}
 	raw, err := os.ReadFile(path)
 	if err == nil {
@@ -44,12 +48,16 @@ func (s *Store) transaction(fn func(*state) error) error {
 	if err = json.Unmarshal(before, &next); err != nil {
 		return err
 	}
+	cleanupPlanning(&next, time.Now().UTC())
 	if err = fn(&next); err != nil {
 		return err
 	}
 	after, err := json.Marshal(next)
 	if err != nil {
 		return err
+	}
+	if len(after) > maxSnapshotBytes {
+		return ErrCapacity
 	}
 	if string(before) == string(after) {
 		return nil

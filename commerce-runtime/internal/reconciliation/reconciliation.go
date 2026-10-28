@@ -68,6 +68,7 @@ func (r Resolver) Resolve(ctx context.Context, intent payment.PaymentIntent, ini
 		result, err := r.Entitlement.Verify(ctx, adapters.EntitlementQuery{
 			EpisodeID: intent.EpisodeID, IntentID: intent.IntentID, TxID: intent.TxID,
 			MerchantDID: intent.MerchantDID, CapabilityID: intent.CapabilityID, PayeeDID: intent.PayeeDID, RequesterDID: intent.RequesterDID,
+			Currency: intent.Currency, AmountMinor: intent.AmountMinor, QuoteHash: intent.QuoteHash, PaymentRequirementID: intent.PaymentRequirementID,
 		})
 		if err == nil && result.Status == adapters.EntitlementValid && result.MatchesIntent(intent) {
 			latest.Status = payment.OutcomeConfirmed
