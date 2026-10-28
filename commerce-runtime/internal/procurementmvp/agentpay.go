@@ -76,7 +76,7 @@ func (s *Service) AgentPayHandoff(ctx context.Context, owner, purchaseID string)
 	return AgentPayHandoff{PurchaseID: p.ID, QuoteHash: p.Quote.Hash, ApprovalRef: p.ApprovalRef, PaymentMode: p.Quote.Mode, CashierURL: checkout["cashier_url"], MerchantInfo: fmt.Sprintf("%s，%s，人民币%s元（沙箱）", p.Quote.Product.Merchant, p.Quote.Product.Name, amount), Amount: amount, Policy: result}, nil
 }
 
-func (s *Service) ClaimAgentPay(owner, purchaseID, stage, linkDigest string) (AgentPayAttempt, error) {
+func (s *Service) ClaimAgentPay(owner, purchaseID, stage, linkDigest string, recoverSignal bool) (AgentPayAttempt, error) {
 	var result AgentPayAttempt
 	if stage != "signal" && stage != "submit" {
 		return result, errors.New("未知支付宝工具阶段")
@@ -90,13 +90,23 @@ func (s *Service) ClaimAgentPay(owner, purchaseID, stage, linkDigest string) (Ag
 			return ErrConflict
 		}
 		signalReady := false
+		previousStatus, hasSubmit := "", false
 		for _, attempt := range p.AgentPayAttempts {
 			if attempt.Stage == stage {
-				return errors.New("该工具阶段已有执行记录；结果不明时先查询订单，禁止自动重放")
+				previousStatus = attempt.Status
+			}
+			if attempt.Stage == "submit" {
+				hasSubmit = true
 			}
 			if attempt.Stage == "signal" && attempt.Status == "CLIENT_REPORTED_SUCCESS" && attempt.LinkDigest == linkDigest && toolDigestPattern.MatchString(linkDigest) {
 				signalReady = true
 			}
+		}
+		// Signal only registers/shortens a link; it cannot pay. An explicit
+		// recovery may retry that non-financial stage before any submit exists.
+		// Preserve the original UNKNOWN record. Payment submission stays one-shot.
+		if previousStatus != "" && !(stage == "signal" && recoverSignal && previousStatus == "UNKNOWN" && !hasSubmit && len(p.AgentPayAttempts) < 5) {
+			return errors.New("该工具阶段已有执行记录；支付提交禁止自动重放，只有未提交支付时可显式恢复不明的信号阶段")
 		}
 		if stage == "submit" && !signalReady {
 			return errors.New("缺少同一订单支付短链的工具记录")
@@ -104,6 +114,9 @@ func (s *Service) ClaimAgentPay(owner, purchaseID, stage, linkDigest string) (Ag
 		result = AgentPayAttempt{ID: id(), Stage: stage, Status: "STARTED", CreatedAt: time.Now().UTC(), LinkDigest: linkDigest}
 		p.AgentPayAttempts = append(p.AgentPayAttempts, result)
 		p.Events = append(p.Events, Event{Type: "AGENTPAY_TOOL_STARTED", Detail: stage + ":" + result.ID, At: result.CreatedAt})
+		if previousStatus != "" {
+			p.Events = append(p.Events, Event{Type: "AGENTPAY_SIGNAL_RECOVERY", Detail: "显式恢复非付款信号阶段；原不明记录保留；无支付提交记录", At: result.CreatedAt})
+		}
 		st.Purchases[p.ID] = p
 		return nil
 	})

@@ -37,7 +37,7 @@ const help = `Usage: node scripts/procurement-agent.mjs <command> [options]
   quote --file quote-request.json
   approve --file approval.json --confirm --idempotency-key <stable-key>
   checkout | reconcile | status | receipt --purchase-id <id>
-  agentpay-prepare --purchase-id <id>
+  agentpay-prepare --purchase-id <id> [--recover-signal]
   agentpay-submit --purchase-id <id> --confirm
   simulate --purchase-id <id> --confirm-local-simulation
 Optional: --base http://127.0.0.1:8093
@@ -73,7 +73,7 @@ if (!command || command === 'help' || command === '--help') {
     case 'receipt': result = await call(`purchases/${purchaseId}/receipt`); break
     case 'agentpay-prepare':
     case 'agentpay-submit':
-      result = await runAgentPay({ command, purchaseId, call, sessionDir: path.join(sessionDir, createHash('sha256').update(base.origin).digest('hex').slice(0, 16)), confirm: argv.includes('--confirm') }); break
+      result = await runAgentPay({ command, purchaseId, call, sessionDir: path.join(sessionDir, createHash('sha256').update(base.origin).digest('hex').slice(0, 16)), confirm: argv.includes('--confirm'), recoverSignal: argv.includes('--recover-signal') }); break
     case 'simulate':
       if (!argv.includes('--confirm-local-simulation')) throw new Error('Explicit --confirm-local-simulation is required')
       if ((await call('status')).payment_mode !== 'local') throw new Error('Simulation is unavailable for Alipay providers')
