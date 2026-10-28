@@ -622,6 +622,11 @@ func (r *Runner) paymentSignature(ctx context.Context, current *episode.Commerce
 	if err != nil {
 		return "", err
 	}
+	if intent.Currency == "CNY" {
+		// CNY merchants verify the bound Alipay order/entitlement through the
+		// payment-service boundary; never sign a Solana payment for a CNY order.
+		return "", nil
+	}
 	credentials, err := r.credentials.Credentials(ctx, *intent)
 	if err != nil {
 		return "", err

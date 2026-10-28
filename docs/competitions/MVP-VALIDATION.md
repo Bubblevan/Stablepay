@@ -2,6 +2,8 @@
 
 日期：2026-10-28（Asia/Shanghai）。范围：本地 MVP、离线支付协议测试；不是正式支付宝交易证据。
 
+> 历史范围说明：本文记录最初的本地模拟与离线验收。之后已完成一次官方沙箱付款、RSA2通知验签和服务端报告交付，见[公网沙箱验收](PUBLIC-SANDBOX.md)与[演示顺序](PAYATHON-DEMO-SCRIPT.md)。本文下面的“没有验证”仅描述当时的范围，不代表最新项目状态。Agent Pay官方工具接管仍需单独联调，不能由这笔网页付款推定已完成。
+
 ## 已执行并通过
 
 - payment-service：法币 provider 测试，以及原应用服务、RPC handler 与 server 的相关回归检查。

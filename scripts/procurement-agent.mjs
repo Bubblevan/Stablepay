@@ -1,9 +1,11 @@
 // Agent-facing HTTP client for the same Runtime boundary used by the Web UI.
-// No Alipay credentials are loaded here; this command never executes alipay-bot.
+// No Alipay credentials are loaded here. Explicit Agent Pay commands delegate
+// to the official local alipay-bot; payment proof always comes from the server.
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { runAgentPay } from './lib/alipay-agentpay.mjs'
 
 const [command, ...argv] = process.argv.slice(2)
 const option = (name) => { const index = argv.indexOf(name); return index < 0 ? undefined : argv[index + 1] }
@@ -35,6 +37,8 @@ const help = `Usage: node scripts/procurement-agent.mjs <command> [options]
   quote --file quote-request.json
   approve --file approval.json --confirm --idempotency-key <stable-key>
   checkout | reconcile | status | receipt --purchase-id <id>
+  agentpay-prepare --purchase-id <id>
+  agentpay-submit --purchase-id <id> --confirm
   simulate --purchase-id <id> --confirm-local-simulation
 Optional: --base http://127.0.0.1:8093
 Approval requires explicit user confirmation of service, merchant and CNY amount.
@@ -50,7 +54,7 @@ if (!command || command === 'help' || command === '--help') {
     body = JSON.parse(await readFile(file, 'utf8'))
   }
   const purchaseId = option('--purchase-id')
-  if (['checkout', 'reconcile', 'status', 'receipt', 'simulate'].includes(command) && !/^[a-f0-9]{32}$/.test(purchaseId || '')) throw new Error('A valid --purchase-id is required')
+  if (['checkout', 'reconcile', 'status', 'receipt', 'simulate', 'agentpay-prepare', 'agentpay-submit'].includes(command) && !/^[a-f0-9]{32}$/.test(purchaseId || '')) throw new Error('A valid --purchase-id is required')
   let result
   switch (command) {
     case 'catalog': result = await call('catalog'); break
@@ -67,6 +71,9 @@ if (!command || command === 'help' || command === '--help') {
     case 'reconcile': result = await call(`purchases/${purchaseId}/reconcile`, {}); break
     case 'status': result = await call(`purchases/${purchaseId}`); break
     case 'receipt': result = await call(`purchases/${purchaseId}/receipt`); break
+    case 'agentpay-prepare':
+    case 'agentpay-submit':
+      result = await runAgentPay({ command, purchaseId, call, sessionDir: path.join(sessionDir, createHash('sha256').update(base.origin).digest('hex').slice(0, 16)), confirm: argv.includes('--confirm') }); break
     case 'simulate':
       if (!argv.includes('--confirm-local-simulation')) throw new Error('Explicit --confirm-local-simulation is required')
       if ((await call('status')).payment_mode !== 'local') throw new Error('Simulation is unavailable for Alipay providers')

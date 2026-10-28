@@ -113,13 +113,27 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 	merchantHTTPClient := &http.Client{Timeout: cfg.MerchantTimeout}
 	merchant := adapters.NewHTTPMerchantAdapter(merchantHTTPClient)
 	verification := adapters.NewStablePayVerificationEntitlement(cfg.GatewayBaseURL, cfg.GatewayAPIKey)
+	var paymentExecutor adapters.PaymentAdapter = kitexPayment
+	var paymentStatus adapters.PaymentStatusAdapter = kitexPayment
+	var entitlement adapters.EntitlementAdapter = verification
+	settlementNetworks := map[string]string{}
+	if os.Getenv("COMMERCE_RUNTIME_ALIPAY_ENABLED") == "1" {
+		cny := &adapters.AlipayPaymentAdapter{BaseURL: os.Getenv("FIAT_PAYMENT_URL"), Token: os.Getenv("FIAT_INTERNAL_TOKEN"), MerchantDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_DID"), PayeeDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_PAYEE_DID"), MerchantName: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_NAME")}
+		if cny.BaseURL == "" || len(cny.Token) < 24 || cny.MerchantDID == "" || cny.PayeeDID == "" || cny.MerchantName == "" {
+			return nil, errors.New("Alipay Runtime requires fiat endpoint/token and exact merchant/payee configuration")
+		}
+		router := &adapters.CurrencyPaymentAdapter{Default: kitexPayment, CNY: cny, DefaultEntitlement: verification}
+		paymentExecutor, paymentStatus, entitlement = router, router, router
+		assets["CNY"] = "CNY"
+		settlementNetworks["CNY"] = "alipay:sandbox"
+	}
 	validatorRegistry := validator.NewBuiltinRegistry()
 	serviceOptions := []application.Option{
 		application.WithRuntimeVersion(cfg.RuntimeVersion),
 		application.WithMerchantAdapter(merchant),
 		application.WithBuyerQuoteValidator(NewHTTPBuyerQuoteValidator(merchantHTTPClient)),
-		application.WithSettlementPolicy(application.SettlementPolicy{Network: network, Assets: assets}),
-		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: kitexPayment, Status: kitexPayment, Entitlement: verification}),
+		application.WithSettlementPolicy(application.SettlementPolicy{Network: network, Networks: settlementNetworks, Assets: assets}),
+		application.WithPaymentAdapters(application.PaymentDependencies{DID: adapters.RealDIDPolicyAdapter{}, Payment: paymentExecutor, Status: paymentStatus, Entitlement: entitlement}),
 		application.WithPersistentEvidenceStore(store),
 		application.WithValidatorRegistry(validatorRegistry),
 		application.WithRuleRecoveryFallback(recoveryProvider == "rule"),

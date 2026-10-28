@@ -68,6 +68,7 @@ type InputPayloadResolver interface {
 // opt into an unconstrained policy.
 type SettlementPolicy struct {
 	Network                    string
+	Networks                   map[string]string
 	Assets                     map[string]string
 	AllowUnconstrainedForTests bool
 }
@@ -124,7 +125,7 @@ func WithValidatorRegistry(registry *validator.Registry) Option {
 
 func WithSettlementPolicy(policy SettlementPolicy) Option {
 	return func(s *Service) {
-		s.settlementPolicy = SettlementPolicy{Network: strings.TrimSpace(policy.Network), Assets: copyStringMap(policy.Assets), AllowUnconstrainedForTests: policy.AllowUnconstrainedForTests}
+		s.settlementPolicy = SettlementPolicy{Network: strings.TrimSpace(policy.Network), Networks: copyStringMap(policy.Networks), Assets: copyStringMap(policy.Assets), AllowUnconstrainedForTests: policy.AllowUnconstrainedForTests}
 	}
 }
 
@@ -239,7 +240,15 @@ func settlementPolicyFromEnvironment() SettlementPolicy {
 	if len(assets) == 0 {
 		assets = nil
 	}
-	return SettlementPolicy{Network: network, Assets: assets}
+	policy := SettlementPolicy{Network: network, Assets: assets}
+	if os.Getenv("COMMERCE_RUNTIME_ALIPAY_ENABLED") == "1" {
+		if policy.Assets == nil {
+			policy.Assets = map[string]string{}
+		}
+		policy.Assets["CNY"] = "CNY"
+		policy.Networks = map[string]string{"CNY": "alipay:sandbox"}
+	}
+	return policy
 }
 
 func firstEnvironmentValue(keys ...string) string {

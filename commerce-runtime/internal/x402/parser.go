@@ -276,7 +276,7 @@ func settlementDecimals(currency string) (int, int, error) {
 		return 6, 2, nil
 	case "SOL":
 		return 9, 2, nil
-	case "USD":
+	case "USD", "CNY":
 		return 2, 2, nil
 	default:
 		return 0, 0, fmt.Errorf("%w: %s", ErrUnsupportedCurrency, currency)

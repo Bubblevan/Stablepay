@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stablepay/payment-service/internal/application/dto"
 	"github.com/stablepay/payment-service/internal/domain/vo"
+	"github.com/stablepay/payment-service/pkg/agentharness"
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 	"github.com/stablepay/payment-service/pkg/utils"
@@ -62,26 +63,19 @@ type storedPaymentIntent struct {
 // Execute. It makes the Agent behavior inspectable and prevents a model/tool
 // from jumping directly to the blockchain executor.
 type AgentPaymentHarness struct {
-	store   IntentStore
-	config  AgentHarnessConfig
-	allowed map[string]struct{}
-	now     func() time.Time
+	store  IntentStore
+	config AgentHarnessConfig
+	now    func() time.Time
 }
 
 func NewAgentPaymentHarness(store IntentStore, cfg AgentHarnessConfig) *AgentPaymentHarness {
-	allowed := make(map[string]struct{}, len(cfg.AllowedSkillDIDs))
-	for _, did := range cfg.AllowedSkillDIDs {
-		if did = strings.TrimSpace(did); did != "" {
-			allowed[did] = struct{}{}
-		}
-	}
 	if cfg.IntentTTL <= 0 {
 		cfg.IntentTTL = 5 * time.Minute
 	}
 	if cfg.PolicyVersion == "" {
 		cfg.PolicyVersion = "agent-payment-v1"
 	}
-	return &AgentPaymentHarness{store: store, config: cfg, allowed: allowed, now: time.Now}
+	return &AgentPaymentHarness{store: store, config: cfg, now: time.Now}
 }
 
 func (h *AgentPaymentHarness) Enabled() bool { return h != nil && h.config.Enabled }
@@ -113,20 +107,14 @@ func (h *AgentPaymentHarness) Create(ctx context.Context, req *dto.CreatePayment
 	}
 
 	trace := []string{"normalize", "policy"}
-	switch {
-	case h.config.MaxIntentAmountMinor > 0 && amountMinor > h.config.MaxIntentAmountMinor:
-		intent.Status, intent.Decision = "REJECTED", "DENY"
-		intent.ReasonCodes = []string{"AMOUNT_EXCEEDS_AGENT_POLICY"}
-	case len(h.allowed) > 0 && !h.isAllowed(req.SkillDID):
-		intent.Status, intent.Decision = "REJECTED", "DENY"
-		intent.ReasonCodes = []string{"MERCHANT_NOT_ALLOWLISTED"}
-	case h.config.AutoApproveMaxMinor > 0 && amountMinor <= h.config.AutoApproveMaxMinor:
-		intent.Status, intent.Decision = intentApproved, "ALLOW"
-		intent.ReasonCodes = []string{"WITHIN_AUTO_APPROVAL_LIMIT"}
+	policy := agentharness.Policy{Version: h.config.PolicyVersion, AutoApproveMaxMinor: h.config.AutoApproveMaxMinor,
+		MaxAmountMinor: h.config.MaxIntentAmountMinor, AllowedMerchants: h.config.AllowedSkillDIDs}
+	result := policy.Evaluate(req.SkillDID, amountMinor)
+	intent.Status, intent.Decision, intent.ReasonCodes = result.Status, result.Decision, result.ReasonCodes
+	switch intent.Status {
+	case intentApproved:
 		trace = append(trace, "approval:auto")
-	default:
-		intent.Status, intent.Decision = intentPending, "REQUIRE_USER_CONFIRMATION"
-		intent.ReasonCodes = []string{"ABOVE_AUTO_APPROVAL_LIMIT"}
+	case intentPending:
 		trace = append(trace, "approval:await_did_signature")
 	}
 
@@ -224,8 +212,7 @@ func (h *AgentPaymentHarness) save(ctx context.Context, intent *storedPaymentInt
 	}
 	return h.store.Set(ctx, h.key(intent.ID), string(b), ttl)
 }
-func (h *AgentPaymentHarness) key(id string) string      { return "agent-payment:intent:" + id }
-func (h *AgentPaymentHarness) isAllowed(did string) bool { _, ok := h.allowed[did]; return ok }
+func (h *AgentPaymentHarness) key(id string) string { return "agent-payment:intent:" + id }
 
 func approvalPayload(intent *storedPaymentIntent) string {
 	return fmt.Sprintf("stablepay:agent-payment-approval:v1|%s|%s|%s|%d|%s|%s", intent.ID, intent.AgentDID, intent.SkillDID, intent.AmountMinor, intent.Currency, intent.PolicyVersion)

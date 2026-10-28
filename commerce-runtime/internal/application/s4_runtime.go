@@ -766,10 +766,14 @@ func (s *Service) bindPaymentRequirement(current *episode.CommerceEpisode, capab
 // public so an integration/black-box composition root can prove that the
 // exact production network, asset and currency configuration is in force.
 func (policy SettlementPolicy) Validate(parsed x402.ParsedRequirement) error {
-	if strings.TrimSpace(policy.Network) == "" && !policy.AllowUnconstrainedForTests {
+	network := policy.Network
+	if override := policy.Networks[strings.ToUpper(parsed.Currency)]; override != "" {
+		network = override
+	}
+	if strings.TrimSpace(network) == "" && !policy.AllowUnconstrainedForTests {
 		return decision.ErrPaymentBindingMismatch
 	}
-	if policy.Network != "" && !strings.EqualFold(policy.Network, parsed.Network) {
+	if network != "" && !strings.EqualFold(network, parsed.Network) {
 		return decision.ErrPaymentBindingMismatch
 	}
 	expectedAsset, configuredAsset := policyAsset(policy, parsed.Currency)

@@ -69,6 +69,16 @@ func Handler(service *Service, token string) http.Handler {
 			respond(w, order, err)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/v1/fiat/requests/") && r.Method == http.MethodGet {
+			requestID := strings.TrimPrefix(r.URL.Path, "/v1/fiat/requests/")
+			if requestID == "" || len(requestID) > 128 || strings.Contains(requestID, "/") {
+				http.NotFound(w, r)
+				return
+			}
+			order, err := service.FindByRequest(requestID)
+			respond(w, order, err)
+			return
+		}
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/fiat/orders/"), "/")
 		if !strings.HasPrefix(r.URL.Path, "/v1/fiat/orders/") || len(parts) > 2 {
 			http.NotFound(w, r)

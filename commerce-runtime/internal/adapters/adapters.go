@@ -72,18 +72,37 @@ type PaymentStatusAdapter interface {
 	Query(context.Context, PaymentQuery) (payment.PaymentOutcome, error)
 }
 
+// PaymentHandoff is an instruction to the official payment tool, never a
+// settlement receipt. CashierURL must not enter model prompts or event logs.
+type PaymentHandoff struct {
+	IntentID     string `json:"intent_id"`
+	OrderID      string `json:"order_id"`
+	Mode         string `json:"payment_mode"`
+	CashierURL   string `json:"cashier_url"`
+	MerchantInfo string `json:"merchant_info"`
+	Amount       string `json:"amount"`
+}
+
+type PaymentHandoffAdapter interface {
+	Handoff(context.Context, PaymentQuery) (PaymentHandoff, error)
+}
+
 type ChainStatusAdapter interface {
 	QueryTransaction(context.Context, PaymentQuery) (payment.PaymentOutcome, error)
 }
 
 type EntitlementQuery struct {
-	EpisodeID    string
-	IntentID     string
-	TxID         string
-	MerchantDID  string
-	CapabilityID string
-	PayeeDID     string
-	RequesterDID string
+	Currency             string
+	AmountMinor          int64
+	QuoteHash            string
+	PaymentRequirementID string
+	EpisodeID            string
+	IntentID             string
+	TxID                 string
+	MerchantDID          string
+	CapabilityID         string
+	PayeeDID             string
+	RequesterDID         string
 }
 
 type EntitlementStatus string

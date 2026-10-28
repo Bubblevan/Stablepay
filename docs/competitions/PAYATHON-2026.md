@@ -4,6 +4,8 @@
 
 补充复核：[两场比赛赛制与QMuse要求](RULES-CHECK-2026-10-28.md)。QMuse不是已核到的必选工具；自有HTTPS是当前实施路线。[公网沙箱与回调](PUBLIC-SANDBOX.md)已在新服务器配置，用户已完成一次¥0.01沙箱付款，通知验签与服务端报告交付已核实。录屏按[演示操作顺序](PAYATHON-DEMO-SCRIPT.md)进行。
 
+后续方向按用户选择继续 **Agent Pay**，复用现有Harness、Runtime和Payment Service，见[Agent Pay接入说明](AGENTPAY-HARNESS.md)。官方CLI已安装、适配代码已加入，但官方工具接管的实际付款及完整Runtime CNY商户链路仍待联调，不能与已完成的网页沙箱付款混称。
+
 ## 官方来源与确定事项
 
 | 来源 | 核验结果 | 对交付的影响 |

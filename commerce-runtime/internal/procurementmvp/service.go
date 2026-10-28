@@ -90,18 +90,19 @@ type Delivery struct {
 	DeliveredAt time.Time          `json:"delivered_at"`
 }
 type Purchase struct {
-	ID             string    `json:"id"`
-	Owner          string    `json:"owner_hash"`
-	IdempotencyKey string    `json:"idempotency_key"`
-	Quote          Quote     `json:"quote"`
-	ApprovalRef    string    `json:"approval_ref"`
-	ApprovedAt     time.Time `json:"approved_at"`
-	PaymentID      string    `json:"payment_id,omitempty"`
-	Status         string    `json:"status"`
-	TradeNo        string    `json:"trade_no,omitempty"`
-	VerifiedBy     string    `json:"verified_by,omitempty"`
-	Delivery       *Delivery `json:"delivery,omitempty"`
-	Events         []Event   `json:"events"`
+	ID               string            `json:"id"`
+	Owner            string            `json:"owner_hash"`
+	IdempotencyKey   string            `json:"idempotency_key"`
+	Quote            Quote             `json:"quote"`
+	ApprovalRef      string            `json:"approval_ref"`
+	ApprovedAt       time.Time         `json:"approved_at"`
+	PaymentID        string            `json:"payment_id,omitempty"`
+	Status           string            `json:"status"`
+	TradeNo          string            `json:"trade_no,omitempty"`
+	VerifiedBy       string            `json:"verified_by,omitempty"`
+	Delivery         *Delivery         `json:"delivery,omitempty"`
+	Events           []Event           `json:"events"`
+	AgentPayAttempts []AgentPayAttempt `json:"agentpay_attempts,omitempty"`
 }
 type PaymentOrder struct {
 	ID          string `json:"id"`
@@ -183,7 +184,13 @@ func (s *Service) CreatePlan(ctx context.Context, owner, prompt, serviceBudget s
 	}
 	recommendation, mode, explanation := s.Planner.Recommend(ctx, prompt)
 	plan := Plan{ID: id(), Owner: owner, Prompt: prompt, Input: input, ServiceBudgetMinor: cap, RecommendedProduct: recommendation, PlannerMode: mode, Explanation: explanation, CreatedAt: time.Now().UTC()}
-	err = s.Store.transaction(func(state *state) error { state.Plans[plan.ID] = plan; return nil })
+	err = s.Store.transaction(func(state *state) error {
+		if len(state.Plans) >= 1000 {
+			return ErrCapacity
+		}
+		state.Plans[plan.ID] = plan
+		return nil
+	})
 	return plan, err
 }
 func (s *Service) CreateQuote(ctx context.Context, owner, planID, productID string) (Quote, error) {
@@ -197,6 +204,9 @@ func (s *Service) CreateQuote(ctx context.Context, owner, planID, productID stri
 	}
 	var quote Quote
 	err = s.Store.transaction(func(state *state) error {
+		if len(state.Quotes) >= 2000 {
+			return ErrCapacity
+		}
 		plan, ok := state.Plans[planID]
 		if !ok || plan.Owner != owner {
 			return ErrNotFound
@@ -248,6 +258,9 @@ func (s *Service) Approve(ctx context.Context, owner, quoteID, quoteHash, key st
 			}
 		}
 		now := time.Now().UTC()
+		if len(state.Purchases) >= 500 {
+			return ErrCapacity
+		}
 		purchase = Purchase{ID: id(), Owner: owner, IdempotencyKey: key, Quote: quote, ApprovalRef: "approval_" + id(), ApprovedAt: now, Status: "AWAITING_PAYMENT", Events: []Event{{Type: "BUYER_APPROVED", Detail: "用户确认了商品、商户、CNY 金额及当前报价", At: now}}}
 		state.Purchases[purchase.ID] = purchase
 		return nil

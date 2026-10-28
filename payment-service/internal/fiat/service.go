@@ -12,26 +12,29 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/stablepay/payment-service/pkg/agentharness"
 )
 
 var ErrConflict = errors.New("payment request conflicts with an existing order")
 var ErrNotFound = errors.New("payment order not found")
 
 type Order struct {
-	ID          string     `json:"id"`
-	RequestID   string     `json:"request_id"`
-	ProductID   string     `json:"product_id"`
-	Subject     string     `json:"subject"`
-	QuoteHash   string     `json:"quote_hash"`
-	ApprovalRef string     `json:"approval_ref"`
-	AmountMinor int64      `json:"amount_minor"`
-	Currency    string     `json:"currency"`
-	Mode        string     `json:"mode"`
-	Status      string     `json:"status"`
-	TradeNo     string     `json:"trade_no,omitempty"`
-	VerifiedBy  string     `json:"verified_by,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	PaidAt      *time.Time `json:"paid_at,omitempty"`
+	ID            string     `json:"id"`
+	RequestID     string     `json:"request_id"`
+	ProductID     string     `json:"product_id"`
+	Subject       string     `json:"subject"`
+	QuoteHash     string     `json:"quote_hash"`
+	ApprovalRef   string     `json:"approval_ref"`
+	AmountMinor   int64      `json:"amount_minor"`
+	Currency      string     `json:"currency"`
+	Mode          string     `json:"mode"`
+	Status        string     `json:"status"`
+	TradeNo       string     `json:"trade_no,omitempty"`
+	VerifiedBy    string     `json:"verified_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	PaidAt        *time.Time `json:"paid_at,omitempty"`
+	HarnessPolicy string     `json:"harness_policy,omitempty"`
 }
 
 type CreateRequest struct {
@@ -77,6 +80,13 @@ func NewService(store Store, provider Provider) *Service {
 func (s *Service) Mode() string { return s.provider.Mode() }
 
 func (s *Service) Create(req CreateRequest) (Order, error) {
+	// Reuse the existing Agent Harness policy. A reference to the immutable
+	// upstream user confirmation is still mandatory below; policy alone is not
+	// proof of consent or an instruction to initiate a payment.
+	policy := agentharness.Policy{Version: "agent-payment-cny-v1", MaxAmountMinor: s.MaxAmountMinor}
+	if result := policy.Evaluate(req.ProductID, req.AmountMinor); result.Decision == "DENY" {
+		return Order{}, errors.New("CNY payment denied by Agent Harness policy")
+	}
 	if req.Currency != "CNY" || req.AmountMinor <= 0 || req.AmountMinor > s.MaxAmountMinor ||
 		strings.TrimSpace(req.RequestID) == "" || len(req.RequestID) > 128 ||
 		strings.TrimSpace(req.ProductID) == "" || strings.TrimSpace(req.Subject) == "" || len(req.Subject) > 180 ||
@@ -95,9 +105,12 @@ func (s *Service) Create(req CreateRequest) (Order, error) {
 				return nil
 			}
 		}
+		if len(orders) >= 1000 {
+			return errors.New("fiat demo order capacity reached; archive before creating more orders")
+		}
 		result = Order{ID: "SP" + ID(), RequestID: req.RequestID, ProductID: req.ProductID, Subject: req.Subject,
 			QuoteHash: req.QuoteHash, ApprovalRef: req.ApprovalRef, AmountMinor: req.AmountMinor, Currency: "CNY",
-			Mode: s.Mode(), Status: "AWAITING_PAYMENT", CreatedAt: time.Now().UTC()}
+			Mode: s.Mode(), Status: "AWAITING_PAYMENT", CreatedAt: time.Now().UTC(), HarnessPolicy: policy.Version}
 		orders[result.ID] = result
 		return nil
 	})
@@ -118,6 +131,25 @@ func (s *Service) Get(id string) (Order, error) {
 		return Order{}, errors.New("payment mode changed; use the original provider environment")
 	}
 	return result, err
+}
+
+// FindByRequest recovers the create-response crash window without issuing a
+// second economic command. The endpoint is protected by the internal token.
+func (s *Service) FindByRequest(requestID string) (Order, error) {
+	var found Order
+	err := s.store.Update(func(orders map[string]Order) error {
+		for _, order := range orders {
+			if order.RequestID == requestID {
+				found = order
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	if err == nil && found.Mode != s.Mode() {
+		return Order{}, ErrConflict
+	}
+	return found, err
 }
 
 func (s *Service) Checkout(id string) (string, error) {
