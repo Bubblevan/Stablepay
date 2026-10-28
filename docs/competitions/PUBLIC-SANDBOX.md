@@ -22,7 +22,7 @@ HTTPS使用已正常签发的公信证书，本机已通过正常证书校验访
 - `stablepay-mvp-payment.service`：127.0.0.1:8092，沙箱支付订单与验签。
 - `stablepay-mvp-runtime.service`：127.0.0.1:8093，报价、确认、报告交付和网页。
 - `stablepay-mvp.slice`：总内存上限192MiB、MemoryHigh128MiB、CPU配额半核；两个程序各自上限96MiB，Go软内存目标48MiB。
-- 部署后空闲检查合计约12MiB，测得峰值约13MiB；这是当前低负载测量，不是压力测试结果。
+- 部署后检查合计约13MiB，测得峰值约16MiB；这是当前低负载测量，不是压力测试结果。
 - 状态：`/var/lib/stablepay-mvp/payment` 与 `/var/lib/stablepay-mvp/runtime`；服务重启不会删除订单。
 - 配置与支付宝沙箱密钥：`/etc/stablepay-mvp`，限制本机权限，不在Git中。
 
