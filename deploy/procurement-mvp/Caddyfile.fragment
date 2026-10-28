@@ -1,0 +1,24 @@
+# Render PUBLIC_HOST during installation. Existing :8080 routes remain intact.
+PUBLIC_HOST {
+    @alipay_notify {
+        path /api/payments/alipay/notify
+        method POST
+    }
+    handle @alipay_notify {
+        rewrite * /v1/fiat/alipay/notify
+        reverse_proxy 127.0.0.1:8092
+    }
+    handle /api/payments/alipay/notify {
+        respond "failure" 405
+    }
+    handle /v1/fiat/* {
+        respond 404
+    }
+    handle /health {
+        rewrite * /healthz
+        reverse_proxy 127.0.0.1:8093
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8093
+    }
+}

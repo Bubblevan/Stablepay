@@ -1,0 +1,40 @@
+[Unit]
+Description=Stablepay commerce-runtime procurement MVP
+After=network-online.target stablepay-mvp-payment.service
+Wants=network-online.target stablepay-mvp-payment.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=stablepay-mvp
+Group=stablepay-mvp
+Slice=stablepay-mvp.slice
+WorkingDirectory=/var/lib/stablepay-mvp/runtime
+EnvironmentFile=/etc/stablepay-mvp/runtime.env
+Environment=GOMEMLIMIT=48MiB GOGC=80 GOMAXPROCS=1
+ExecStart=/opt/stablepay-mvp/current/bin/procurement-runtime
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+MemoryHigh=64M
+MemoryMax=96M
+OOMScoreAdjust=500
+OOMPolicy=stop
+Nice=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/stablepay-mvp/runtime
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LimitNOFILE=1024
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target

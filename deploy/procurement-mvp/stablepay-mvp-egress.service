@@ -1,0 +1,13 @@
+[Unit]
+Description=Direct HTTPS for Stablepay payment and Caddy certificate issuance
+After=network-online.target sni-gate.service
+Before=caddy.service stablepay-mvp-payment.service stablepay-mvp-runtime.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/stablepay-mvp-egress apply
+ExecStop=/usr/local/libexec/stablepay-mvp-egress remove
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
