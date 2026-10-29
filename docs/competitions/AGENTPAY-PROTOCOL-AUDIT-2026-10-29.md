@@ -1,6 +1,6 @@
 # Agent Pay参数修正与只读审计
 
-日期：2026-10-29（Asia/Shanghai）。范围为本地协议修正、隔离测试和服务器配置只读核对；没有创建订单、signal、submit、重新授权或切换生产支付。10月28日两笔失败记录保持原样。
+日期：2026-10-29（Asia/Shanghai）。本篇审计阶段范围为本地协议修正、隔离测试和服务器配置只读核对，当时没有创建订单、signal、submit、重新授权或切换生产支付。10月28日两笔失败记录保持原样。审计完成后用户另行授权一次同额新单尝试，见文末补充。
 
 ## 已核实并修正的本地偏差
 
@@ -67,4 +67,8 @@ node --test --test-isolation=none scripts/lib/alipay-agentpay.test.mjs
 
 [办公智能体产品页](https://aipay.alipay.com/products/pc-agent-pay)可读到沙箱测试说明与测试买家步骤，但这些内容没有明确给出PC CLI 0.4.8与正式绑定钱包、沙箱商户链接的组合支持矩阵。[PC商家接入指南](https://aipay.alipay.com/docs/agent-pay/skillpay.html)也未给出这项组合的确定结论。[商户接入指南](https://aipay.alipay.com/merchant-guide)列出macOS/Linux、Node.js v22+；产品页列Codex CLI为已支持，但不能据此推断Windows上的当前组合必然完成全部初始化。
 
-需确认PC沙箱测试路径、会话身份规则、完整Skill安装的影响、后台验签层及追踪方法。参见[已更新的咨询草稿](AGENTPAY-SUPPORT-REQUEST.md)。用户已明确选择不发送官方反馈、自行联系官方；本轮没有发送邮件或problem-feedback。在这些条件明确前，不通过第三、第四笔相同实验推测原因。
+需确认PC沙箱测试路径、会话身份规则、完整Skill安装的影响、后台验签层及追踪方法。参见[已更新的咨询草稿](AGENTPAY-SUPPORT-REQUEST.md)。用户已明确选择不发送官方反馈、自行联系官方；本轮没有发送邮件或problem-feedback。
+
+## 审计后的用户授权复核
+
+用户随后明确要求拿到控制台公钥后再尝试支付。按修正后的源码 `509be11` 执行一笔新的同额沙箱订单，真实会话绑定和官方摘要格式已生效，未做钱包预检；signal成功，14:27:08的submit仍返回 `SIGN_VERIFY_FAILED`，业务订单未交付。见[本次单笔结果](AGENTPAY-RETRY-2026-10-29.md)。该结果来自用户新授权的一次验证，不覆盖只读审计或旧失败记录；没有自动循环重试。

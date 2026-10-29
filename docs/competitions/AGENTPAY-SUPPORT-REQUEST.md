@@ -31,6 +31,8 @@
 - 只读比较服务器实际运行环境与本机配置，APP_ID、SELLER_ID、私钥推导公钥指纹及支付宝公钥指纹均一致。随后直接在用户已登录的官方沙箱控制台“系统默认密钥 → 公钥模式 → 查看”中独立计算应用公钥SPKI SHA-256，与本机和运行中服务器一致；控制台AppID、商户PID也匹配。未读取私钥字段、修改密钥或切换模式。
 - 两笔原始错误JSON中均未见request ID或trace ID字段。现有CLI仍为0.4.8。
 
+**协议修正后的追加验证：** 2026-10-29用户明确授权一次同额新沙箱订单，使用源码 `509be11`、CLI 0.4.8，实际宿主UUID绑定一致，摘要为“服务内容：活动预算核算，支付金额：¥0.01，支付对象：StablePay 自营工具”，且没有check-wallet预检。signal成功，14:27:08的单次submit仍返回 `success:false / SIGN_VERIFY_FAILED / 签名校验失败`，随后商家订单仍待付款、未交付。没有自动重复提交或创建第四笔订单。上述“未创建第三笔订单”描述的是修正与隔离测试结束时的状态，本次是之后单独授权的实际验证。
+
 请帮助确认：
 
 1. CLI 0.4.8的PC `trigger-payment-signal → submit-payment` 是否支持上述沙箱网关和沙箱应用？如果支持，需要哪些官方明确支持的环境参数、测试钱包或配置？
@@ -48,4 +50,4 @@
 
 先提供CLI版本、上述时间、错误码和必要的脱敏命令结构。APP_ID、商户订单号等如确需定位，由开发者通过官方私密工单单独提供。不要公开上传密钥、钱包凭据、Cookie、完整签名收银台URL、原始paymentLink或本机私有诊断目录。
 
-完整工程记录：[两批官方联调结果](AGENTPAY-LIVE-2026-10-28.md)、[10月29日协议修正与只读审计](AGENTPAY-PROTOCOL-AUDIT-2026-10-29.md)。用户已明确选择自行联系官方，本轮不发送邮件或CLI反馈。若之后决定通过官方 `problem-feedback` 提交，按[官方反馈流程](https://github.com/alipay/payment-skills/blob/main/alipay-payment-skill/references/feedback.md)先确认本次反馈内容。
+完整工程记录：[两批原始联调结果](AGENTPAY-LIVE-2026-10-28.md)、[10月29日协议修正与只读审计](AGENTPAY-PROTOCOL-AUDIT-2026-10-29.md)、[修正后单笔复核](AGENTPAY-RETRY-2026-10-29.md)。用户已明确选择自行联系官方，本轮不发送邮件或CLI反馈。若之后决定通过官方 `problem-feedback` 提交，按[官方反馈流程](https://github.com/alipay/payment-skills/blob/main/alipay-payment-skill/references/feedback.md)先确认本次反馈内容。
