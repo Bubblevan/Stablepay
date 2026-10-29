@@ -80,6 +80,8 @@ node scripts/test-procurement-mvp.mjs http://127.0.0.1:8093 .local-run/procureme
 
 订单与报告采用服务端快照保存，报价五分钟有效；用户确认后生成固定金额的支付订单。回执绑定 quote hash、approval ref、支付结果来源和报告内容摘要。重复确认或重复通知不产生新支付与第二次交付。
 
+10月29日已按官方支付处理Skill修正真实会话UUID、意图摘要与钱包调用顺序，12项本地替身测试通过；服务器实际配置及公钥指纹与本机一致，官方沙箱控制台显示的应用公钥、AppID及商户PID也已独立比对一致。两笔失败联调记录保留，未创建第三笔订单。详见[协议审计](AGENTPAY-PROTOCOL-AUDIT-2026-10-29.md)。本地协议测试通过不等于官方支付验收通过。
+
 ## 分支同步
 
 共享服务端、支付 provider、入口、配置与测试以独立提交同步到 `contest/alipay-agent-emergence-2026`。前端用 Vite mode 选择默认首页：普通构建仍为校园页，`build:payathon` 为 PAYATHON 页。两种入口均可显式访问，无需复制业务代码。
