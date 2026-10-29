@@ -58,4 +58,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-procurement-re
 
 ## 下一步
 
+10月29日完成本机Agent参数修正和12项隔离测试，发现原会话ID、摘要格式及钱包预检偏差；只读检查服务器实际运行配置和公钥指纹与本机一致。未部署新服务器程序、未创建或提交新支付，原订单保留。原诊断用signal别名查询的UNKNOWN不作为官方订单存在性证据。见[协议审计](AGENTPAY-PROTOCOL-AUDIT-2026-10-29.md)。
+
 用户在原浏览器打开已交付订单，点击“下载报告与交易回执 ↓”保存 `stablepay-receipt.json`，然后按[演示脚本](PAYATHON-DEMO-SCRIPT.md)录制。沙箱支付与服务端交付已通过一次实际交易验证；正式收款、AgentPay工具链及比赛投稿审核仍未完成。校园AI公网体验与真实试用继续作为独立待办。

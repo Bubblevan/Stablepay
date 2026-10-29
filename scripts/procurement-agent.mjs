@@ -33,7 +33,7 @@ async function call(endpoint, body, key) {
 
 const help = `Usage: node scripts/procurement-agent.mjs <command> [options]
   catalog | environment | history
-  agentpay-doctor
+  agentpay-doctor (standalone diagnostic only; never a payment prerequisite)
   plan --file task.json
   quote --file quote-request.json
   approve --file approval.json --confirm --idempotency-key <stable-key>
@@ -43,6 +43,7 @@ const help = `Usage: node scripts/procurement-agent.mjs <command> [options]
   simulate --purchase-id <id> --confirm-local-simulation
 Optional: --base http://127.0.0.1:8093
 Approval requires explicit user confirmation of service, merchant and CNY amount.
+Agent Pay requires a real UUID from host AIPAY_SESSION_ID or the current Codex session.
 checkout returns a payment handoff only; it is never proof of payment.
 Session credentials stay under ignored .local-run/procurement-agent.`
 if (!command || command === 'help' || command === '--help') {

@@ -44,7 +44,9 @@ node scripts/procurement-agent.mjs receipt --purchase-id <id>
 
 默认服务器是本机8093。每条命令追加 `--base https://bubblevan.de5.net --allow-remote` 才调用公网。采购工具接口首次发布于 `20261028-092856-linux-amd64`；当前发布为 `20261028-104227-linux-amd64`，源码 `02a4c65`，增加启动预检与非付款signal恢复。完整Runtime生产composition路径尚未在该小服务器启用。CLI有自己的会话，不能直接拿网页里的订单ID当作CLI会话订单。
 
-客户端先用官方CLI的 `--version` 检查子进程能否启动，再由服务端记录 `STARTED` 后调用工具。`submit`每单只有一次调用机会，超时或进程退出后保留不明状态，不能自动重放。只有尚无任何submit记录、上次signal为UNKNOWN时，操作人排查后可显式执行 `agentpay-prepare --recover-signal` 恢复非付款的链接/安全信号步骤；旧记录保留，总工具尝试数受限。这不允许再次提交支付。客户端只保存官方 `paymentLink` 原始值，并在同一 `purchase_id` 作为官方 `session-id` 的隔离范围内传递；不向用户展示、不打开、不改写。
+客户端先用官方CLI的 `--version` 检查子进程能否启动，再由服务端记录 `STARTED` 后调用工具。`submit`每单只有一次调用机会，超时或进程退出后保留不明状态，不能自动重放。只有尚无任何submit记录、上次signal为UNKNOWN时，操作人排查后可显式执行 `agentpay-prepare --recover-signal` 恢复非付款的链接/安全信号步骤；旧记录保留，总工具尝试数受限。这不允许再次提交支付。客户端原样保存官方 `paymentLink`，不展示、打开或改写。业务 `purchase_id` 仅负责本地订单和幂等；官方 `session-id` 使用真实Agent会话UUID，两者分离。
+
+2026-10-29按[官方支付处理Skill](https://github.com/alipay/payment-skills/blob/main/alipay-payment-skill/references/cashier-payment.md)修正参数：优先从宿主 `AIPAY_SESSION_ID` 取得UUID，否则从当前Codex的 `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 取得；缺失或无效时不生成替代ID。prepare绑定会话，submit校验会话未变；旧记录缺少绑定时拒绝提交，不自动迁移。submit从当前确认报价重新生成 `服务内容：xxx，支付金额：¥xx，支付对象：xxx` 摘要。移除支付路径中的强制 `check-wallet`；`agentpay-doctor` 仅供独立诊断，不作为支付门禁。
 
 工具JSON、支付别名和Cookie只放 `.local-run/procurement-agent/`。服务端保存阶段、时间与SHA256摘要，不保存原始工具输出；客户端成功报告显式标为 `CLIENT_REPORTED_SUCCESS`，不具有付款证明效力。只有Payment Service的RSA2通知或验签查询可以使原订单进入PAID并交付。
 
@@ -76,8 +78,8 @@ Payment Service增加仅内部可见的 `GET /v1/fiat/requests/{request_id}`，�
 
 ## 当前验收边界与下一步
 
-已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。之后已实际调用官方工具：signal成功，submit返回 `SIGN_VERIFY_FAILED`；首次钱包检查为 `unbound`，用户完成官方授权后已实际查到 `bound / code:200`。原失败请求查询为 `BIZ_ORDER_NOT_FOUND / UNKNOWN`，未获付款确认；本机公钥可验证原始收银台签名，支付别名传递一致。见[实际联调记录](AGENTPAY-LIVE-2026-10-28.md)。没有将工具失败或钱包绑定写成付款成功。
+已有证据：网页沙箱¥0.01付款、RSA2回调、PAID及DELIVERED；官方CLI安装与帮助信息。之后已实际调用官方工具：signal成功，submit返回 `SIGN_VERIFY_FAILED`；首次钱包检查为 `unbound`，用户完成官方授权后已实际查到 `bound / code:200`。原诊断曾用signal别名查询得到 `BIZ_ORDER_NOT_FOUND / UNKNOWN`；10月29日对照官方查询凭证规则后确认，该别名不能代替submit成功输出的查询凭证，此查询不用于判断支付宝订单是否存在。本机公钥可验证原始收银台签名，支付别名传递一致。见[实际联调记录](AGENTPAY-LIVE-2026-10-28.md)。没有将工具失败或钱包绑定写成付款成功。
 
-新版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。钱包绑定后，已在用户明确确认下创建第二笔¥0.01沙箱订单：signal成功，submit仍返回 `SIGN_VERIFY_FAILED`，没有进入用户付款确认或报告交付。新订单的原始URL也通过本机公钥验证，别名原样传递；官方只读查询仍为UNKNOWN。**官方工具对当前Agent宿主与沙箱的支持尚未证明。** 下一步按[官方排查问题](AGENTPAY-SUPPORT-REQUEST.md)核实支持条件和签名层；不能通过反复新订单规避错误，也不能自动切换正式资金。本轮未新增或执行测试套件；Go编译、Node语法检查与部署健康检查不替代支付、恢复或回归验收。
+10月28日版本已部署并通过健康检查，原有已付款订单和报告仍在，发布文件与manifest摘要一致。钱包绑定后的第二笔¥0.01沙箱订单仍在submit失败，尚未进入用户确认或交付。**官方工具对当前Agent宿主与沙箱的支持尚未证明；原客户端会话参数也存在已确认的偏差，不能把失败全部归于沙箱。** 10月29日完成本机参数修正及12项隔离测试，使用替身替换全部HTTP和原生支付命令，没有创建第三笔订单；服务器未更新业务程序。原Go编译、Node语法检查、部署健康检查及本次参数测试都不替代完整支付验收。下一步按[协议审计](AGENTPAY-PROTOCOL-AUDIT-2026-10-29.md)与[官方排查问题](AGENTPAY-SUPPORT-REQUEST.md)核实支持条件和签名层。
 
 完整Runtime路径还需要实际CNY商户目录、报价/履约协议和买家签名联调，不能把适配器已编译写成完整Harness链路已通过。公网真实LLM、校园原文抽取与引用部署、真实试用、正式收款资格和投稿材料继续按实际结果完成。QMuse不是本轮工程前置条件。

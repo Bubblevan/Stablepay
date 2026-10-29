@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { resolveAgentPaySession, orderPaymentContext, validatePaymentLink, signalArguments, submitArguments } from './alipay-agentpay-protocol.mjs'
 
 const exec = promisify(execFile)
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -23,12 +24,12 @@ async function executable() {
   return 'alipay-bot'
 }
 
-async function tool(command, args) {
+async function tool(command, args, execute = exec) {
   // All parameters are argv elements; merchant text and signed URLs never
   // become a shell command. Prevent inherited model/payment credentials from
   // leaking into this independent official payment tool.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(LLM_|ALIPAY_(APP|SELLER|PRIVATE|PUBLIC|KEY)|FIAT_INTERNAL_TOKEN|SOLANA_)/i.test(name)))
-  return exec(await executable(), [command, ...args, '--json'], { shell: false, windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024, env })
+  return execute(await executable(), [command, ...args, '--json'], { shell: false, windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024, env })
 }
 
 function decoded(stdout) {
@@ -41,7 +42,7 @@ function rejectionSummary(raw) {
   try {
     const data=JSON.parse(raw)
     if (data.success===false && /^[A-Z0-9_]{1,80}$/.test(data.errorCode || '')) {
-      const message=String(data.errorMsg || '').replace(/https?:\/\/\S+/g,'[redacted-url]').slice(0,160)
+      const message=String(data.errorMsg || data.errorMessage || '').replace(/https?:\/\/\S+/g,'[redacted-url]').slice(0,160)
       return `${data.errorCode}${message ? ` (${message})` : ''}`
     }
   } catch {}
@@ -55,10 +56,13 @@ export async function inspectAgentPayEnvironment({ sessionDir }) {
   await mkdir(sessionDir,{recursive:true,mode:0o700})
   await writeFile(path.join(sessionDir,'wallet-check-private.json'),response.stdout,{mode:0o600})
   // Only expose readiness, never wallet identifiers, credentials or account data.
-  return { cli_version:version.stdout.trim(), wallet_status:wallet.status || 'unknown', wallet_never_created:wallet.neverCreated===true, ready_for_submit:wallet.status==='bound', requires_user_authorization:wallet.status==='unbound' }
+  return { cli_version:version.stdout.trim(), wallet_status:wallet.status || 'unknown', wallet_never_created:wallet.neverCreated===true, standalone_diagnostic:true, payment_precondition:false }
 }
 
-export async function runAgentPay({ command, purchaseId, call, sessionDir, confirm, recoverSignal = false }) {
+export async function runAgentPay({ command, purchaseId, call, sessionDir, confirm, recoverSignal = false, environment = process.env, execute = exec }) {
+  if (!['agentpay-prepare', 'agentpay-submit'].includes(command)) throw new Error('Unsupported Agent Pay command')
+  const session = resolveAgentPaySession(environment)
+  if (command === 'agentpay-submit' && !confirm) throw new Error('agentpay-submit requires --confirm after the user authorizes this exact merchant, service and amount')
   const dir = path.join(sessionDir, 'agentpay')
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const stateFile = path.join(dir, `${purchaseId}.json`)
@@ -67,24 +71,26 @@ export async function runAgentPay({ command, purchaseId, call, sessionDir, confi
   if (purchase.status !== 'AWAITING_PAYMENT') throw new Error('Order is no longer awaiting payment; read its receipt instead')
   // A sandbox can permit Node itself while denying its native child process.
   // Detect that before taking a durable one-shot tool claim.
-  await exec(await executable(), ['--version'], { shell: false, windowsHide: true, timeout: 10000, maxBuffer: 65536 })
+  await execute(await executable(), ['--version'], { shell: false, windowsHide: true, timeout: 10000, maxBuffer: 65536 })
 
   if (command === 'agentpay-prepare') {
     const handoff = await call(`purchases/${purchaseId}/agentpay-handoff`, {})
     if (handoff.purchase_id !== purchaseId || handoff.quote_hash !== purchase.quote.hash || handoff.approval_ref !== purchase.approval_ref || handoff.payment_mode !== 'alipay_sandbox' || handoff.harness_policy.decision !== 'ALLOW') throw new Error('Server handoff does not match confirmed quote')
+    const context = orderPaymentContext(purchase)
+    if (handoff.amount !== context.amount || handoff.merchant_info !== context.merchantInfo) throw new Error('Server handoff merchant or amount differs from the confirmed order')
     const cashier = new URL(handoff.cashier_url)
     if (cashier.origin !== 'https://openapi-sandbox.dl.alipaydev.com' || cashier.pathname !== '/gateway.do' || cashier.searchParams.get('method') !== 'alipay.trade.page.pay' || cashier.username || cashier.password) throw new Error('Unexpected sandbox cashier URL')
     const attempt = await call(`purchases/${purchaseId}/agentpay-claim`, { stage: 'signal', recover_signal: recoverSignal })
     let output = '', linkDigest = '', saved = false
     try {
-      const response = await tool('trigger-payment-signal', ['--payment-link', handoff.cashier_url, '--merchant-info', handoff.merchant_info, '--amount', handoff.amount, '--session-id', purchaseId])
+      const response = await tool('trigger-payment-signal', signalArguments({ cashierURL: handoff.cashier_url, context, session }), execute)
       output = response.stdout
       const result = decoded(output)
       // paymentLink is the field in Alipay's official merchant Skill example.
       // It is opaque: never display, open, normalize or re-encode it.
-      if (typeof result.paymentLink !== 'string' || !result.paymentLink.trim() || result.paymentLink.length > 32768 || /[\r\n\0]/.test(result.paymentLink)) throw new Error('Official tool response has no valid paymentLink')
+      validatePaymentLink(result.paymentLink)
       linkDigest = sha(result.paymentLink)
-      await writeFile(stateFile, JSON.stringify({ purchase_id: purchaseId, quote_hash: handoff.quote_hash, approval_ref: handoff.approval_ref, merchant_info: handoff.merchant_info, amount: handoff.amount, payment_link: result.paymentLink, link_digest: linkDigest, stage: 'SIGNAL_READY' }), { mode: 0o600 })
+      await writeFile(stateFile, JSON.stringify({ purchase_id: purchaseId, agent_session_id: session.id, agent_session_source: session.source, quote_hash: handoff.quote_hash, approval_ref: handoff.approval_ref, merchant_info: handoff.merchant_info, amount: handoff.amount, payment_link: result.paymentLink, link_digest: linkDigest, stage: 'SIGNAL_READY' }), { mode: 0o600 })
       saved = true
       await writeFile(path.join(dir, `${attempt.id}.json`), output, { mode: 0o600 })
       await call(`purchases/${purchaseId}/agentpay-result`, { attempt_id: attempt.id, status: 'CLIENT_REPORTED_SUCCESS', output_digest: sha(output), link_digest: linkDigest })
@@ -97,19 +103,16 @@ export async function runAgentPay({ command, purchaseId, call, sessionDir, confi
     }
   }
 
-  if (!confirm) throw new Error('agentpay-submit requires --confirm after the user authorizes this exact merchant, service and amount')
-  const readiness=await inspectAgentPayEnvironment({sessionDir:dir})
-  if (!readiness.ready_for_submit) throw new Error(`Official Agent wallet is ${readiness.wallet_status}. Complete user authorization in Alipay before payment submission; no submit claim was taken.`)
+  // Official payment Skill forbids a check-wallet preflight. submit-payment
+  // handles wallet readiness; doctor remains an explicit standalone diagnostic.
   const state = JSON.parse(await readFile(stateFile, 'utf8'))
-  const amount = `${Math.trunc(purchase.quote.product.amount_minor / 100)}.${String(purchase.quote.product.amount_minor % 100).padStart(2, '0')}`
-  const merchantInfo = `${purchase.quote.product.merchant}，${purchase.quote.product.name}，人民币${amount}元（沙箱）`
-  if (state.stage !== 'SIGNAL_READY' || state.purchase_id !== purchaseId || state.quote_hash !== purchase.quote.hash || state.approval_ref !== purchase.approval_ref || state.link_digest !== sha(state.payment_link) || state.amount !== amount || state.merchant_info !== merchantInfo) throw new Error('Stored payment handoff differs from the confirmed order')
+  const args = submitArguments({ state, purchase, session, digest:sha })
   const attempt = await call(`purchases/${purchaseId}/agentpay-claim`, { stage: 'submit', link_digest: state.link_digest })
   state.stage = 'SUBMIT_REQUESTED'
   await writeFile(stateFile, JSON.stringify(state), { mode: 0o600 })
   let output = ''
   try {
-    const response = await tool('submit-payment', ['--payment-link', state.payment_link, '--intent-summary', state.merchant_info, '--session-id', purchaseId])
+    const response = await tool('submit-payment', args, execute)
     output = response.stdout
     decoded(output)
     await writeFile(path.join(dir, `${attempt.id}.json`), output, { mode: 0o600 })
