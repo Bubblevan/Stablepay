@@ -56,8 +56,9 @@ node scripts/procurement-agent.mjs receipt --purchase-id <id>
 
 ```text
 COMMERCE_RUNTIME_ALIPAY_ENABLED=1
-FIAT_PAYMENT_URL=http://127.0.0.1:8092
-FIAT_INTERNAL_TOKEN=<与payment-service一致，至少24字符>
+STABLEPAY_GATEWAY_BASE_URL=http://127.0.0.1:28080
+STABLEPAY_API_KEY=<本机沙箱配置生成的Gateway API key>
+FIAT_PAYMENT_MODE=alipay_sandbox
 COMMERCE_RUNTIME_ALIPAY_MERCHANT_DID=<目录里的确切商户DID>
 COMMERCE_RUNTIME_ALIPAY_PAYEE_DID=<该商户收款主体引用>
 COMMERCE_RUNTIME_ALIPAY_MERCHANT_NAME=<实际商户名称>
@@ -67,7 +68,7 @@ COMMERCE_RUNTIME_ALIPAY_MERCHANT_NAME=<实际商户名称>
 
 在既有创建Episode、发现/选品、报价、买家签名、预算保留和提交动作之后，原 `POST /v1/episodes/{episode_id}/payment-handoff` 返回已经创建的CNY订单及官方工具所需参数。它受原API鉴权保护，只对当前待付款意图开放，不自动确认买家、不生成新意图、不作为公开匿名接口。工具由Agent宿主调用；之后原Runner继续查询支付并推进履约。
 
-Payment Service增加仅内部可见的 `GET /v1/fiat/requests/{request_id}`，用于恢复“订单创建成功但响应丢失”的窗口。适配器固定使用 `runtime:<intent_id>` 幂等标识，并校验商户、报价、确认引用、币种、金额和订单环境。支付宝订单号存入Runtime的提供方交易标识TxID，支付宝交易号不伪装为链上TxHash。
+Commerce Runtime 通过 Hertz Gateway 调用 Payment Service Kitex RPC。Payment Service 的 `FindFiatPayment` 用于恢复“订单创建成功但响应丢失”的窗口；公开 API 使用一次性 nonce 和幂等键。适配器固定使用 `runtime:<intent_id>` 幂等标识，并校验商户、报价、确认引用、币种、金额和订单环境。支付宝订单号存入 Runtime 的提供方交易标识 TxID，支付宝交易号不伪装为链上 TxHash。支付成功后，MySQL 事务 outbox 将 CNY 事件发布到已有 `payment_events` RocketMQ topic，由 Verification Service 更新购买凭证。
 
 ## 公开演示的容量保护
 

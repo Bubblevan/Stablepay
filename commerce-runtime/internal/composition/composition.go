@@ -118,9 +118,9 @@ func NewProduction(ctx context.Context, cfg config.Config) (*Composition, error)
 	var entitlement adapters.EntitlementAdapter = verification
 	settlementNetworks := map[string]string{}
 	if os.Getenv("COMMERCE_RUNTIME_ALIPAY_ENABLED") == "1" {
-		cny := &adapters.AlipayPaymentAdapter{BaseURL: os.Getenv("FIAT_PAYMENT_URL"), Token: os.Getenv("FIAT_INTERNAL_TOKEN"), MerchantDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_DID"), PayeeDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_PAYEE_DID"), MerchantName: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_NAME")}
+		cny := &adapters.AlipayPaymentAdapter{BaseURL: cfg.GatewayBaseURL, Token: cfg.GatewayAPIKey, MerchantDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_DID"), PayeeDID: os.Getenv("COMMERCE_RUNTIME_ALIPAY_PAYEE_DID"), MerchantName: os.Getenv("COMMERCE_RUNTIME_ALIPAY_MERCHANT_NAME")}
 		if cny.BaseURL == "" || len(cny.Token) < 24 || cny.MerchantDID == "" || cny.PayeeDID == "" || cny.MerchantName == "" {
-			return nil, errors.New("Alipay Runtime requires fiat endpoint/token and exact merchant/payee configuration")
+			return nil, errors.New("Alipay Runtime requires Hertz Gateway URL/API key and exact merchant/payee configuration")
 		}
 		router := &adapters.CurrencyPaymentAdapter{Default: kitexPayment, CNY: cny, DefaultEntitlement: verification}
 		paymentExecutor, paymentStatus, entitlement = router, router, router

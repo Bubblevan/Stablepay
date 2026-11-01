@@ -47,21 +47,14 @@ func TestProcurementProxyPreservesConfirmationBoundary(t *testing.T) {
 	}
 }
 
-func TestNotifyProxyOnlyTargetsProviderNotification(t *testing.T) {
-	upstream := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.URL.Path != "/v1/fiat/alipay/notify" {
-			t.Error("notification routed to wrong boundary")
-		}
-		_, _ = w.Write([]byte("success"))
-	}))
-	defer upstream.Close()
+func TestProcurementProxyDoesNotExposePaymentServiceNotification(t *testing.T) {
 	h := server.Default()
-	if err := RegisterProcurementProxy(h, "", upstream.URL); err != nil {
+	if err := RegisterProcurementProxy(h, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	response := ut.PerformRequest(h.Engine, "POST", "/api/payments/alipay/notify", nil)
-	if response.Code != 200 || response.Body.String() != "success" {
-		t.Fatal(response.Code, response.Body.String())
+	if response.Code != 404 {
+		t.Fatal("provider callback must be handled by the Hertz-to-Kitex payment route", response.Code)
 	}
 	if err := RegisterProcurementProxy(server.Default(), "https://example.com/untrusted/path", ""); err == nil {
 		t.Fatal("upstream path accepted")

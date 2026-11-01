@@ -3,12 +3,15 @@ package adapters
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +21,8 @@ import (
 // AlipayPaymentAdapter plugs CNY into the existing Runtime PaymentAdapter.
 // The Runtime still owns exact-offer buyer confirmation, budget reservation,
 // RuntimeGuard, finance transitions, recovery and ledger. payment-service owns
-// RSA2 and settlement. No chain hash is fabricated from an Alipay trade number.
+// RSA2 and settlement. All order operations go through Hertz Gateway and then
+// Payment Service Kitex; no private HTTP listener exists on payment-service.
 type AlipayPaymentAdapter struct {
 	BaseURL, Token, MerchantDID, PayeeDID, MerchantName string
 	Client                                              *http.Client
@@ -30,6 +34,8 @@ type alipayOrder struct {
 	ProductID   string `json:"product_id"`
 	QuoteHash   string `json:"quote_hash"`
 	ApprovalRef string `json:"approval_ref"`
+	AgentDID    string `json:"agent_did"`
+	SkillDID    string `json:"skill_did"`
 	AmountMinor int64  `json:"amount_minor"`
 	Currency    string `json:"currency"`
 	Mode        string `json:"mode"`
@@ -54,8 +60,8 @@ func (a *AlipayPaymentAdapter) validate(intent payment.PaymentIntent, payee stri
 
 func (a *AlipayPaymentAdapter) call(ctx context.Context, method, path string, body, output any) error {
 	u, err := url.Parse(a.BaseURL)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) {
-		return errors.New("Alipay payment-service requires loopback or trusted HTTPS")
+	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" || u.Hostname() == "stablepay-api-gateway"))) {
+		return errors.New("Alipay flow requires a local or HTTPS Hertz API Gateway URL")
 	}
 	var reader io.Reader
 	if body != nil {
@@ -69,7 +75,18 @@ func (a *AlipayPaymentAdapter) call(ctx context.Context, method, path string, bo
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.Token)
+	req.Header.Set("X-API-Key", a.Token)
+	var nonceBytes [16]byte
+	if _, err := rand.Read(nonceBytes[:]); err != nil {
+		return err
+	}
+	req.Header.Set("X-StablePay-Nonce", hex.EncodeToString(nonceBytes[:]))
+	req.Header.Set("X-StablePay-Timestamp", strconv.FormatInt(time.Now().UTC().UnixMilli(), 10))
+	if fields, ok := body.(map[string]any); ok {
+		if idempotencyKey, ok := fields["request_id"].(string); ok && idempotencyKey != "" {
+			req.Header.Set("X-Idempotency-Key", idempotencyKey)
+		}
+	}
 	req.Header.Set("Content-Type", "application/json")
 	client := http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	if a.Client != nil {
@@ -85,9 +102,24 @@ func (a *AlipayPaymentAdapter) call(ctx context.Context, method, path string, bo
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("Alipay payment-service HTTP %d", response.StatusCode)
+		return fmt.Errorf("Hertz API Gateway HTTP %d", response.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(output)
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		Code    *int            `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &envelope) == nil && len(envelope.Data) > 0 {
+		if envelope.Code != nil && *envelope.Code != 0 {
+			return fmt.Errorf("Hertz API Gateway: %s", envelope.Message)
+		}
+		return json.Unmarshal(envelope.Data, output)
+	}
+	return json.Unmarshal(raw, output)
 }
 
 func runtimeApproval(intent payment.PaymentIntent) string {
@@ -96,7 +128,7 @@ func runtimeApproval(intent payment.PaymentIntent) string {
 func runtimeRequest(intent payment.PaymentIntent) string { return "runtime:" + intent.IntentID }
 
 func (a *AlipayPaymentAdapter) outcome(intent payment.PaymentIntent, o alipayOrder) (payment.PaymentOutcome, error) {
-	if o.ID == "" || (intent.TxID != "" && intent.TxID != o.ID) || o.RequestID != runtimeRequest(intent) || o.ProductID != intent.CapabilityID || o.QuoteHash != intent.QuoteHash || o.ApprovalRef != runtimeApproval(intent) || o.AmountMinor != intent.AmountMinor || o.Currency != "CNY" || o.Mode != "alipay_sandbox" {
+	if o.ID == "" || (intent.TxID != "" && intent.TxID != o.ID) || o.RequestID != runtimeRequest(intent) || o.ProductID != intent.CapabilityID || o.QuoteHash != intent.QuoteHash || o.ApprovalRef != runtimeApproval(intent) || o.AgentDID != intent.RequesterDID || o.SkillDID != canonicalPaymentSkillDID(intent.PayeeDID) || o.AmountMinor != intent.AmountMinor || o.Currency != "CNY" || o.Mode != "alipay_sandbox" {
 		err := errors.New("Alipay order does not match immutable intent")
 		return unknownOutcome(intent, err), err
 	}
@@ -131,12 +163,14 @@ func (a *AlipayPaymentAdapter) Submit(ctx context.Context, request PaymentSubmit
 		err := errors.New("Alipay authorization binding mismatch")
 		return unknownOutcome(i, err), err
 	}
-	var order alipayOrder
-	err := a.call(ctx, "POST", "/v1/fiat/orders", map[string]any{"request_id": runtimeRequest(i), "product_id": i.CapabilityID, "subject": "StablePay 数字服务", "quote_hash": i.QuoteHash, "approval_ref": runtimeApproval(i), "amount_minor": i.AmountMinor, "currency": "CNY"}, &order)
+	var response struct {
+		Order alipayOrder `json:"order"`
+	}
+	err := a.call(ctx, "POST", "/api/v1/fiat/orders", map[string]any{"request_id": runtimeRequest(i), "product_id": i.CapabilityID, "subject": "StablePay 数字服务", "quote_hash": i.QuoteHash, "approval_ref": runtimeApproval(i), "agent_did": i.RequesterDID, "skill_did": canonicalPaymentSkillDID(i.PayeeDID), "amount_minor": i.AmountMinor, "currency": "CNY"}, &response)
 	if err != nil {
 		return unknownOutcome(i, err), err
 	}
-	return a.outcome(i, order)
+	return a.outcome(i, response.Order)
 }
 
 func (a *AlipayPaymentAdapter) Query(ctx context.Context, request PaymentQuery) (payment.PaymentOutcome, error) {
@@ -144,18 +178,25 @@ func (a *AlipayPaymentAdapter) Query(ctx context.Context, request PaymentQuery) 
 	if err := a.validate(i, request.PayeeDID); err != nil {
 		return unknownOutcome(i, err), err
 	}
-	var order alipayOrder
-	err := a.call(ctx, "GET", "/v1/fiat/requests/"+url.PathEscape(runtimeRequest(i)), nil, &order)
+	var response struct {
+		Order alipayOrder `json:"order"`
+	}
+	err := a.call(ctx, "GET", "/api/v1/fiat/requests/"+url.PathEscape(runtimeRequest(i)), nil, &response)
 	if err != nil {
 		return unknownOutcome(i, err), err
 	}
+	order := response.Order
 	if _, err = a.outcome(i, order); err != nil {
 		return unknownOutcome(i, err), err
 	}
 	if order.Status == "AWAITING_PAYMENT" {
-		if err = a.call(ctx, "POST", "/v1/fiat/orders/"+url.PathEscape(order.ID)+"/reconcile", nil, &order); err != nil {
+		var reconciled struct {
+			Order alipayOrder `json:"order"`
+		}
+		if err = a.call(ctx, "POST", "/api/v1/fiat/orders/"+url.PathEscape(order.ID)+"/reconcile", nil, &reconciled); err != nil {
 			return unknownOutcome(i, err), err
 		}
+		order = reconciled.Order
 	}
 	return a.outcome(i, order)
 }
@@ -165,10 +206,13 @@ func (a *AlipayPaymentAdapter) Handoff(ctx context.Context, request PaymentQuery
 	if err := a.validate(i, request.PayeeDID); err != nil {
 		return PaymentHandoff{}, err
 	}
-	var order alipayOrder
-	if err := a.call(ctx, "GET", "/v1/fiat/requests/"+url.PathEscape(runtimeRequest(i)), nil, &order); err != nil {
+	var response struct {
+		Order alipayOrder `json:"order"`
+	}
+	if err := a.call(ctx, "GET", "/api/v1/fiat/requests/"+url.PathEscape(runtimeRequest(i)), nil, &response); err != nil {
 		return PaymentHandoff{}, err
 	}
+	order := response.Order
 	if _, err := a.outcome(i, order); err != nil {
 		return PaymentHandoff{}, err
 	}
@@ -179,7 +223,7 @@ func (a *AlipayPaymentAdapter) Handoff(ctx context.Context, request PaymentQuery
 		Mode       string `json:"mode"`
 		CashierURL string `json:"cashier_url"`
 	}
-	if err := a.call(ctx, "POST", "/v1/fiat/orders/"+url.PathEscape(order.ID)+"/checkout", nil, &checkout); err != nil {
+	if err := a.call(ctx, "POST", "/api/v1/fiat/orders/"+url.PathEscape(order.ID)+"/checkout", nil, &checkout); err != nil {
 		return PaymentHandoff{}, err
 	}
 	u, err := url.Parse(checkout.CashierURL)
@@ -234,17 +278,32 @@ func (a *CurrencyPaymentAdapter) Verify(ctx context.Context, q EntitlementQuery)
 	if a.CNY == nil || q.MerchantDID != a.CNY.MerchantDID || q.PayeeDID != a.CNY.PayeeDID || q.PaymentRequirementID == "" || q.AmountMinor <= 0 {
 		return unknown, errors.New("Alipay entitlement binding mismatch")
 	}
-	var o alipayOrder
-	if err := a.CNY.call(ctx, "GET", "/v1/fiat/requests/"+url.PathEscape("runtime:"+q.IntentID), nil, &o); err != nil {
+	var response struct {
+		Order alipayOrder `json:"order"`
+	}
+	if err := a.CNY.call(ctx, "GET", "/api/v1/fiat/requests/"+url.PathEscape("runtime:"+q.IntentID), nil, &response); err != nil {
 		return unknown, err
 	}
-	if o.ID == "" || (q.TxID != "" && q.TxID != o.ID) || o.RequestID != "runtime:"+q.IntentID || o.ProductID != q.CapabilityID || o.QuoteHash != q.QuoteHash || o.ApprovalRef != "runtime-buyer:"+q.PaymentRequirementID || o.AmountMinor != q.AmountMinor || o.Currency != "CNY" || o.Mode != "alipay_sandbox" {
+	o := response.Order
+	if o.ID == "" || (q.TxID != "" && q.TxID != o.ID) || o.RequestID != "runtime:"+q.IntentID || o.ProductID != q.CapabilityID || o.QuoteHash != q.QuoteHash || o.ApprovalRef != "runtime-buyer:"+q.PaymentRequirementID || o.AgentDID != q.RequesterDID || o.SkillDID != canonicalPaymentSkillDID(q.PayeeDID) || o.AmountMinor != q.AmountMinor || o.Currency != "CNY" || o.Mode != "alipay_sandbox" {
 		return unknown, errors.New("Alipay entitlement order mismatch")
 	}
 	if o.Status != "PAID" || o.TradeNo == "" || (o.VerifiedBy != "alipay-rsa2-notify" && o.VerifiedBy != "alipay-rsa2-query") {
 		return unknown, nil
 	}
-	return EntitlementResult{Status: EntitlementValid, Reference: "alipay-order:" + o.ID, PaymentIntentID: q.IntentID, TxID: o.ID, EvidenceRef: "payment-service:alipay-rsa2:" + o.ID}, nil
+	if a.DefaultEntitlement == nil {
+		return unknown, errors.New("Verification Service entitlement adapter is required for CNY")
+	}
+	proof, err := a.DefaultEntitlement.Verify(ctx, q)
+	if err != nil {
+		return unknown, err
+	}
+	if proof.Status != EntitlementValid || proof.TxID != o.ID {
+		return proof, nil
+	}
+	proof.PaymentIntentID = q.IntentID
+	proof.EvidenceRef = "verification:alipay-rsa2:" + o.ID
+	return proof, nil
 }
 
 var _ PaymentAdapter = (*AlipayPaymentAdapter)(nil)

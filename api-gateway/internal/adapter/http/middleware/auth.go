@@ -120,14 +120,22 @@ func AuthVerify(cfg config.Security, didClient application.DIDServiceClient) app
 func ReplayProtection(cfg config.Security, store auth.NonceStore) app.HandlerFunc {
 	return func(c context.Context, ctx *app.RequestContext) {
 		policy, ok := CurrentPolicy(ctx)
-		if !ok || policy.Auth != domain.AuthDID {
+		if !ok {
+			ctx.Next(c)
+			return
+		}
+		protectedAPIWrite := policy.Auth == domain.AuthAPI && strings.HasPrefix(policy.Name, "fiat.")
+		if policy.Auth != domain.AuthDID && !protectedAPIWrite {
 			ctx.Next(c)
 			return
 		}
 		nonce := getCtxString(ctx, domain.CtxNonce)
 		did := getCtxString(ctx, domain.CtxDID)
+		if protectedAPIWrite {
+			did = "api:" + string(ctx.GetHeader("X-API-Key"))
+		}
 		timestamp := getCtxString(ctx, domain.CtxTimestamp)
-		if cfg.RequireNonce && nonce == "" {
+		if (cfg.RequireNonce || protectedAPIWrite) && nonce == "" {
 			httpresp.Fail(ctx, domain.ErrSignatureVerification, map[string]interface{}{"detail": "nonce required"})
 			ctx.Abort()
 			return

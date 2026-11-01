@@ -935,6 +935,829 @@ var fieldIDToName_GetPaymentRequirementResponse = map[int16]string{
 	8: "payment_endpoint",
 }
 
+type FiatPaymentOrder struct {
+	Id          string  `thrift:"id,1" frugal:"1,default,string" json:"id"`
+	RequestId   string  `thrift:"request_id,2" frugal:"2,default,string" json:"request_id"`
+	ProductId   string  `thrift:"product_id,3" frugal:"3,default,string" json:"product_id"`
+	Subject     string  `thrift:"subject,4" frugal:"4,default,string" json:"subject"`
+	QuoteHash   string  `thrift:"quote_hash,5" frugal:"5,default,string" json:"quote_hash"`
+	ApprovalRef string  `thrift:"approval_ref,6" frugal:"6,default,string" json:"approval_ref"`
+	AgentDid    string  `thrift:"agent_did,7" frugal:"7,default,string" json:"agent_did"`
+	SkillDid    string  `thrift:"skill_did,8" frugal:"8,default,string" json:"skill_did"`
+	AmountMinor int64   `thrift:"amount_minor,9" frugal:"9,default,i64" json:"amount_minor"`
+	Currency    string  `thrift:"currency,10" frugal:"10,default,string" json:"currency"`
+	Mode        string  `thrift:"mode,11" frugal:"11,default,string" json:"mode"`
+	Status      string  `thrift:"status,12" frugal:"12,default,string" json:"status"`
+	TradeNo     *string `thrift:"trade_no,13,optional" frugal:"13,optional,string" json:"trade_no,omitempty"`
+	VerifiedBy  *string `thrift:"verified_by,14,optional" frugal:"14,optional,string" json:"verified_by,omitempty"`
+	CreatedAt   string  `thrift:"created_at,15" frugal:"15,default,string" json:"created_at"`
+	PaidAt      *string `thrift:"paid_at,16,optional" frugal:"16,optional,string" json:"paid_at,omitempty"`
+}
+
+func NewFiatPaymentOrder() *FiatPaymentOrder {
+	return &FiatPaymentOrder{}
+}
+
+func (p *FiatPaymentOrder) InitDefault() {
+}
+
+func (p *FiatPaymentOrder) GetId() (v string) {
+	return p.Id
+}
+
+func (p *FiatPaymentOrder) GetRequestId() (v string) {
+	return p.RequestId
+}
+
+func (p *FiatPaymentOrder) GetProductId() (v string) {
+	return p.ProductId
+}
+
+func (p *FiatPaymentOrder) GetSubject() (v string) {
+	return p.Subject
+}
+
+func (p *FiatPaymentOrder) GetQuoteHash() (v string) {
+	return p.QuoteHash
+}
+
+func (p *FiatPaymentOrder) GetApprovalRef() (v string) {
+	return p.ApprovalRef
+}
+
+func (p *FiatPaymentOrder) GetAgentDid() (v string) {
+	return p.AgentDid
+}
+
+func (p *FiatPaymentOrder) GetSkillDid() (v string) {
+	return p.SkillDid
+}
+
+func (p *FiatPaymentOrder) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *FiatPaymentOrder) GetCurrency() (v string) {
+	return p.Currency
+}
+
+func (p *FiatPaymentOrder) GetMode() (v string) {
+	return p.Mode
+}
+
+func (p *FiatPaymentOrder) GetStatus() (v string) {
+	return p.Status
+}
+
+var FiatPaymentOrder_TradeNo_DEFAULT string
+
+func (p *FiatPaymentOrder) GetTradeNo() (v string) {
+	if !p.IsSetTradeNo() {
+		return FiatPaymentOrder_TradeNo_DEFAULT
+	}
+	return *p.TradeNo
+}
+
+var FiatPaymentOrder_VerifiedBy_DEFAULT string
+
+func (p *FiatPaymentOrder) GetVerifiedBy() (v string) {
+	if !p.IsSetVerifiedBy() {
+		return FiatPaymentOrder_VerifiedBy_DEFAULT
+	}
+	return *p.VerifiedBy
+}
+
+func (p *FiatPaymentOrder) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+var FiatPaymentOrder_PaidAt_DEFAULT string
+
+func (p *FiatPaymentOrder) GetPaidAt() (v string) {
+	if !p.IsSetPaidAt() {
+		return FiatPaymentOrder_PaidAt_DEFAULT
+	}
+	return *p.PaidAt
+}
+func (p *FiatPaymentOrder) SetId(val string) {
+	p.Id = val
+}
+func (p *FiatPaymentOrder) SetRequestId(val string) {
+	p.RequestId = val
+}
+func (p *FiatPaymentOrder) SetProductId(val string) {
+	p.ProductId = val
+}
+func (p *FiatPaymentOrder) SetSubject(val string) {
+	p.Subject = val
+}
+func (p *FiatPaymentOrder) SetQuoteHash(val string) {
+	p.QuoteHash = val
+}
+func (p *FiatPaymentOrder) SetApprovalRef(val string) {
+	p.ApprovalRef = val
+}
+func (p *FiatPaymentOrder) SetAgentDid(val string) {
+	p.AgentDid = val
+}
+func (p *FiatPaymentOrder) SetSkillDid(val string) {
+	p.SkillDid = val
+}
+func (p *FiatPaymentOrder) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *FiatPaymentOrder) SetCurrency(val string) {
+	p.Currency = val
+}
+func (p *FiatPaymentOrder) SetMode(val string) {
+	p.Mode = val
+}
+func (p *FiatPaymentOrder) SetStatus(val string) {
+	p.Status = val
+}
+func (p *FiatPaymentOrder) SetTradeNo(val *string) {
+	p.TradeNo = val
+}
+func (p *FiatPaymentOrder) SetVerifiedBy(val *string) {
+	p.VerifiedBy = val
+}
+func (p *FiatPaymentOrder) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *FiatPaymentOrder) SetPaidAt(val *string) {
+	p.PaidAt = val
+}
+
+func (p *FiatPaymentOrder) IsSetTradeNo() bool {
+	return p.TradeNo != nil
+}
+
+func (p *FiatPaymentOrder) IsSetVerifiedBy() bool {
+	return p.VerifiedBy != nil
+}
+
+func (p *FiatPaymentOrder) IsSetPaidAt() bool {
+	return p.PaidAt != nil
+}
+
+func (p *FiatPaymentOrder) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FiatPaymentOrder(%+v)", *p)
+}
+
+var fieldIDToName_FiatPaymentOrder = map[int16]string{
+	1:  "id",
+	2:  "request_id",
+	3:  "product_id",
+	4:  "subject",
+	5:  "quote_hash",
+	6:  "approval_ref",
+	7:  "agent_did",
+	8:  "skill_did",
+	9:  "amount_minor",
+	10: "currency",
+	11: "mode",
+	12: "status",
+	13: "trade_no",
+	14: "verified_by",
+	15: "created_at",
+	16: "paid_at",
+}
+
+type CreateFiatPaymentRequest struct {
+	Base        *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	RequestId   string          `thrift:"request_id,2" frugal:"2,default,string" json:"request_id"`
+	ProductId   string          `thrift:"product_id,3" frugal:"3,default,string" json:"product_id"`
+	Subject     string          `thrift:"subject,4" frugal:"4,default,string" json:"subject"`
+	QuoteHash   string          `thrift:"quote_hash,5" frugal:"5,default,string" json:"quote_hash"`
+	ApprovalRef string          `thrift:"approval_ref,6" frugal:"6,default,string" json:"approval_ref"`
+	AgentDid    common.DID      `thrift:"agent_did,7" frugal:"7,default,string" json:"agent_did"`
+	SkillDid    common.DID      `thrift:"skill_did,8" frugal:"8,default,string" json:"skill_did"`
+	AmountMinor int64           `thrift:"amount_minor,9" frugal:"9,default,i64" json:"amount_minor"`
+	Currency    string          `thrift:"currency,10" frugal:"10,default,string" json:"currency"`
+	Nonce       string          `thrift:"nonce,11" frugal:"11,default,string" json:"nonce"`
+}
+
+func NewCreateFiatPaymentRequest() *CreateFiatPaymentRequest {
+	return &CreateFiatPaymentRequest{}
+}
+
+func (p *CreateFiatPaymentRequest) InitDefault() {
+}
+
+var CreateFiatPaymentRequest_Base_DEFAULT *common.BaseReq
+
+func (p *CreateFiatPaymentRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return CreateFiatPaymentRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *CreateFiatPaymentRequest) GetRequestId() (v string) {
+	return p.RequestId
+}
+
+func (p *CreateFiatPaymentRequest) GetProductId() (v string) {
+	return p.ProductId
+}
+
+func (p *CreateFiatPaymentRequest) GetSubject() (v string) {
+	return p.Subject
+}
+
+func (p *CreateFiatPaymentRequest) GetQuoteHash() (v string) {
+	return p.QuoteHash
+}
+
+func (p *CreateFiatPaymentRequest) GetApprovalRef() (v string) {
+	return p.ApprovalRef
+}
+
+func (p *CreateFiatPaymentRequest) GetAgentDid() (v common.DID) {
+	return p.AgentDid
+}
+
+func (p *CreateFiatPaymentRequest) GetSkillDid() (v common.DID) {
+	return p.SkillDid
+}
+
+func (p *CreateFiatPaymentRequest) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *CreateFiatPaymentRequest) GetCurrency() (v string) {
+	return p.Currency
+}
+
+func (p *CreateFiatPaymentRequest) GetNonce() (v string) {
+	return p.Nonce
+}
+func (p *CreateFiatPaymentRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *CreateFiatPaymentRequest) SetRequestId(val string) {
+	p.RequestId = val
+}
+func (p *CreateFiatPaymentRequest) SetProductId(val string) {
+	p.ProductId = val
+}
+func (p *CreateFiatPaymentRequest) SetSubject(val string) {
+	p.Subject = val
+}
+func (p *CreateFiatPaymentRequest) SetQuoteHash(val string) {
+	p.QuoteHash = val
+}
+func (p *CreateFiatPaymentRequest) SetApprovalRef(val string) {
+	p.ApprovalRef = val
+}
+func (p *CreateFiatPaymentRequest) SetAgentDid(val common.DID) {
+	p.AgentDid = val
+}
+func (p *CreateFiatPaymentRequest) SetSkillDid(val common.DID) {
+	p.SkillDid = val
+}
+func (p *CreateFiatPaymentRequest) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *CreateFiatPaymentRequest) SetCurrency(val string) {
+	p.Currency = val
+}
+func (p *CreateFiatPaymentRequest) SetNonce(val string) {
+	p.Nonce = val
+}
+
+func (p *CreateFiatPaymentRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CreateFiatPaymentRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateFiatPaymentRequest(%+v)", *p)
+}
+
+var fieldIDToName_CreateFiatPaymentRequest = map[int16]string{
+	1:  "base",
+	2:  "request_id",
+	3:  "product_id",
+	4:  "subject",
+	5:  "quote_hash",
+	6:  "approval_ref",
+	7:  "agent_did",
+	8:  "skill_did",
+	9:  "amount_minor",
+	10: "currency",
+	11: "nonce",
+}
+
+type CreateFiatPaymentResponse struct {
+	Base  *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Order *FiatPaymentOrder `thrift:"order,2" frugal:"2,default,FiatPaymentOrder" json:"order"`
+}
+
+func NewCreateFiatPaymentResponse() *CreateFiatPaymentResponse {
+	return &CreateFiatPaymentResponse{}
+}
+
+func (p *CreateFiatPaymentResponse) InitDefault() {
+}
+
+var CreateFiatPaymentResponse_Base_DEFAULT *common.BaseResp
+
+func (p *CreateFiatPaymentResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return CreateFiatPaymentResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var CreateFiatPaymentResponse_Order_DEFAULT *FiatPaymentOrder
+
+func (p *CreateFiatPaymentResponse) GetOrder() (v *FiatPaymentOrder) {
+	if !p.IsSetOrder() {
+		return CreateFiatPaymentResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+func (p *CreateFiatPaymentResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *CreateFiatPaymentResponse) SetOrder(val *FiatPaymentOrder) {
+	p.Order = val
+}
+
+func (p *CreateFiatPaymentResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CreateFiatPaymentResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *CreateFiatPaymentResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateFiatPaymentResponse(%+v)", *p)
+}
+
+var fieldIDToName_CreateFiatPaymentResponse = map[int16]string{
+	1: "base",
+	2: "order",
+}
+
+type GetFiatPaymentRequest struct {
+	Base    *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	OrderId string          `thrift:"order_id,2" frugal:"2,default,string" json:"order_id"`
+}
+
+func NewGetFiatPaymentRequest() *GetFiatPaymentRequest {
+	return &GetFiatPaymentRequest{}
+}
+
+func (p *GetFiatPaymentRequest) InitDefault() {
+}
+
+var GetFiatPaymentRequest_Base_DEFAULT *common.BaseReq
+
+func (p *GetFiatPaymentRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return GetFiatPaymentRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *GetFiatPaymentRequest) GetOrderId() (v string) {
+	return p.OrderId
+}
+func (p *GetFiatPaymentRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *GetFiatPaymentRequest) SetOrderId(val string) {
+	p.OrderId = val
+}
+
+func (p *GetFiatPaymentRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *GetFiatPaymentRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetFiatPaymentRequest(%+v)", *p)
+}
+
+var fieldIDToName_GetFiatPaymentRequest = map[int16]string{
+	1: "base",
+	2: "order_id",
+}
+
+type GetFiatPaymentResponse struct {
+	Base  *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Order *FiatPaymentOrder `thrift:"order,2" frugal:"2,default,FiatPaymentOrder" json:"order"`
+}
+
+func NewGetFiatPaymentResponse() *GetFiatPaymentResponse {
+	return &GetFiatPaymentResponse{}
+}
+
+func (p *GetFiatPaymentResponse) InitDefault() {
+}
+
+var GetFiatPaymentResponse_Base_DEFAULT *common.BaseResp
+
+func (p *GetFiatPaymentResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return GetFiatPaymentResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var GetFiatPaymentResponse_Order_DEFAULT *FiatPaymentOrder
+
+func (p *GetFiatPaymentResponse) GetOrder() (v *FiatPaymentOrder) {
+	if !p.IsSetOrder() {
+		return GetFiatPaymentResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+func (p *GetFiatPaymentResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *GetFiatPaymentResponse) SetOrder(val *FiatPaymentOrder) {
+	p.Order = val
+}
+
+func (p *GetFiatPaymentResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *GetFiatPaymentResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *GetFiatPaymentResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetFiatPaymentResponse(%+v)", *p)
+}
+
+var fieldIDToName_GetFiatPaymentResponse = map[int16]string{
+	1: "base",
+	2: "order",
+}
+
+type FindFiatPaymentRequest struct {
+	Base      *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	RequestId string          `thrift:"request_id,2" frugal:"2,default,string" json:"request_id"`
+}
+
+func NewFindFiatPaymentRequest() *FindFiatPaymentRequest {
+	return &FindFiatPaymentRequest{}
+}
+
+func (p *FindFiatPaymentRequest) InitDefault() {
+}
+
+var FindFiatPaymentRequest_Base_DEFAULT *common.BaseReq
+
+func (p *FindFiatPaymentRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return FindFiatPaymentRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *FindFiatPaymentRequest) GetRequestId() (v string) {
+	return p.RequestId
+}
+func (p *FindFiatPaymentRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *FindFiatPaymentRequest) SetRequestId(val string) {
+	p.RequestId = val
+}
+
+func (p *FindFiatPaymentRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *FindFiatPaymentRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FindFiatPaymentRequest(%+v)", *p)
+}
+
+var fieldIDToName_FindFiatPaymentRequest = map[int16]string{
+	1: "base",
+	2: "request_id",
+}
+
+type FindFiatPaymentResponse struct {
+	Base  *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Order *FiatPaymentOrder `thrift:"order,2" frugal:"2,default,FiatPaymentOrder" json:"order"`
+}
+
+func NewFindFiatPaymentResponse() *FindFiatPaymentResponse {
+	return &FindFiatPaymentResponse{}
+}
+
+func (p *FindFiatPaymentResponse) InitDefault() {
+}
+
+var FindFiatPaymentResponse_Base_DEFAULT *common.BaseResp
+
+func (p *FindFiatPaymentResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return FindFiatPaymentResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var FindFiatPaymentResponse_Order_DEFAULT *FiatPaymentOrder
+
+func (p *FindFiatPaymentResponse) GetOrder() (v *FiatPaymentOrder) {
+	if !p.IsSetOrder() {
+		return FindFiatPaymentResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+func (p *FindFiatPaymentResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *FindFiatPaymentResponse) SetOrder(val *FiatPaymentOrder) {
+	p.Order = val
+}
+
+func (p *FindFiatPaymentResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *FindFiatPaymentResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *FindFiatPaymentResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FindFiatPaymentResponse(%+v)", *p)
+}
+
+var fieldIDToName_FindFiatPaymentResponse = map[int16]string{
+	1: "base",
+	2: "order",
+}
+
+type FiatPaymentActionRequest struct {
+	Base    *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	OrderId string          `thrift:"order_id,2" frugal:"2,default,string" json:"order_id"`
+}
+
+func NewFiatPaymentActionRequest() *FiatPaymentActionRequest {
+	return &FiatPaymentActionRequest{}
+}
+
+func (p *FiatPaymentActionRequest) InitDefault() {
+}
+
+var FiatPaymentActionRequest_Base_DEFAULT *common.BaseReq
+
+func (p *FiatPaymentActionRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return FiatPaymentActionRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *FiatPaymentActionRequest) GetOrderId() (v string) {
+	return p.OrderId
+}
+func (p *FiatPaymentActionRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *FiatPaymentActionRequest) SetOrderId(val string) {
+	p.OrderId = val
+}
+
+func (p *FiatPaymentActionRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *FiatPaymentActionRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FiatPaymentActionRequest(%+v)", *p)
+}
+
+var fieldIDToName_FiatPaymentActionRequest = map[int16]string{
+	1: "base",
+	2: "order_id",
+}
+
+type FiatPaymentActionResponse struct {
+	Base       *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Order      *FiatPaymentOrder `thrift:"order,2,optional" frugal:"2,optional,FiatPaymentOrder" json:"order,omitempty"`
+	CashierUrl *string           `thrift:"cashier_url,3,optional" frugal:"3,optional,string" json:"cashier_url,omitempty"`
+	Mode       *string           `thrift:"mode,4,optional" frugal:"4,optional,string" json:"mode,omitempty"`
+}
+
+func NewFiatPaymentActionResponse() *FiatPaymentActionResponse {
+	return &FiatPaymentActionResponse{}
+}
+
+func (p *FiatPaymentActionResponse) InitDefault() {
+}
+
+var FiatPaymentActionResponse_Base_DEFAULT *common.BaseResp
+
+func (p *FiatPaymentActionResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return FiatPaymentActionResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var FiatPaymentActionResponse_Order_DEFAULT *FiatPaymentOrder
+
+func (p *FiatPaymentActionResponse) GetOrder() (v *FiatPaymentOrder) {
+	if !p.IsSetOrder() {
+		return FiatPaymentActionResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+
+var FiatPaymentActionResponse_CashierUrl_DEFAULT string
+
+func (p *FiatPaymentActionResponse) GetCashierUrl() (v string) {
+	if !p.IsSetCashierUrl() {
+		return FiatPaymentActionResponse_CashierUrl_DEFAULT
+	}
+	return *p.CashierUrl
+}
+
+var FiatPaymentActionResponse_Mode_DEFAULT string
+
+func (p *FiatPaymentActionResponse) GetMode() (v string) {
+	if !p.IsSetMode() {
+		return FiatPaymentActionResponse_Mode_DEFAULT
+	}
+	return *p.Mode
+}
+func (p *FiatPaymentActionResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *FiatPaymentActionResponse) SetOrder(val *FiatPaymentOrder) {
+	p.Order = val
+}
+func (p *FiatPaymentActionResponse) SetCashierUrl(val *string) {
+	p.CashierUrl = val
+}
+func (p *FiatPaymentActionResponse) SetMode(val *string) {
+	p.Mode = val
+}
+
+func (p *FiatPaymentActionResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *FiatPaymentActionResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *FiatPaymentActionResponse) IsSetCashierUrl() bool {
+	return p.CashierUrl != nil
+}
+
+func (p *FiatPaymentActionResponse) IsSetMode() bool {
+	return p.Mode != nil
+}
+
+func (p *FiatPaymentActionResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FiatPaymentActionResponse(%+v)", *p)
+}
+
+var fieldIDToName_FiatPaymentActionResponse = map[int16]string{
+	1: "base",
+	2: "order",
+	3: "cashier_url",
+	4: "mode",
+}
+
+type NotifyAlipayRequest struct {
+	Base       *common.BaseReq   `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	Parameters map[string]string `thrift:"parameters,2" frugal:"2,default,map<string:string>" json:"parameters"`
+}
+
+func NewNotifyAlipayRequest() *NotifyAlipayRequest {
+	return &NotifyAlipayRequest{}
+}
+
+func (p *NotifyAlipayRequest) InitDefault() {
+}
+
+var NotifyAlipayRequest_Base_DEFAULT *common.BaseReq
+
+func (p *NotifyAlipayRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return NotifyAlipayRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *NotifyAlipayRequest) GetParameters() (v map[string]string) {
+	return p.Parameters
+}
+func (p *NotifyAlipayRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *NotifyAlipayRequest) SetParameters(val map[string]string) {
+	p.Parameters = val
+}
+
+func (p *NotifyAlipayRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *NotifyAlipayRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("NotifyAlipayRequest(%+v)", *p)
+}
+
+var fieldIDToName_NotifyAlipayRequest = map[int16]string{
+	1: "base",
+	2: "parameters",
+}
+
+type NotifyAlipayResponse struct {
+	Base  *common.BaseResp  `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Order *FiatPaymentOrder `thrift:"order,2,optional" frugal:"2,optional,FiatPaymentOrder" json:"order,omitempty"`
+}
+
+func NewNotifyAlipayResponse() *NotifyAlipayResponse {
+	return &NotifyAlipayResponse{}
+}
+
+func (p *NotifyAlipayResponse) InitDefault() {
+}
+
+var NotifyAlipayResponse_Base_DEFAULT *common.BaseResp
+
+func (p *NotifyAlipayResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return NotifyAlipayResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var NotifyAlipayResponse_Order_DEFAULT *FiatPaymentOrder
+
+func (p *NotifyAlipayResponse) GetOrder() (v *FiatPaymentOrder) {
+	if !p.IsSetOrder() {
+		return NotifyAlipayResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+func (p *NotifyAlipayResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *NotifyAlipayResponse) SetOrder(val *FiatPaymentOrder) {
+	p.Order = val
+}
+
+func (p *NotifyAlipayResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *NotifyAlipayResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *NotifyAlipayResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("NotifyAlipayResponse(%+v)", *p)
+}
+
+var fieldIDToName_NotifyAlipayResponse = map[int16]string{
+	1: "base",
+	2: "order",
+}
+
 type PaymentService interface {
 	InitiatePayment(ctx context.Context, req *InitiatePaymentRequest) (r *InitiatePaymentResponse, err error)
 
@@ -943,6 +1766,20 @@ type PaymentService interface {
 	ListPaymentHistory(ctx context.Context, req *ListPaymentHistoryRequest) (r *ListPaymentHistoryResponse, err error)
 
 	GetPaymentRequirement(ctx context.Context, req *GetPaymentRequirementRequest) (r *GetPaymentRequirementResponse, err error)
+
+	CreateFiatPayment(ctx context.Context, req *CreateFiatPaymentRequest) (r *CreateFiatPaymentResponse, err error)
+
+	GetFiatPayment(ctx context.Context, req *GetFiatPaymentRequest) (r *GetFiatPaymentResponse, err error)
+
+	FindFiatPayment(ctx context.Context, req *FindFiatPaymentRequest) (r *FindFiatPaymentResponse, err error)
+
+	CheckoutFiatPayment(ctx context.Context, req *FiatPaymentActionRequest) (r *FiatPaymentActionResponse, err error)
+
+	ReconcileFiatPayment(ctx context.Context, req *FiatPaymentActionRequest) (r *FiatPaymentActionResponse, err error)
+
+	SimulateFiatPayment(ctx context.Context, req *FiatPaymentActionRequest) (r *FiatPaymentActionResponse, err error)
+
+	NotifyAlipay(ctx context.Context, req *NotifyAlipayRequest) (r *NotifyAlipayResponse, err error)
 }
 
 type PaymentServiceInitiatePaymentArgs struct {
@@ -1246,5 +2083,537 @@ func (p *PaymentServiceGetPaymentRequirementResult) String() string {
 }
 
 var fieldIDToName_PaymentServiceGetPaymentRequirementResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceCreateFiatPaymentArgs struct {
+	Req *CreateFiatPaymentRequest `thrift:"req,1" frugal:"1,default,CreateFiatPaymentRequest" json:"req"`
+}
+
+func NewPaymentServiceCreateFiatPaymentArgs() *PaymentServiceCreateFiatPaymentArgs {
+	return &PaymentServiceCreateFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceCreateFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceCreateFiatPaymentArgs_Req_DEFAULT *CreateFiatPaymentRequest
+
+func (p *PaymentServiceCreateFiatPaymentArgs) GetReq() (v *CreateFiatPaymentRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceCreateFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceCreateFiatPaymentArgs) SetReq(val *CreateFiatPaymentRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceCreateFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceCreateFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceCreateFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceCreateFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceCreateFiatPaymentResult struct {
+	Success *CreateFiatPaymentResponse `thrift:"success,0,optional" frugal:"0,optional,CreateFiatPaymentResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceCreateFiatPaymentResult() *PaymentServiceCreateFiatPaymentResult {
+	return &PaymentServiceCreateFiatPaymentResult{}
+}
+
+func (p *PaymentServiceCreateFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceCreateFiatPaymentResult_Success_DEFAULT *CreateFiatPaymentResponse
+
+func (p *PaymentServiceCreateFiatPaymentResult) GetSuccess() (v *CreateFiatPaymentResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceCreateFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceCreateFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CreateFiatPaymentResponse)
+}
+
+func (p *PaymentServiceCreateFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceCreateFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceCreateFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceCreateFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceGetFiatPaymentArgs struct {
+	Req *GetFiatPaymentRequest `thrift:"req,1" frugal:"1,default,GetFiatPaymentRequest" json:"req"`
+}
+
+func NewPaymentServiceGetFiatPaymentArgs() *PaymentServiceGetFiatPaymentArgs {
+	return &PaymentServiceGetFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceGetFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceGetFiatPaymentArgs_Req_DEFAULT *GetFiatPaymentRequest
+
+func (p *PaymentServiceGetFiatPaymentArgs) GetReq() (v *GetFiatPaymentRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceGetFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceGetFiatPaymentArgs) SetReq(val *GetFiatPaymentRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceGetFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceGetFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceGetFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceGetFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceGetFiatPaymentResult struct {
+	Success *GetFiatPaymentResponse `thrift:"success,0,optional" frugal:"0,optional,GetFiatPaymentResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceGetFiatPaymentResult() *PaymentServiceGetFiatPaymentResult {
+	return &PaymentServiceGetFiatPaymentResult{}
+}
+
+func (p *PaymentServiceGetFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceGetFiatPaymentResult_Success_DEFAULT *GetFiatPaymentResponse
+
+func (p *PaymentServiceGetFiatPaymentResult) GetSuccess() (v *GetFiatPaymentResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceGetFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceGetFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GetFiatPaymentResponse)
+}
+
+func (p *PaymentServiceGetFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceGetFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceGetFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceGetFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceFindFiatPaymentArgs struct {
+	Req *FindFiatPaymentRequest `thrift:"req,1" frugal:"1,default,FindFiatPaymentRequest" json:"req"`
+}
+
+func NewPaymentServiceFindFiatPaymentArgs() *PaymentServiceFindFiatPaymentArgs {
+	return &PaymentServiceFindFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceFindFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceFindFiatPaymentArgs_Req_DEFAULT *FindFiatPaymentRequest
+
+func (p *PaymentServiceFindFiatPaymentArgs) GetReq() (v *FindFiatPaymentRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceFindFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceFindFiatPaymentArgs) SetReq(val *FindFiatPaymentRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceFindFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceFindFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceFindFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceFindFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceFindFiatPaymentResult struct {
+	Success *FindFiatPaymentResponse `thrift:"success,0,optional" frugal:"0,optional,FindFiatPaymentResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceFindFiatPaymentResult() *PaymentServiceFindFiatPaymentResult {
+	return &PaymentServiceFindFiatPaymentResult{}
+}
+
+func (p *PaymentServiceFindFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceFindFiatPaymentResult_Success_DEFAULT *FindFiatPaymentResponse
+
+func (p *PaymentServiceFindFiatPaymentResult) GetSuccess() (v *FindFiatPaymentResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceFindFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceFindFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*FindFiatPaymentResponse)
+}
+
+func (p *PaymentServiceFindFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceFindFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceFindFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceFindFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceCheckoutFiatPaymentArgs struct {
+	Req *FiatPaymentActionRequest `thrift:"req,1" frugal:"1,default,FiatPaymentActionRequest" json:"req"`
+}
+
+func NewPaymentServiceCheckoutFiatPaymentArgs() *PaymentServiceCheckoutFiatPaymentArgs {
+	return &PaymentServiceCheckoutFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceCheckoutFiatPaymentArgs_Req_DEFAULT *FiatPaymentActionRequest
+
+func (p *PaymentServiceCheckoutFiatPaymentArgs) GetReq() (v *FiatPaymentActionRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceCheckoutFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceCheckoutFiatPaymentArgs) SetReq(val *FiatPaymentActionRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceCheckoutFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceCheckoutFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceCheckoutFiatPaymentResult struct {
+	Success *FiatPaymentActionResponse `thrift:"success,0,optional" frugal:"0,optional,FiatPaymentActionResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceCheckoutFiatPaymentResult() *PaymentServiceCheckoutFiatPaymentResult {
+	return &PaymentServiceCheckoutFiatPaymentResult{}
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceCheckoutFiatPaymentResult_Success_DEFAULT *FiatPaymentActionResponse
+
+func (p *PaymentServiceCheckoutFiatPaymentResult) GetSuccess() (v *FiatPaymentActionResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceCheckoutFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceCheckoutFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*FiatPaymentActionResponse)
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceCheckoutFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceCheckoutFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceCheckoutFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceReconcileFiatPaymentArgs struct {
+	Req *FiatPaymentActionRequest `thrift:"req,1" frugal:"1,default,FiatPaymentActionRequest" json:"req"`
+}
+
+func NewPaymentServiceReconcileFiatPaymentArgs() *PaymentServiceReconcileFiatPaymentArgs {
+	return &PaymentServiceReconcileFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceReconcileFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceReconcileFiatPaymentArgs_Req_DEFAULT *FiatPaymentActionRequest
+
+func (p *PaymentServiceReconcileFiatPaymentArgs) GetReq() (v *FiatPaymentActionRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceReconcileFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceReconcileFiatPaymentArgs) SetReq(val *FiatPaymentActionRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceReconcileFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceReconcileFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceReconcileFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceReconcileFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceReconcileFiatPaymentResult struct {
+	Success *FiatPaymentActionResponse `thrift:"success,0,optional" frugal:"0,optional,FiatPaymentActionResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceReconcileFiatPaymentResult() *PaymentServiceReconcileFiatPaymentResult {
+	return &PaymentServiceReconcileFiatPaymentResult{}
+}
+
+func (p *PaymentServiceReconcileFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceReconcileFiatPaymentResult_Success_DEFAULT *FiatPaymentActionResponse
+
+func (p *PaymentServiceReconcileFiatPaymentResult) GetSuccess() (v *FiatPaymentActionResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceReconcileFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceReconcileFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*FiatPaymentActionResponse)
+}
+
+func (p *PaymentServiceReconcileFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceReconcileFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceReconcileFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceReconcileFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceSimulateFiatPaymentArgs struct {
+	Req *FiatPaymentActionRequest `thrift:"req,1" frugal:"1,default,FiatPaymentActionRequest" json:"req"`
+}
+
+func NewPaymentServiceSimulateFiatPaymentArgs() *PaymentServiceSimulateFiatPaymentArgs {
+	return &PaymentServiceSimulateFiatPaymentArgs{}
+}
+
+func (p *PaymentServiceSimulateFiatPaymentArgs) InitDefault() {
+}
+
+var PaymentServiceSimulateFiatPaymentArgs_Req_DEFAULT *FiatPaymentActionRequest
+
+func (p *PaymentServiceSimulateFiatPaymentArgs) GetReq() (v *FiatPaymentActionRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceSimulateFiatPaymentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceSimulateFiatPaymentArgs) SetReq(val *FiatPaymentActionRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceSimulateFiatPaymentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceSimulateFiatPaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceSimulateFiatPaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceSimulateFiatPaymentArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceSimulateFiatPaymentResult struct {
+	Success *FiatPaymentActionResponse `thrift:"success,0,optional" frugal:"0,optional,FiatPaymentActionResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceSimulateFiatPaymentResult() *PaymentServiceSimulateFiatPaymentResult {
+	return &PaymentServiceSimulateFiatPaymentResult{}
+}
+
+func (p *PaymentServiceSimulateFiatPaymentResult) InitDefault() {
+}
+
+var PaymentServiceSimulateFiatPaymentResult_Success_DEFAULT *FiatPaymentActionResponse
+
+func (p *PaymentServiceSimulateFiatPaymentResult) GetSuccess() (v *FiatPaymentActionResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceSimulateFiatPaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceSimulateFiatPaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*FiatPaymentActionResponse)
+}
+
+func (p *PaymentServiceSimulateFiatPaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceSimulateFiatPaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceSimulateFiatPaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceSimulateFiatPaymentResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceNotifyAlipayArgs struct {
+	Req *NotifyAlipayRequest `thrift:"req,1" frugal:"1,default,NotifyAlipayRequest" json:"req"`
+}
+
+func NewPaymentServiceNotifyAlipayArgs() *PaymentServiceNotifyAlipayArgs {
+	return &PaymentServiceNotifyAlipayArgs{}
+}
+
+func (p *PaymentServiceNotifyAlipayArgs) InitDefault() {
+}
+
+var PaymentServiceNotifyAlipayArgs_Req_DEFAULT *NotifyAlipayRequest
+
+func (p *PaymentServiceNotifyAlipayArgs) GetReq() (v *NotifyAlipayRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceNotifyAlipayArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceNotifyAlipayArgs) SetReq(val *NotifyAlipayRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceNotifyAlipayArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceNotifyAlipayArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceNotifyAlipayArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceNotifyAlipayArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceNotifyAlipayResult struct {
+	Success *NotifyAlipayResponse `thrift:"success,0,optional" frugal:"0,optional,NotifyAlipayResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceNotifyAlipayResult() *PaymentServiceNotifyAlipayResult {
+	return &PaymentServiceNotifyAlipayResult{}
+}
+
+func (p *PaymentServiceNotifyAlipayResult) InitDefault() {
+}
+
+var PaymentServiceNotifyAlipayResult_Success_DEFAULT *NotifyAlipayResponse
+
+func (p *PaymentServiceNotifyAlipayResult) GetSuccess() (v *NotifyAlipayResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceNotifyAlipayResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceNotifyAlipayResult) SetSuccess(x interface{}) {
+	p.Success = x.(*NotifyAlipayResponse)
+}
+
+func (p *PaymentServiceNotifyAlipayResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceNotifyAlipayResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceNotifyAlipayResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceNotifyAlipayResult = map[int16]string{
 	0: "success",
 }

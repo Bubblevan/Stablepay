@@ -2,6 +2,8 @@
 
 部署日期：2026-10-28。服务器 `bubblevan.de5.net`（47.107.141.70），Linux amd64。
 
+截至 2026-11-02，以下付款和资源证据属于 10 月 28 日部署的旧版单机 MVP。该主机尚未部署当前 Kitex Alipay Adapter / Hertz Gateway / MySQL outbox 改造；源代码改动不能视为已上线或已由公网交易验证。
+
 ## 当前地址与验证
 
 - PAYATHON沙箱页面：`https://bubblevan.de5.net/payathon`

@@ -15,6 +15,13 @@ type PaymentServiceClient interface {
 	GetPaymentRequirement(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
 	GetPayment(ctx context.Context, txID string) (map[string]interface{}, int, int, error)
 	GetPaymentHistory(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
+	CreateFiatPayment(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
+	GetFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
+	FindFiatPayment(ctx context.Context, requestID string) (map[string]interface{}, int, int, error)
+	CheckoutFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
+	ReconcileFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
+	SimulateFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
+	NotifyAlipay(ctx context.Context, parameters map[string]string) error
 }
 
 type VerificationServiceClient interface {

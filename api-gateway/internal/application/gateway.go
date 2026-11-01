@@ -48,6 +48,18 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 		return s.payment.GetPayment(ctx, getString(req, "tx_id"))
 	case "payment.history":
 		return s.payment.GetPaymentHistory(ctx, req)
+	case "fiat.create":
+		return s.payment.CreateFiatPayment(ctx, req)
+	case "fiat.get":
+		return s.payment.GetFiatPayment(ctx, getString(req, "order_id"))
+	case "fiat.find":
+		return s.payment.FindFiatPayment(ctx, getString(req, "request_id"))
+	case "fiat.checkout":
+		return s.payment.CheckoutFiatPayment(ctx, getString(req, "order_id"))
+	case "fiat.reconcile":
+		return s.payment.ReconcileFiatPayment(ctx, getString(req, "order_id"))
+	case "fiat.simulate":
+		return s.payment.SimulateFiatPayment(ctx, getString(req, "order_id"))
 	case "verification.verify":
 		return s.verification.Verify(ctx, req)
 	case "verification.batch":
@@ -83,6 +95,10 @@ func (s *Service) Dispatch(ctx context.Context, routeName string, req map[string
 	default:
 		return nil, 404, 10002, fmt.Errorf("route not found")
 	}
+}
+
+func (s *Service) NotifyAlipay(ctx context.Context, parameters map[string]string) error {
+	return s.payment.NotifyAlipay(ctx, parameters)
 }
 
 func getString(in map[string]interface{}, key string) string {

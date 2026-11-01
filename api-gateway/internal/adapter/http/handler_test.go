@@ -57,6 +57,26 @@ func (c *capturePaymentClient) GetPaymentHistory(context.Context, map[string]int
 	return map[string]interface{}{}, http.StatusOK, 0, nil
 }
 
+func (c *capturePaymentClient) CreateFiatPayment(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) GetFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) FindFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) CheckoutFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) ReconcileFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) SimulateFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, http.StatusOK, 0, nil
+}
+func (c *capturePaymentClient) NotifyAlipay(context.Context, map[string]string) error { return nil }
+
 type noopDIDClient struct{}
 
 func (n *noopDIDClient) CreateDID(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {

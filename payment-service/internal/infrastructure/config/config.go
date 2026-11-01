@@ -91,6 +91,7 @@ type RocketMQConfig struct {
 type RpcClientsConfig struct {
 	DIDService        RpcClientConfig `yaml:"did_service"`
 	BlockchainAdapter RpcClientConfig `yaml:"blockchain_adapter"`
+	AlipayAdapter     RpcClientConfig `yaml:"alipay_adapter"`
 }
 
 // RpcClientConfig RPC 客户端配置

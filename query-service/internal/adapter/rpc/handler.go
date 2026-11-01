@@ -122,5 +122,8 @@ func currencyLabel(code int32) string {
 	if code == 2 {
 		return "USDT"
 	}
+	if code == 3 {
+		return "CNY"
+	}
 	return "USDC"
 }

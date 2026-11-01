@@ -1,5 +1,5 @@
 // Package procurementmvp composes procurement guard, buyer confirmation and
-// payment-service's CNY HTTP boundary. It does not sign or verify Alipay itself.
+// the public Hertz Gateway. Payment Service owns CNY settlement and Alipay proof.
 package procurementmvp
 
 import (
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -114,42 +115,88 @@ type PaymentOrder struct {
 	Currency    string `json:"currency"`
 	Mode        string `json:"mode"`
 	Status      string `json:"status"`
+	AgentDID    string `json:"agent_did"`
+	SkillDID    string `json:"skill_did"`
 	TradeNo     string `json:"trade_no"`
 	VerifiedBy  string `json:"verified_by"`
 }
 type PaymentClient struct {
-	BaseURL, Token string
-	Client         *http.Client
+	BaseURL, Token, Mode string
+	Client               *http.Client
 }
 
 func (c PaymentClient) call(ctx context.Context, method, path string, input, output any) error {
+	base, err := url.Parse(strings.TrimRight(strings.TrimSpace(c.BaseURL), "/"))
+	if err != nil || base.User != nil || base.Path != "" || base.RawQuery != "" || base.Fragment != "" || (base.Scheme != "https" && !(base.Scheme == "http" && (base.Hostname() == "localhost" || base.Hostname() == "127.0.0.1" || base.Hostname() == "::1" || base.Hostname() == "stablepay-api-gateway"))) {
+		return errors.New("支付请求必须经由本机或 HTTPS Hertz API Gateway")
+	}
+	if len(c.Token) < 24 {
+		return errors.New("StablePay API Gateway 凭据未配置")
+	}
 	var body io.Reader
 	if input != nil {
-		raw, _ := json.Marshal(input)
+		raw, err := json.Marshal(input)
+		if err != nil {
+			return err
+		}
 		body = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, base.String()+path, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Key", c.Token)
+	req.Header.Set("X-StablePay-Nonce", hex.EncodeToString(nonce[:]))
+	req.Header.Set("X-StablePay-Timestamp", fmt.Sprintf("%d", time.Now().UTC().UnixMilli()))
 	req.Header.Set("Content-Type", "application/json")
+	if fields, ok := input.(map[string]any); ok {
+		if requestID, ok := fields["request_id"].(string); ok && requestID != "" {
+			req.Header.Set("X-Idempotency-Key", requestID)
+		}
+	}
 	client := c.Client
 	if client == nil {
 		client = &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	} else {
+		client = &http.Client{Transport: client.Transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Jar: client.Jar, Timeout: client.Timeout}
 	}
 	response, err := client.Do(req)
 	if err != nil {
 		return errors.New("支付服务暂不可用；当前订单状态可稍后重查")
 	}
 	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		Code    *int            `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Code != nil {
+		if response.StatusCode < 200 || response.StatusCode >= 300 || *envelope.Code != 0 {
+			if envelope.Message != "" {
+				return fmt.Errorf("Hertz API Gateway 拒绝请求（HTTP %d）：%s", response.StatusCode, envelope.Message)
+			}
+			return fmt.Errorf("Hertz API Gateway 拒绝请求（HTTP %d）", response.StatusCode)
+		}
+		if output == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+			return nil
+		}
+		return json.Unmarshal(envelope.Data, output)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("支付服务拒绝请求（HTTP %d），请检查支付环境与订单状态", response.StatusCode)
+		return fmt.Errorf("Hertz API Gateway 拒绝请求（HTTP %d）", response.StatusCode)
 	}
 	if output == nil {
 		return nil
 	}
-	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(output)
+	return json.Unmarshal(raw, output)
 }
 
 type Service struct {
@@ -158,18 +205,15 @@ type Service struct {
 	Planner IntentPlanner
 }
 
-func (s *Service) PaymentMode(ctx context.Context) (string, error) {
-	var result struct {
-		Mode string `json:"mode"`
+func (s *Service) PaymentMode(_ context.Context) (string, error) {
+	mode := strings.TrimSpace(s.Payment.Mode)
+	if mode == "" {
+		mode = "local"
 	}
-	err := s.Payment.call(ctx, "GET", "/v1/fiat/status", nil, &result)
-	if err != nil {
-		return "", err
-	}
-	if result.Mode != "local" && result.Mode != "alipay_sandbox" {
+	if mode != "local" && mode != "alipay_sandbox" {
 		return "", errors.New("支付环境无效")
 	}
-	return result.Mode, nil
+	return mode, nil
 }
 func (s *Service) CreatePlan(ctx context.Context, owner, prompt, serviceBudget string, input procurement.Input) (Plan, error) {
 	if len(prompt) > 4000 {
@@ -309,11 +353,19 @@ func (s *Service) ensurePayment(ctx context.Context, purchase Purchase) (Purchas
 	if purchase.PaymentID != "" {
 		return purchase, nil
 	}
-	var order PaymentOrder
-	err := s.Payment.call(ctx, "POST", "/v1/fiat/orders", map[string]any{"request_id": purchase.ID, "product_id": purchase.Quote.Product.ID, "subject": purchase.Quote.Product.Name, "quote_hash": purchase.Quote.Hash, "approval_ref": purchase.ApprovalRef, "amount_minor": purchase.Quote.Product.AmountMinor, "currency": "CNY"}, &order)
+	var result struct {
+		Order PaymentOrder `json:"order"`
+	}
+	err := s.Payment.call(ctx, "POST", "/api/v1/fiat/orders", map[string]any{
+		"request_id": purchase.ID, "product_id": purchase.Quote.Product.ID, "subject": purchase.Quote.Product.Name,
+		"quote_hash": purchase.Quote.Hash, "approval_ref": purchase.ApprovalRef,
+		"agent_did": paymentAgentDID(purchase.Owner), "skill_did": paymentSkillDID(purchase.Quote.Product.ID),
+		"amount_minor": purchase.Quote.Product.AmountMinor, "currency": "CNY",
+	}, &result)
 	if err != nil {
 		return purchase, err
 	}
+	order := result.Order
 	if !matches(purchase, order) {
 		return purchase, ErrConflict
 	}
@@ -330,8 +382,10 @@ func (s *Service) ensurePayment(ctx context.Context, purchase Purchase) (Purchas
 	return purchase, err
 }
 func matches(p Purchase, o PaymentOrder) bool {
-	return o.ID != "" && o.RequestID == p.ID && o.ProductID == p.Quote.Product.ID && o.AmountMinor == p.Quote.Product.AmountMinor && o.Currency == "CNY" && o.Mode == p.Quote.Mode && o.QuoteHash == p.Quote.Hash && o.ApprovalRef == p.ApprovalRef
+	return o.ID != "" && o.RequestID == p.ID && o.ProductID == p.Quote.Product.ID && o.AmountMinor == p.Quote.Product.AmountMinor && o.Currency == "CNY" && o.Mode == p.Quote.Mode && o.QuoteHash == p.Quote.Hash && o.ApprovalRef == p.ApprovalRef && o.AgentDID == paymentAgentDID(p.Owner) && o.SkillDID == paymentSkillDID(p.Quote.Product.ID)
 }
+func paymentAgentDID(owner string) string   { return "did:stablepay:agent:" + owner }
+func paymentSkillDID(product string) string { return "did:stablepay:service:" + product }
 func (s *Service) Checkout(ctx context.Context, owner, purchaseID string) (map[string]string, error) {
 	p, err := s.Get(owner, purchaseID)
 	if err != nil {
@@ -345,7 +399,7 @@ func (s *Service) Checkout(ctx context.Context, owner, purchaseID string) (map[s
 		return nil, ErrConflict
 	}
 	var result map[string]string
-	err = s.Payment.call(ctx, "POST", "/v1/fiat/orders/"+p.PaymentID+"/checkout", nil, &result)
+	err = s.Payment.call(ctx, "POST", "/api/v1/fiat/orders/"+url.PathEscape(p.PaymentID)+"/checkout", nil, &result)
 	return result, err
 }
 func (s *Service) Reconcile(ctx context.Context, owner, purchaseID string, simulate bool) (Purchase, error) {
@@ -364,11 +418,14 @@ func (s *Service) Reconcile(ctx context.Context, owner, purchaseID string, simul
 		}
 		action = "simulate"
 	}
-	var order PaymentOrder
-	err = s.Payment.call(ctx, "POST", "/v1/fiat/orders/"+p.PaymentID+"/"+action, nil, &order)
+	var result struct {
+		Order PaymentOrder `json:"order"`
+	}
+	err = s.Payment.call(ctx, "POST", "/api/v1/fiat/orders/"+url.PathEscape(p.PaymentID)+"/"+action, nil, &result)
 	if err != nil {
 		return p, err
 	}
+	order := result.Order
 	if !matches(p, order) {
 		return p, ErrConflict
 	}

@@ -98,10 +98,65 @@ struct GetPaymentRequirementResponse {
   8: optional string payment_endpoint,
 }
 
+/** Provider-neutral CNY order managed by payment-service. */
+struct FiatPaymentOrder {
+  1: string id,
+  2: string request_id,
+  3: string product_id,
+  4: string subject,
+  5: string quote_hash,
+  6: string approval_ref,
+  7: string agent_did,
+  8: string skill_did,
+  9: i64 amount_minor,
+  10: string currency,
+  11: string mode,
+  12: string status,
+  13: optional string trade_no,
+  14: optional string verified_by,
+  15: string created_at,
+  16: optional string paid_at,
+}
+
+struct CreateFiatPaymentRequest {
+  1: common.BaseReq base,
+  2: string request_id,
+  3: string product_id,
+  4: string subject,
+  5: string quote_hash,
+  6: string approval_ref,
+  7: common.DID agent_did,
+  8: common.DID skill_did,
+  9: i64 amount_minor,
+  10: string currency,
+  11: string nonce,
+}
+struct CreateFiatPaymentResponse { 1: common.BaseResp base, 2: FiatPaymentOrder order }
+struct GetFiatPaymentRequest { 1: common.BaseReq base, 2: string order_id }
+struct GetFiatPaymentResponse { 1: common.BaseResp base, 2: FiatPaymentOrder order }
+struct FindFiatPaymentRequest { 1: common.BaseReq base, 2: string request_id }
+struct FindFiatPaymentResponse { 1: common.BaseResp base, 2: FiatPaymentOrder order }
+struct FiatPaymentActionRequest { 1: common.BaseReq base, 2: string order_id }
+struct FiatPaymentActionResponse {
+  1: common.BaseResp base,
+  2: optional FiatPaymentOrder order,
+  3: optional string cashier_url,
+  4: optional string mode,
+}
+struct NotifyAlipayRequest { 1: common.BaseReq base, 2: map<string, string> parameters }
+struct NotifyAlipayResponse { 1: common.BaseResp base, 2: optional FiatPaymentOrder order }
+
 service PaymentService {
   InitiatePaymentResponse InitiatePayment(1: InitiatePaymentRequest req),
   GetPaymentStatusResponse GetPaymentStatus(1: GetPaymentStatusRequest req),
   ListPaymentHistoryResponse ListPaymentHistory(1: ListPaymentHistoryRequest req),
   GetPaymentRequirementResponse GetPaymentRequirement(1: GetPaymentRequirementRequest req),
+  CreateFiatPaymentResponse CreateFiatPayment(1: CreateFiatPaymentRequest req),
+  GetFiatPaymentResponse GetFiatPayment(1: GetFiatPaymentRequest req),
+  FindFiatPaymentResponse FindFiatPayment(1: FindFiatPaymentRequest req),
+  FiatPaymentActionResponse CheckoutFiatPayment(1: FiatPaymentActionRequest req),
+  FiatPaymentActionResponse ReconcileFiatPayment(1: FiatPaymentActionRequest req),
+  FiatPaymentActionResponse SimulateFiatPayment(1: FiatPaymentActionRequest req),
+  NotifyAlipayResponse NotifyAlipay(1: NotifyAlipayRequest req),
 }
 

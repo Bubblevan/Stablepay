@@ -7,8 +7,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"github.com/stablepay/api-gateway/internal/domain"
 	"github.com/stablepay/api-gateway/internal/adapter/http/middleware"
+	"github.com/stablepay/api-gateway/internal/domain"
 )
 
 func RegisterRoutes(
@@ -26,6 +26,7 @@ func RegisterRoutes(
 	h.HEAD("/healthz", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(consts.StatusOK, map[string]any{"status": "ok"})
 	})
+	h.POST("/api/payments/alipay/notify", handler.NotifyAlipay)
 	h.GET("/readyz", func(ctx context.Context, c *app.RequestContext) {
 		if !readyState.IsReady() {
 			c.JSON(consts.StatusServiceUnavailable, map[string]any{"status": "not_ready"})

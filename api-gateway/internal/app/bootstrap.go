@@ -39,12 +39,11 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 			Password: cfg.Redis.Password,
 			DB:       cfg.Redis.DB,
 		})
-		if err := rdb.Ping(context.Background()).Err(); err == nil {
-			limiter = ratelimit.NewRedisLimiter(rdb, "stablepay:rl:")
-			nonceStore = auth.NewRedisNonceStore(rdb, "stablepay:nonce:")
-		} else {
-			logger.Warn("redis disabled due to ping failure", map[string]interface{}{"error": err.Error()})
+		if err := rdb.Ping(context.Background()).Err(); err != nil {
+			return nil, fmt.Errorf("configured Redis is unavailable: %w", err)
 		}
+		limiter = ratelimit.NewRedisLimiter(rdb, "stablepay:rl:")
+		nonceStore = auth.NewRedisNonceStore(rdb, "stablepay:nonce:")
 	}
 	if limiter == nil {
 		limiter = ratelimit.NewMemoryLimiter()
@@ -110,7 +109,7 @@ func New(cfg *config.AppConfig, logger *observability.Logger) (*Instance, error)
 		middleware.ReplayProtection(cfg.Security, nonceStore),
 		middleware.RateLimit(limiter),
 	)
-	if err := http.RegisterProcurementProxy(h, os.Getenv("PROCUREMENT_MVP_URL"), os.Getenv("FIAT_PAYMENT_HTTP_URL")); err != nil {
+	if err := http.RegisterProcurementProxy(h, os.Getenv("PROCUREMENT_MVP_URL")); err != nil {
 		return nil, err
 	}
 

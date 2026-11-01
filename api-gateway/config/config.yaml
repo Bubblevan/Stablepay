@@ -14,7 +14,7 @@ security:
   canonical_version: "v0.1"
 
 redis:
-  enabled: false
+  enabled: true
   addr: "127.0.0.1:6379"
   password: ""
   db: 0
@@ -109,6 +109,55 @@ routes:
     retry: 1
     auth: "did"
     rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+
+  - name: "fiat.create"
+    method: "POST"
+    path: "/api/v1/fiat/orders"
+    target: "payment-service"
+    timeout_ms: 10000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
+  - name: "fiat.get"
+    method: "GET"
+    path: "/api/v1/fiat/orders/:order_id"
+    target: "payment-service"
+    timeout_ms: 3000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "fiat.find"
+    method: "GET"
+    path: "/api/v1/fiat/requests/:request_id"
+    target: "payment-service"
+    timeout_ms: 3000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 30 }
+  - name: "fiat.checkout"
+    method: "POST"
+    path: "/api/v1/fiat/orders/:order_id/checkout"
+    target: "payment-service"
+    timeout_ms: 10000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
+  - name: "fiat.reconcile"
+    method: "POST"
+    path: "/api/v1/fiat/orders/:order_id/reconcile"
+    target: "payment-service"
+    timeout_ms: 15000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
+  - name: "fiat.simulate"
+    method: "POST"
+    path: "/api/v1/fiat/orders/:order_id/simulate"
+    target: "payment-service"
+    timeout_ms: 10000
+    retry: 0
+    auth: "api_key"
+    rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 10 }
 
   - name: "verification.verify"
     method: "GET"

@@ -15,22 +15,14 @@ import (
 )
 
 // The browser session and CSRF boundary lives in Commerce Runtime. The gateway
-// forwards only its narrow MVP surface; payment-service's private order API is
-// never exposed. Alipay's public notify route authenticates by RSA2 signature.
-func RegisterProcurementProxy(h *server.Hertz, runtimeURL, paymentURL string) error {
+// forwards only its narrow MVP surface; payment-service has no public HTTP API.
+func RegisterProcurementProxy(h *server.Hertz, runtimeURL string, _ ...string) error {
 	if runtimeURL != "" {
 		handler, err := bufferedProxy(runtimeURL, "", "/api/mvp/")
 		if err != nil {
 			return err
 		}
 		h.Any("/api/mvp/*path", handler)
-	}
-	if paymentURL != "" {
-		handler, err := bufferedProxy(paymentURL, "/v1/fiat/alipay/notify", "")
-		if err != nil {
-			return err
-		}
-		h.POST("/api/payments/alipay/notify", handler)
 	}
 	return nil
 }

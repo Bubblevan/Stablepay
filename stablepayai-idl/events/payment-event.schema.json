@@ -16,7 +16,7 @@
     "agent_did": {"type": "string", "minLength": 1},
     "skill_did": {"type": "string", "minLength": 1},
     "amount_minor": {"type": "integer", "exclusiveMinimum": 0},
-    "currency": {"enum": ["USDC", "USDT"]},
+    "currency": {"enum": ["USDC", "USDT", "CNY"]},
     "tx_hash": {"type": "string"},
     "status": {"enum": ["COMPLETED", "CONFIRMED", "FAILED", "CANCELLED"]},
     "occurred_at": {"type": "string", "format": "date-time"},

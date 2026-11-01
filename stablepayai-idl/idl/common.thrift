@@ -34,6 +34,7 @@ enum ErrorCode {
 enum Currency {
   USDC = 1,
   USDT = 2,
+  CNY = 3,
 }
 
 enum PaymentStatus {
