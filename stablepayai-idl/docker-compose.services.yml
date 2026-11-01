@@ -21,10 +21,21 @@ services:
     container_name: stablepay-payment-service
     environment:
       - CONFIG_PATH=config/docker.yaml
+      - FIAT_PAYMENT_MODE=${FIAT_PAYMENT_MODE:-local}
+      - FIAT_SCHEMA_AUTO_MIGRATE=${FIAT_SCHEMA_AUTO_MIGRATE:-false}
     ports:
-      - "8082:8082"
+      - "8888:8888"
     depends_on:
-      - did-service
+      did-service:
+        condition: service_started
+      blockchain-adapter:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_started
     networks:
       - stablepay-network
     restart: unless-stopped
@@ -39,6 +50,29 @@ services:
       - ../blockchain-adapter/conf:/app/conf:ro
     ports:
       - "8083:8083"
+    networks:
+      - stablepay-network
+    restart: unless-stopped
+
+  alipay-adapter:
+    profiles: ["alipay-sandbox"]
+    build:
+      context: ..
+      dockerfile: alipay-adapter/Dockerfile
+    image: stablepay-alipay-adapter:latest
+    container_name: stablepay-alipay-adapter
+    environment:
+      - ALIPAY_ADAPTER_RPC_PORT=8086
+      - ALIPAY_APP_ID
+      - ALIPAY_SELLER_ID
+      - ALIPAY_PRIVATE_KEY_FILE=/run/secrets/alipay/app-private.pem
+      - ALIPAY_PUBLIC_KEY_FILE=/run/secrets/alipay/alipay-public.pem
+      - ALIPAY_NOTIFY_URL
+      - ALIPAY_RETURN_URL
+    volumes:
+      - ${ALIPAY_KEYS_DIR:?set ALIPAY_KEYS_DIR}:/run/secrets/alipay:ro
+    ports:
+      - "8086:8086"
     networks:
       - stablepay-network
     restart: unless-stopped
@@ -58,6 +92,11 @@ services:
     ports:
       - "8085:8085"
       - "8185:8185"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_started
     networks:
       - stablepay-network
     restart: unless-stopped
@@ -70,6 +109,9 @@ services:
     ports:
       - "8084:8084"
       - "8184:8184"
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       - MYSQL_HOST=stablepay-mysql
       - MYSQL_PORT=3306
@@ -87,13 +129,23 @@ services:
         GITTOKEN: ${GITTOKEN:-}
     image: stablepay-api-gateway:latest
     container_name: stablepay-api-gateway
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+      - GATEWAY_API_KEY
+      - PROCUREMENT_MVP_URL
     ports:
       - "28080:8080"
     depends_on:
-      - did-service
-      - payment-service
-      - verification-service
-      - query-service
+      did-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      verification-service:
+        condition: service_started
+      query-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - stablepay-network
     restart: unless-stopped

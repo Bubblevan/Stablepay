@@ -28,7 +28,7 @@ async function tool(command, args, execute = exec) {
   // All parameters are argv elements; merchant text and signed URLs never
   // become a shell command. Prevent inherited model/payment credentials from
   // leaking into this independent official payment tool.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(LLM_|ALIPAY_(APP|SELLER|PRIVATE|PUBLIC|KEY)|FIAT_INTERNAL_TOKEN|SOLANA_)/i.test(name)))
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(LLM_|ALIPAY_(APP|SELLER|PRIVATE|PUBLIC|KEY)|FIAT_|GATEWAY_|STABLEPAY_|COMMERCE_RUNTIME_|SOLANA_)/i.test(name)))
   return execute(await executable(), [command, ...args, '--json'], { shell: false, windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024, env })
 }
 

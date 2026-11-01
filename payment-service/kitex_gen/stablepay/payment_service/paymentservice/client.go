@@ -15,6 +15,13 @@ type Client interface {
 	GetPaymentStatus(ctx context.Context, req *payment_service.GetPaymentStatusRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentStatusResponse, err error)
 	ListPaymentHistory(ctx context.Context, req *payment_service.ListPaymentHistoryRequest, callOptions ...callopt.Option) (r *payment_service.ListPaymentHistoryResponse, err error)
 	GetPaymentRequirement(ctx context.Context, req *payment_service.GetPaymentRequirementRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentRequirementResponse, err error)
+	CreateFiatPayment(ctx context.Context, req *payment_service.CreateFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.CreateFiatPaymentResponse, err error)
+	GetFiatPayment(ctx context.Context, req *payment_service.GetFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.GetFiatPaymentResponse, err error)
+	FindFiatPayment(ctx context.Context, req *payment_service.FindFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.FindFiatPaymentResponse, err error)
+	CheckoutFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error)
+	ReconcileFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error)
+	SimulateFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error)
+	NotifyAlipay(ctx context.Context, req *payment_service.NotifyAlipayRequest, callOptions ...callopt.Option) (r *payment_service.NotifyAlipayResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -64,4 +71,39 @@ func (p *kPaymentServiceClient) ListPaymentHistory(ctx context.Context, req *pay
 func (p *kPaymentServiceClient) GetPaymentRequirement(ctx context.Context, req *payment_service.GetPaymentRequirementRequest, callOptions ...callopt.Option) (r *payment_service.GetPaymentRequirementResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetPaymentRequirement(ctx, req)
+}
+
+func (p *kPaymentServiceClient) CreateFiatPayment(ctx context.Context, req *payment_service.CreateFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.CreateFiatPaymentResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CreateFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) GetFiatPayment(ctx context.Context, req *payment_service.GetFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.GetFiatPaymentResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) FindFiatPayment(ctx context.Context, req *payment_service.FindFiatPaymentRequest, callOptions ...callopt.Option) (r *payment_service.FindFiatPaymentResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.FindFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) CheckoutFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CheckoutFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) ReconcileFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ReconcileFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) SimulateFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SimulateFiatPayment(ctx, req)
+}
+
+func (p *kPaymentServiceClient) NotifyAlipay(ctx context.Context, req *payment_service.NotifyAlipayRequest, callOptions ...callopt.Option) (r *payment_service.NotifyAlipayResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.NotifyAlipay(ctx, req)
 }

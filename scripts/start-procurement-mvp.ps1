@@ -1,6 +1,7 @@
 param(
   [ValidateSet('payathon','campus')][string]$Competition = 'payathon',
   [ValidateSet('local','alipay_sandbox')][string]$PaymentMode = 'local',
+  [string]$AlipayPublicOrigin = 'https://bubblevan.de5.net',
   [switch]$UseLLM,
   [switch]$SkipBuild
 )
@@ -32,72 +33,78 @@ if ($UseLLM) {
   }
 }
 $runRoot = Join-Path $repoRoot '.local-run/procurement-mvp'
+$privateRoot = Join-Path $repoRoot '.local-run/procurement-deploy/private'
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 $manifestPath = Join-Path $runRoot 'processes.json'
 if (Test-Path -LiteralPath $manifestPath) {
   $previous = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   foreach ($entry in $previous.processes) {
-    if (Get-Process -Id $entry.pid -ErrorAction SilentlyContinue) { throw 'MVP processes already exist. Run stop-procurement-mvp.ps1 first.' }
+    if (Get-Process -Id $entry.pid -ErrorAction SilentlyContinue) { throw 'MVP process already exists. Run stop-procurement-mvp.ps1 first.' }
   }
 }
-$ports = $(if ($Competition -eq 'campus') { @(8093) } else { @(8092,8093) })
-foreach ($port in $ports) {
+foreach ($port in @(8093,28080)) {
   if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { throw "Port $port is already occupied." }
 }
-if ([string]::IsNullOrWhiteSpace($env:FIAT_INTERNAL_TOKEN)) {
-  $tokenBytes = New-Object byte[] 32
-  [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($tokenBytes)
-  $env:FIAT_INTERNAL_TOKEN = -join ($tokenBytes | ForEach-Object { $_.ToString('x2') })
+
+$composeEnv = Join-Path $privateRoot 'compose.env'
+if (-not (Test-Path -LiteralPath $composeEnv)) {
+  if (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.local-run/secrets/alipay/app-private.pem'))) { throw 'Alipay sandbox keys are missing; prepare them before starting the sandbox stack.' }
+  Push-Location $repoRoot
+  try { & node scripts/prepare-alipay-sandbox.mjs $AlipayPublicOrigin; if ($LASTEXITCODE -ne 0) { throw 'Sandbox configuration preparation failed.' } } finally { Pop-Location }
+}
+foreach ($line in Get-Content -LiteralPath $composeEnv) {
+  if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+  }
 }
 $env:FIAT_PAYMENT_MODE = $PaymentMode
-$env:FIAT_HTTP_ADDR = '127.0.0.1:8092'
-$env:FIAT_PAYMENT_URL = 'http://127.0.0.1:8092'
+$env:STABLEPAY_API_KEY = $env:GATEWAY_API_KEY
+$env:STABLEPAY_GATEWAY_BASE_URL = 'http://127.0.0.1:28080'
+$env:FIAT_SCHEMA_AUTO_MIGRATE = 'true'
+$env:COMMERCE_RUNTIME_ALIPAY_ENABLED = $(if ($PaymentMode -eq 'alipay_sandbox') { '1' } else { '0' })
+
+$safeRepoRoot = $repoRoot.Replace('\','/')
+$composePrefix = @('-p','root','--env-file',$composeEnv,'-f',(Join-Path $repoRoot 'stablepayai-idl/docker-compose.infra.yml'),'-f',(Join-Path $repoRoot 'stablepayai-idl/docker-compose.services.yml'))
+$profile = @()
+if ($PaymentMode -eq 'alipay_sandbox') { $profile = @('--profile','alipay-sandbox') }
+& docker compose @composePrefix @profile up -d --build
+if ($LASTEXITCODE -ne 0) { throw 'StablePay microservice stack did not start. Check Docker Desktop and compose logs.' }
+
+$runtimeBinary = Join-Path $runRoot 'procurement-runtime.exe'
+$frontendDir = Join-Path $runRoot 'web'
+if (-not $SkipBuild) {
+  Push-Location (Join-Path $repoRoot 'commerce-runtime')
+  try { & go build -buildvcs=false -o $runtimeBinary ./cmd/procurement-mvp; if ($LASTEXITCODE -ne 0) { throw 'Commerce Runtime build failed.' } } finally { Pop-Location }
+  Push-Location (Join-Path $repoRoot 'stablepay-frontend')
+  try {
+    if (-not (Test-Path -LiteralPath 'node_modules')) { & npm ci; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' } }
+    $buildScript = $(if ($Competition -eq 'payathon') { 'build:payathon' } else { 'build' })
+    & npm run $buildScript -- --outDir $frontendDir; if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+  } finally { Pop-Location }
+}
+if (-not (Test-Path -LiteralPath $runtimeBinary)) { throw "Missing build: $runtimeBinary" }
+function Wait-URL([string]$Url) {
+  for ($attempt=0; $attempt -lt 90; $attempt++) {
+    try { $null = Invoke-WebRequest -Uri $Url -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 500 }
+  }
+  throw "Service did not become ready: $Url. Inspect Docker and $runRoot logs."
+}
+Wait-URL 'http://127.0.0.1:28080/readyz'
 $env:MVP_HTTP_ADDR = '127.0.0.1:8093'
 $env:MVP_PUBLIC_ORIGIN = 'http://127.0.0.1:8093'
 $env:MVP_PROFILE = $Competition
 $env:MVP_USE_LLM = $(if ($UseLLM) { '1' } else { '0' })
-$env:FIAT_STORE_PATH = Join-Path $runRoot "fiat-$PaymentMode.json"
-$env:MVP_STORE_PATH = Join-Path $runRoot "runtime-$Competition-$PaymentMode.json"
-$env:MVP_STATIC_DIR = Join-Path $runRoot 'web'
-$env:GOCACHE = Join-Path (Split-Path $repoRoot -Parent) '.go-build-cache'
-$env:GOMODCACHE = Join-Path (Split-Path $repoRoot -Parent) '.go-mod-cache'
-$paymentBinary = Join-Path $runRoot 'payment-fiat.exe'
 $runtimeBinary = Join-Path $runRoot 'procurement-runtime.exe'
-if (-not $SkipBuild) {
-  if ($Competition -ne 'campus') {
-    Push-Location (Join-Path $repoRoot 'payment-service')
-    try { & go build -buildvcs=false -o $paymentBinary ./cmd/fiat-server; if ($LASTEXITCODE -ne 0) { throw 'payment-service build failed' } } finally { Pop-Location }
-  }
-  Push-Location (Join-Path $repoRoot 'commerce-runtime')
-  try { & go build -buildvcs=false -o $runtimeBinary ./cmd/procurement-mvp; if ($LASTEXITCODE -ne 0) { throw 'commerce-runtime build failed' } } finally { Pop-Location }
-  Push-Location (Join-Path $repoRoot 'stablepay-frontend')
-  try {
-    if (-not (Test-Path -LiteralPath 'node_modules')) { & npm ci; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' } }
-    $buildScript = $(if ($Competition -eq 'payathon') { 'build:payathon' } else { 'build' })
-    & npm run $buildScript -- --outDir $env:MVP_STATIC_DIR; if ($LASTEXITCODE -ne 0) { throw 'frontend build failed' }
-  } finally { Pop-Location }
-}
-$binaries = $(if ($Competition -eq 'campus') { @($runtimeBinary) } else { @($paymentBinary,$runtimeBinary) })
-foreach ($binary in $binaries) { if (-not (Test-Path -LiteralPath $binary)) { throw "Missing build: $binary" } }
-function Wait-MVP([string]$Url) {
-  for ($attempt=0; $attempt -lt 60; $attempt++) {
-    try { $null = Invoke-RestMethod -Uri $Url -TimeoutSec 1; return } catch { Start-Sleep -Milliseconds 250 }
-  }
-  throw "Service did not become ready: $Url. Inspect logs in $runRoot"
-}
+$env:MVP_STORE_PATH = Join-Path $runRoot "runtime-$Competition-$PaymentMode.json"
+$env:MVP_STATIC_DIR = $frontendDir
 $started = @()
+$runtimeProcess = Start-Process -FilePath $runtimeBinary -WorkingDirectory (Join-Path $repoRoot 'commerce-runtime') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runRoot 'runtime.stdout.log') -RedirectStandardError (Join-Path $runRoot 'runtime.stderr.log')
 try {
-  if ($Competition -ne 'campus') {
-    $paymentProcess = Start-Process -FilePath $paymentBinary -WorkingDirectory (Join-Path $repoRoot 'payment-service') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runRoot 'payment.stdout.log') -RedirectStandardError (Join-Path $runRoot 'payment.stderr.log')
-    $started += @{pid=$paymentProcess.Id; path=$paymentBinary}
-    Wait-MVP 'http://127.0.0.1:8092/healthz'
-  }
-  $runtimeProcess = Start-Process -FilePath $runtimeBinary -WorkingDirectory (Join-Path $repoRoot 'commerce-runtime') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runRoot 'runtime.stdout.log') -RedirectStandardError (Join-Path $runRoot 'runtime.stderr.log')
+  Wait-URL 'http://127.0.0.1:8093/healthz'
   $started += @{pid=$runtimeProcess.Id; path=$runtimeBinary}
-  Wait-MVP 'http://127.0.0.1:8093/api/mvp/status'
   @{profile=$Competition; mode=$PaymentMode; processes=$started} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
-  Write-Output "MVP ready: http://127.0.0.1:8093/ ($Competition, $PaymentMode)"
+  Write-Output "MVP ready: http://127.0.0.1:8093/ ($Competition, $PaymentMode). Payment traffic uses Hertz Gateway → Payment Service Kitex."
 } catch {
-  foreach ($entry in $started) { Stop-Process -Id $entry.pid -ErrorAction SilentlyContinue }
+  Stop-Process -Id $runtimeProcess.Id -ErrorAction SilentlyContinue
   throw
 }

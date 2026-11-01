@@ -128,6 +128,26 @@ func (m *MockPaymentClient) GetPaymentHistory(_ context.Context, req map[string]
 	}, 200, 0, nil
 }
 
+func (m *MockPaymentClient) CreateFiatPayment(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) GetFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) FindFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) CheckoutFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) ReconcileFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) SimulateFiatPayment(context.Context, string) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{}, 200, 0, nil
+}
+func (m *MockPaymentClient) NotifyAlipay(context.Context, map[string]string) error { return nil }
+
 type MockVerificationClient struct{}
 
 func NewMockVerificationClient() *MockVerificationClient { return &MockVerificationClient{} }

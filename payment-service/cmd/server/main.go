@@ -56,12 +56,9 @@ func main() {
 		logger.Info("Skip MySQL AutoMigrate outside local environment", zap.String("env", cfg.App.Env))
 	}
 
-	fiatServer, err := fiat.StartWithMySQL(db, cfg.App.Env == "local")
+	fiatStore, err := fiat.NewSQLStore(db, cfg.App.Env == "local" || os.Getenv("FIAT_SCHEMA_AUTO_MIGRATE") == "true")
 	if err != nil {
-		logger.Fatal("Failed to start CNY payment listener", zap.Error(err))
-	}
-	if fiatServer != nil {
-		defer fiatServer.Close()
+		logger.Fatal("Failed to initialize fiat payment store", zap.Error(err))
 	}
 
 	redisClient, err := redis.NewRedisClient(cfg)
@@ -69,6 +66,13 @@ func main() {
 		logger.Fatal("Failed to connect to Redis", zap.Error(err))
 	}
 	defer redisClient.Close()
+	fiatProvider, err := fiat.NewProvider(os.Getenv("FIAT_PAYMENT_MODE"), cfg.RpcClients.AlipayAdapter.Address,
+		cfg.RpcClients.AlipayAdapter.TimeoutMs, cfg.RpcClients.AlipayAdapter.RetryCount)
+	if err != nil {
+		logger.Fatal("Failed to initialize fiat provider", zap.Error(err))
+	}
+	fiatApp := fiat.NewService(fiatStore, fiatProvider)
+	fiatApp.SetNonceStore(fiat.NewRedisNonceStore(redisClient, "stablepay:fiat:nonce:"), time.Duration(cfg.Security.NonceCacheMinutes)*time.Minute)
 
 	mqProducer, err := mq.NewPaymentEventProducer(
 		cfg.RocketMQ.NameServers, cfg.RocketMQ.ProducerGroup,
@@ -78,6 +82,9 @@ func main() {
 		logger.Fatal("Failed to create MQ producer", zap.Error(err))
 	}
 	defer mqProducer.Shutdown()
+	outboxCtx, stopOutbox := context.WithCancel(context.Background())
+	defer stopOutbox()
+	go fiat.RunOutboxDispatcher(outboxCtx, fiatStore, mqProducer)
 
 	paymentRepo := repository.NewPaymentRepository(db)
 	idempotencyRepo := repository.NewPaymentIdempotencyRepository(db)
@@ -126,7 +133,7 @@ func main() {
 		logger.Fatal("invalid server.rpc.port", zap.String("port", cfg.Server.Rpc.Port), zap.Error(err))
 	}
 	addr := &net.TCPAddr{IP: net.IPv4zero, Port: port}
-	handler := rpc.NewPaymentServiceHandler(paymentAppService)
+	handler := rpc.NewPaymentServiceHandler(paymentAppService, fiatApp)
 	svr := paymentservice.NewServer(handler, kitexserver.WithServiceAddr(addr))
 	setupGracefulShutdown(svr, logger)
 	logger.Info("Payment Service started", zap.Int("rpc_port", port))

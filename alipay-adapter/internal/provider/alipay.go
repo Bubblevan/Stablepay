@@ -1,4 +1,4 @@
-package fiat
+package provider
 
 import (
 	"context"
@@ -15,29 +15,37 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-type AlipayConfig struct{ AppID, SellerID, PrivateKeyFile, PublicKeyFile, NotifyURL, ReturnURL string }
-type Alipay struct {
-	cfg     AlipayConfig
-	private *rsa.PrivateKey
-	public  *rsa.PublicKey
-	Client  *http.Client
-}
-
 const sandboxGateway = "https://openapi-sandbox.dl.alipaydev.com/gateway.do"
 
-// This adapter intentionally supports only the computer-website sandbox.
-// Mobile alipay.trade.agent.pay has a different contract and no sandbox.
-func NewAlipay(cfg AlipayConfig, privatePEM, publicPEM []byte) (*Alipay, error) {
+type Config struct{ AppID, SellerID, NotifyURL, ReturnURL string }
+type Order struct {
+	ID, Subject string
+	AmountMinor int64
+}
+type Receipt struct {
+	OrderID, TradeNo   string
+	AmountMinor        int64
+	Status, VerifiedBy string
+}
+type Alipay struct {
+	cfg     Config
+	private *rsa.PrivateKey
+	public  *rsa.PublicKey
+	client  *http.Client
+}
+
+func NewAlipay(cfg Config, privatePEM, publicPEM []byte) (*Alipay, error) {
 	if cfg.AppID == "" || cfg.SellerID == "" {
 		return nil, errors.New("Alipay app_id and seller_id are required")
 	}
 	for _, raw := range []string{cfg.NotifyURL, cfg.ReturnURL} {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 			return nil, errors.New("Alipay callback and return URLs must use HTTPS")
 		}
 	}
@@ -65,12 +73,11 @@ func NewAlipay(cfg AlipayConfig, privatePEM, publicPEM []byte) (*Alipay, error) 
 	if public == nil {
 		return nil, errors.New("Alipay RSA public key must use PKIX PEM")
 	}
-	return &Alipay{cfg: cfg, private: private, public: public, Client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Alipay{cfg: cfg, private: private, public: public, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
-func (*Alipay) Mode() string { return "alipay_sandbox" }
 
 func canonical(params map[string]string, notification bool) string {
-	keys := []string{}
+	keys := make([]string, 0, len(params))
 	for key, value := range params {
 		if key != "sign" && value != "" && (!notification || key != "sign_type") {
 			keys = append(keys, key)
@@ -105,7 +112,10 @@ func (a *Alipay) signed(method string, biz any) (url.Values, error) {
 	return values, nil
 }
 func (a *Alipay) Checkout(order Order) (string, error) {
-	params, err := a.signed("alipay.trade.page.pay", map[string]string{"out_trade_no": order.ID, "total_amount": Yuan(order.AmountMinor), "subject": order.Subject, "product_code": "FAST_INSTANT_TRADE_PAY", "time_expire": time.Now().Add(15 * time.Minute).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05")})
+	if order.ID == "" || order.AmountMinor <= 0 || order.Subject == "" {
+		return "", errors.New("invalid Alipay checkout order")
+	}
+	params, err := a.signed("alipay.trade.page.pay", map[string]string{"out_trade_no": order.ID, "total_amount": yuan(order.AmountMinor), "subject": order.Subject, "product_code": "FAST_INSTANT_TRADE_PAY", "time_expire": time.Now().Add(15 * time.Minute).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05")})
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +134,7 @@ func (a *Alipay) verify(content []byte, signature string) error {
 }
 func (a *Alipay) VerifyNotification(params map[string]string) (Receipt, error) {
 	if params["sign_type"] != "RSA2" || params["app_id"] != a.cfg.AppID || params["seller_id"] != a.cfg.SellerID {
-		return Receipt{}, errors.New("Alipay identity does not match this payment service")
+		return Receipt{}, errors.New("Alipay identity does not match configured merchant")
 	}
 	if err := a.verify([]byte(canonical(params, true)), params["sign"]); err != nil {
 		return Receipt{}, err
@@ -141,7 +151,7 @@ func (a *Alipay) Query(ctx context.Context, order Order) (Receipt, error) {
 		return Receipt{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := a.Client.Do(req)
+	response, err := a.client.Do(req)
 	if err != nil {
 		return Receipt{}, errors.New("Alipay query unavailable; payment remains unconfirmed")
 	}
@@ -175,12 +185,12 @@ func (a *Alipay) Query(ctx context.Context, order Order) (Receipt, error) {
 		return Receipt{}, errors.New("Alipay seller mismatch")
 	}
 	if result.OutTradeNo != order.ID {
-		return Receipt{}, ErrConflict
+		return Receipt{}, errors.New("Alipay query order mismatch")
 	}
 	return receiptFrom(result.OutTradeNo, result.TradeNo, result.TotalAmount, result.TradeStatus, "alipay-rsa2-query")
 }
 func receiptFrom(orderID, tradeNo, amount, status, source string) (Receipt, error) {
-	cents, err := ParseYuan(amount)
+	cents, err := parseYuan(amount)
 	if err != nil || orderID == "" {
 		return Receipt{}, errors.New("invalid Alipay order amount")
 	}
@@ -195,4 +205,33 @@ func receiptFrom(orderID, tradeNo, amount, status, source string) (Receipt, erro
 		return Receipt{}, errors.New("unknown Alipay trade status")
 	}
 	return Receipt{OrderID: orderID, TradeNo: tradeNo, AmountMinor: cents, Status: mapped, VerifiedBy: source}, nil
+}
+func yuan(cents int64) string           { return fmtYuan(cents/100, cents%100) }
+func fmtYuan(whole, cents int64) string { return strconv.FormatInt(whole, 10) + "." + twoDigits(cents) }
+func twoDigits(value int64) string {
+	if value < 10 {
+		return "0" + strconv.FormatInt(value, 10)
+	}
+	return strconv.FormatInt(value, 10)
+}
+func parseYuan(raw string) (int64, error) {
+	parts := strings.Split(raw, ".")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, errors.New("invalid CNY amount")
+	}
+	whole, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || whole < 0 || whole > 100000000 {
+		return 0, errors.New("invalid CNY amount")
+	}
+	fraction := "00"
+	if len(parts) == 2 {
+		if len(parts[1]) < 1 || len(parts[1]) > 2 {
+			return 0, errors.New("invalid CNY precision")
+		}
+		fraction = parts[1] + strings.Repeat("0", 2-len(parts[1]))
+	}
+	if len(fraction) != 2 || fraction[0] < '0' || fraction[0] > '9' || fraction[1] < '0' || fraction[1] > '9' {
+		return 0, errors.New("invalid CNY amount")
+	}
+	return whole*100 + int64(fraction[0]-'0')*10 + int64(fraction[1]-'0'), nil
 }

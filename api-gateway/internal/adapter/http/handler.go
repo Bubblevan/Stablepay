@@ -39,7 +39,7 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 			}
 		}
 
-		req["request_id"] = getCtxString(ctx, domain.CtxRequestID)
+		setIfAbsent(req, "request_id", getCtxString(ctx, domain.CtxRequestID))
 		req["trace_id"] = getCtxString(ctx, domain.CtxTraceID)
 		setIfAbsent(req, "idempotency_key", string(ctx.GetHeader("X-Idempotency-Key")))
 		setIfAbsent(req, "did", getCtxString(ctx, domain.CtxDID))
@@ -74,6 +74,35 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 		}
 		failFromCode(ctx, httpStatus, code, detailErr)
 	}
+}
+
+// NotifyAlipay is the sole provider callback endpoint. Alipay RSA2 verification
+// happens in alipay-adapter through Payment Service Kitex; the gateway only
+// parses the bounded form and returns Alipay's required acknowledgement.
+func (h *Handler) NotifyAlipay(c context.Context, ctx *app.RequestContext) {
+	if len(ctx.Request.Body()) > 64<<10 {
+		ctx.String(consts.StatusRequestEntityTooLarge, "failure")
+		return
+	}
+	values, err := url.ParseQuery(string(ctx.Request.Body()))
+	if err != nil {
+		ctx.String(consts.StatusBadRequest, "failure")
+		return
+	}
+	parameters := make(map[string]string, len(values))
+	for key, entries := range values {
+		if len(entries) != 1 {
+			ctx.String(consts.StatusBadRequest, "failure")
+			return
+		}
+		parameters[key] = entries[0]
+	}
+	if err := h.app.NotifyAlipay(c, parameters); err != nil {
+		ctx.String(consts.StatusBadRequest, "failure")
+		return
+	}
+	ctx.Response.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	ctx.String(consts.StatusOK, "success")
 }
 
 func getCtxString(ctx *app.RequestContext, key string) string {

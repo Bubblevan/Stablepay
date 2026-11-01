@@ -35,6 +35,28 @@ func (h *contractPaymentHandler) GetPaymentRequirement(context.Context, *kitexpa
 	return nil, nil
 }
 
+func (h *contractPaymentHandler) CreateFiatPayment(context.Context, *kitexpayment.CreateFiatPaymentRequest) (*kitexpayment.CreateFiatPaymentResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) GetFiatPayment(context.Context, *kitexpayment.GetFiatPaymentRequest) (*kitexpayment.GetFiatPaymentResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) FindFiatPayment(context.Context, *kitexpayment.FindFiatPaymentRequest) (*kitexpayment.FindFiatPaymentResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) CheckoutFiatPayment(context.Context, *kitexpayment.FiatPaymentActionRequest) (*kitexpayment.FiatPaymentActionResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) ReconcileFiatPayment(context.Context, *kitexpayment.FiatPaymentActionRequest) (*kitexpayment.FiatPaymentActionResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) SimulateFiatPayment(context.Context, *kitexpayment.FiatPaymentActionRequest) (*kitexpayment.FiatPaymentActionResponse, error) {
+	return nil, nil
+}
+func (h *contractPaymentHandler) NotifyAlipay(context.Context, *kitexpayment.NotifyAlipayRequest) (*kitexpayment.NotifyAlipayResponse, error) {
+	return nil, nil
+}
+
 func TestKitexPaymentAdapterUsesCanonicalTransportAndPayeeMapping(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

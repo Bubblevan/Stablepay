@@ -170,6 +170,138 @@ func (c *KitexPaymentClient) GetPaymentHistory(ctx context.Context, req map[stri
 	}, 200, baseCode(resp.GetBase()), nil
 }
 
+func (c *KitexPaymentClient) CreateFiatPayment(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	amountMinor, err := strconv.ParseInt(stringFromIface(req["amount_minor"]), 10, 64)
+	if err != nil || amountMinor <= 0 {
+		return nil, 400, 10001, fmt.Errorf("invalid amount_minor")
+	}
+	kreq := payment_service.NewCreateFiatPaymentRequest()
+	kreq.Base = baseRequest(req)
+	kreq.RequestId = stringFromIface(req["request_id"])
+	kreq.ProductId = stringFromIface(req["product_id"])
+	kreq.Subject = stringFromIface(req["subject"])
+	kreq.QuoteHash = stringFromIface(req["quote_hash"])
+	kreq.ApprovalRef = stringFromIface(req["approval_ref"])
+	kreq.AgentDid = common.DID(stringFromIface(req["agent_did"]))
+	kreq.SkillDid = common.DID(stringFromIface(req["skill_did"]))
+	kreq.AmountMinor = amountMinor
+	kreq.Currency = stringFromIface(req["currency"])
+	kreq.Nonce = stringFromIface(req["nonce"])
+	resp, err := c.cli.CreateFiatPayment(ctx, kreq)
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"order": fiatOrderMap(resp.GetOrder())}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) GetFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error) {
+	resp, err := c.cli.GetFiatPayment(ctx, &payment_service.GetFiatPaymentRequest{Base: common.NewBaseReq(), OrderId: orderID})
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"order": fiatOrderMap(resp.GetOrder())}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) FindFiatPayment(ctx context.Context, requestID string) (map[string]interface{}, int, int, error) {
+	resp, err := c.cli.FindFiatPayment(ctx, &payment_service.FindFiatPaymentRequest{Base: common.NewBaseReq(), RequestId: requestID})
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"order": fiatOrderMap(resp.GetOrder())}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) CheckoutFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error) {
+	resp, err := c.cli.CheckoutFiatPayment(ctx, &payment_service.FiatPaymentActionRequest{Base: common.NewBaseReq(), OrderId: orderID})
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"mode": resp.GetMode(), "cashier_url": resp.GetCashierUrl()}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) ReconcileFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error) {
+	resp, err := c.cli.ReconcileFiatPayment(ctx, &payment_service.FiatPaymentActionRequest{Base: common.NewBaseReq(), OrderId: orderID})
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"order": fiatOrderMap(resp.GetOrder())}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) SimulateFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error) {
+	resp, err := c.cli.SimulateFiatPayment(ctx, &payment_service.FiatPaymentActionRequest{Base: common.NewBaseReq(), OrderId: orderID})
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{"order": fiatOrderMap(resp.GetOrder())}, 200, 0, nil
+}
+
+func (c *KitexPaymentClient) NotifyAlipay(ctx context.Context, parameters map[string]string) error {
+	resp, err := c.cli.NotifyAlipay(ctx, &payment_service.NotifyAlipayRequest{Base: common.NewBaseReq(), Parameters: parameters})
+	if err != nil {
+		return err
+	}
+	_, _, err = fiatRPCStatus(resp.GetBase())
+	return err
+}
+
+func fiatOrderMap(order *payment_service.FiatPaymentOrder) map[string]interface{} {
+	if order == nil {
+		return nil
+	}
+	out := map[string]interface{}{
+		"id": order.GetId(), "request_id": order.GetRequestId(), "product_id": order.GetProductId(), "subject": order.GetSubject(),
+		"quote_hash": order.GetQuoteHash(), "approval_ref": order.GetApprovalRef(), "agent_did": order.GetAgentDid(), "skill_did": order.GetSkillDid(),
+		"amount_minor": order.GetAmountMinor(), "currency": order.GetCurrency(), "mode": order.GetMode(), "status": order.GetStatus(), "created_at": order.GetCreatedAt(),
+	}
+	if order.IsSetTradeNo() {
+		out["trade_no"] = order.GetTradeNo()
+	}
+	if order.IsSetVerifiedBy() {
+		out["verified_by"] = order.GetVerifiedBy()
+	}
+	if order.IsSetPaidAt() {
+		out["paid_at"] = order.GetPaidAt()
+	}
+	return out
+}
+
+func fiatRPCStatus(base *common.BaseResp) (int, int, error) {
+	if base == nil {
+		return 503, 30002, fmt.Errorf("payment-service returned no status")
+	}
+	code := int(base.GetCode())
+	if code == 0 {
+		return 200, 0, nil
+	}
+	status := 400
+	switch code {
+	case 10002:
+		status = 404
+	case 20002:
+		status = 409
+	case 30002, 30003:
+		status = 503
+	}
+	return status, code, fmt.Errorf("%s", base.GetMessage())
+}
+
 func baseRequest(req map[string]interface{}) *common.BaseReq {
 	base := common.NewBaseReq()
 	setOptional(&base.RequestId, stringFromIface(req["request_id"]))

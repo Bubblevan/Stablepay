@@ -22,31 +22,26 @@ type paymentHarness struct {
 	orders      map[string]PaymentOrder
 	wrongAmount bool
 	creates     int
-	mode        string
 }
 
 func (h *paymentHarness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	if r.Header.Get("Authorization") != "Bearer test-internal-token-123456" {
+	if r.Header.Get("X-API-Key") != "test-internal-token-123456" || r.Header.Get("X-StablePay-Nonce") == "" || r.Header.Get("X-StablePay-Timestamp") == "" {
 		w.WriteHeader(401)
 		return
 	}
-	if r.URL.Path == "/v1/fiat/status" {
-		mode := h.mode
-		if mode == "" {
-			mode = "local"
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"mode": mode})
-		return
-	}
-	if r.URL.Path == "/v1/fiat/orders" {
+	if r.URL.Path == "/api/v1/fiat/orders" {
 		var order PaymentOrder
 		_ = json.NewDecoder(r.Body).Decode(&order)
+		if r.Header.Get("X-Idempotency-Key") != order.RequestID || order.AgentDID == "" || order.SkillDID == "" {
+			w.WriteHeader(400)
+			return
+		}
 		key := "SP" + order.RequestID
 		if old, ok := h.orders[key]; ok {
-			_ = json.NewEncoder(w).Encode(old)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"order": old}})
 			return
 		}
 		order.ID = key
@@ -54,10 +49,10 @@ func (h *paymentHarness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		order.Status = "AWAITING_PAYMENT"
 		h.orders[key] = order
 		h.creates++
-		_ = json.NewEncoder(w).Encode(order)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"order": order}})
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/fiat/orders/"), "/")
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/fiat/orders/"), "/")
 	order, ok := h.orders[parts[0]]
 	if !ok {
 		w.WriteHeader(404)
@@ -72,7 +67,11 @@ func (h *paymentHarness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.wrongAmount {
 		order.AmountMinor++
 	}
-	_ = json.NewEncoder(w).Encode(order)
+	if len(parts) == 2 && parts[1] == "checkout" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]string{"mode": "local", "cashier_url": ""}})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"order": order}})
 }
 func setup(t *testing.T) (*Service, *paymentHarness, string) {
 	t.Helper()
@@ -84,7 +83,7 @@ func setup(t *testing.T) (*Service, *paymentHarness, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Service{Store: store, Payment: PaymentClient{BaseURL: server.URL, Token: "test-internal-token-123456"}}, h, path
+	return &Service{Store: store, Payment: PaymentClient{BaseURL: server.URL, Token: "test-internal-token-123456", Mode: "local"}}, h, path
 }
 func inputFixture() procurement.Input {
 	return procurement.Input{Activity: "活动", Budget: "100", BudgetEvidence: "批复", Approved: true, Items: []procurement.Item{{Name: "物资", Quantity: 1, UnitPrice: "120", RequestedSpec: "A", QuotedSpec: "B", QuoteSource: "原始报价", InvoiceConfirmed: false}}}
@@ -185,7 +184,7 @@ func TestRetryCannotCreatePaymentInDifferentProviderEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.mode = "alipay_sandbox"
+	s.Payment.Mode = "alipay_sandbox"
 	if _, err := s.ensurePayment(context.Background(), purchase); !errors.Is(err, ErrConflict) {
 		t.Fatal("mode switch reused old approval", err)
 	}

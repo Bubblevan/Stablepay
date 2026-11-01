@@ -20,31 +20,38 @@ var ErrConflict = errors.New("payment request conflicts with an existing order")
 var ErrNotFound = errors.New("payment order not found")
 
 type Order struct {
-	ID            string     `json:"id"`
-	RequestID     string     `json:"request_id"`
-	ProductID     string     `json:"product_id"`
-	Subject       string     `json:"subject"`
-	QuoteHash     string     `json:"quote_hash"`
-	ApprovalRef   string     `json:"approval_ref"`
-	AmountMinor   int64      `json:"amount_minor"`
-	Currency      string     `json:"currency"`
-	Mode          string     `json:"mode"`
-	Status        string     `json:"status"`
-	TradeNo       string     `json:"trade_no,omitempty"`
-	VerifiedBy    string     `json:"verified_by,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	PaidAt        *time.Time `json:"paid_at,omitempty"`
-	HarnessPolicy string     `json:"harness_policy,omitempty"`
+	ID             string     `json:"id"`
+	RequestID      string     `json:"request_id"`
+	IdempotencyKey string     `json:"idempotency_key"`
+	ProductID      string     `json:"product_id"`
+	Subject        string     `json:"subject"`
+	QuoteHash      string     `json:"quote_hash"`
+	ApprovalRef    string     `json:"approval_ref"`
+	AgentDID       string     `json:"agent_did"`
+	SkillDID       string     `json:"skill_did"`
+	AmountMinor    int64      `json:"amount_minor"`
+	Currency       string     `json:"currency"`
+	Mode           string     `json:"mode"`
+	Status         string     `json:"status"`
+	TradeNo        string     `json:"trade_no,omitempty"`
+	VerifiedBy     string     `json:"verified_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	PaidAt         *time.Time `json:"paid_at,omitempty"`
+	HarnessPolicy  string     `json:"harness_policy,omitempty"`
 }
 
 type CreateRequest struct {
-	RequestID   string `json:"request_id"`
-	ProductID   string `json:"product_id"`
-	Subject     string `json:"subject"`
-	QuoteHash   string `json:"quote_hash"`
-	ApprovalRef string `json:"approval_ref"`
-	AmountMinor int64  `json:"amount_minor"`
-	Currency    string `json:"currency"`
+	RequestID      string `json:"request_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Nonce          string `json:"nonce"`
+	ProductID      string `json:"product_id"`
+	Subject        string `json:"subject"`
+	QuoteHash      string `json:"quote_hash"`
+	ApprovalRef    string `json:"approval_ref"`
+	AgentDID       string `json:"agent_did"`
+	SkillDID       string `json:"skill_did"`
+	AmountMinor    int64  `json:"amount_minor"`
+	Currency       string `json:"currency"`
 }
 
 type Receipt struct {
@@ -57,9 +64,13 @@ type Receipt struct {
 
 type Provider interface {
 	Mode() string
-	Checkout(Order) (string, error)
+	Checkout(context.Context, Order) (string, error)
 	Query(context.Context, Order) (Receipt, error)
-	VerifyNotification(map[string]string) (Receipt, error)
+	VerifyNotification(context.Context, map[string]string) (Receipt, error)
+}
+
+type NonceStore interface {
+	MarkIfNotExists(context.Context, string, time.Duration) (bool, error)
 }
 
 type Store interface {
@@ -72,14 +83,25 @@ type Service struct {
 	store          Store
 	provider       Provider
 	MaxAmountMinor int64
+	nonces         NonceStore
+	nonceTTL       time.Duration
 }
 
 func NewService(store Store, provider Provider) *Service {
-	return &Service{store: store, provider: provider, MaxAmountMinor: 10000}
+	return &Service{store: store, provider: provider, MaxAmountMinor: 10000, nonceTTL: 10 * time.Minute}
 }
 func (s *Service) Mode() string { return s.provider.Mode() }
+func (s *Service) SetNonceStore(store NonceStore, ttl time.Duration) {
+	s.nonces = store
+	if ttl > 0 {
+		s.nonceTTL = ttl
+	}
+}
 
 func (s *Service) Create(req CreateRequest) (Order, error) {
+	return s.CreateContext(context.Background(), req)
+}
+func (s *Service) CreateContext(ctx context.Context, req CreateRequest) (Order, error) {
 	// Reuse the existing Agent Harness policy. A reference to the immutable
 	// upstream user confirmation is still mandatory below; policy alone is not
 	// proof of consent or an instruction to initiate a payment.
@@ -89,15 +111,28 @@ func (s *Service) Create(req CreateRequest) (Order, error) {
 	}
 	if req.Currency != "CNY" || req.AmountMinor <= 0 || req.AmountMinor > s.MaxAmountMinor ||
 		strings.TrimSpace(req.RequestID) == "" || len(req.RequestID) > 128 ||
+		strings.TrimSpace(req.IdempotencyKey) == "" || len(req.IdempotencyKey) > 128 || strings.TrimSpace(req.Nonce) == "" ||
+		strings.TrimSpace(req.AgentDID) == "" || strings.TrimSpace(req.SkillDID) == "" ||
 		strings.TrimSpace(req.ProductID) == "" || strings.TrimSpace(req.Subject) == "" || len(req.Subject) > 180 ||
 		strings.ContainsAny(req.Subject, "/=&") || strings.TrimSpace(req.QuoteHash) == "" || strings.TrimSpace(req.ApprovalRef) == "" {
 		return Order{}, errors.New("invalid CNY payment request")
+	}
+	if s.nonces != nil {
+		key := req.AgentDID + ":" + req.Nonce
+		used, err := s.nonces.MarkIfNotExists(ctx, key, s.nonceTTL)
+		if err != nil {
+			return Order{}, fmt.Errorf("payment nonce store unavailable: %w", err)
+		}
+		if !used {
+			return Order{}, errors.New("payment nonce already used")
+		}
 	}
 	var result Order
 	err := s.store.Update(func(orders map[string]Order) error {
 		for _, existing := range orders {
 			if existing.RequestID == req.RequestID {
-				if existing.ProductID != req.ProductID || existing.AmountMinor != req.AmountMinor || existing.Currency != req.Currency ||
+				if existing.IdempotencyKey != req.IdempotencyKey || existing.AgentDID != req.AgentDID || existing.SkillDID != req.SkillDID ||
+					existing.ProductID != req.ProductID || existing.AmountMinor != req.AmountMinor || existing.Currency != req.Currency ||
 					existing.QuoteHash != req.QuoteHash || existing.ApprovalRef != req.ApprovalRef || existing.Subject != req.Subject || existing.Mode != s.Mode() {
 					return ErrConflict
 				}
@@ -108,7 +143,8 @@ func (s *Service) Create(req CreateRequest) (Order, error) {
 		if len(orders) >= 1000 {
 			return errors.New("fiat demo order capacity reached; archive before creating more orders")
 		}
-		result = Order{ID: "SP" + ID(), RequestID: req.RequestID, ProductID: req.ProductID, Subject: req.Subject,
+		result = Order{ID: "SP" + ID(), RequestID: req.RequestID, IdempotencyKey: req.IdempotencyKey,
+			AgentDID: req.AgentDID, SkillDID: req.SkillDID, ProductID: req.ProductID, Subject: req.Subject,
 			QuoteHash: req.QuoteHash, ApprovalRef: req.ApprovalRef, AmountMinor: req.AmountMinor, Currency: "CNY",
 			Mode: s.Mode(), Status: "AWAITING_PAYMENT", CreatedAt: time.Now().UTC(), HarnessPolicy: policy.Version}
 		orders[result.ID] = result
@@ -153,6 +189,9 @@ func (s *Service) FindByRequest(requestID string) (Order, error) {
 }
 
 func (s *Service) Checkout(id string) (string, error) {
+	return s.CheckoutContext(context.Background(), id)
+}
+func (s *Service) CheckoutContext(ctx context.Context, id string) (string, error) {
 	order, err := s.Get(id)
 	if err != nil {
 		return "", err
@@ -160,7 +199,7 @@ func (s *Service) Checkout(id string) (string, error) {
 	if order.Status != "AWAITING_PAYMENT" {
 		return "", ErrConflict
 	}
-	return s.provider.Checkout(order)
+	return s.provider.Checkout(ctx, order)
 }
 
 func (s *Service) Reconcile(ctx context.Context, id string) (Order, error) {
@@ -185,7 +224,10 @@ func (s *Service) Reconcile(ctx context.Context, id string) (Order, error) {
 }
 
 func (s *Service) Notify(params map[string]string) (Order, error) {
-	receipt, err := s.provider.VerifyNotification(params)
+	return s.NotifyContext(context.Background(), params)
+}
+func (s *Service) NotifyContext(ctx context.Context, params map[string]string) (Order, error) {
+	receipt, err := s.provider.VerifyNotification(ctx, params)
 	if err != nil {
 		return Order{}, err
 	}
@@ -293,11 +335,11 @@ func ParseYuan(raw string) (int64, error) {
 
 type LocalProvider struct{}
 
-func (LocalProvider) Mode() string                   { return "local" }
-func (LocalProvider) Checkout(Order) (string, error) { return "", nil }
+func (LocalProvider) Mode() string                                    { return "local" }
+func (LocalProvider) Checkout(context.Context, Order) (string, error) { return "", nil }
 func (LocalProvider) Query(_ context.Context, order Order) (Receipt, error) {
 	return Receipt{OrderID: order.ID, Status: order.Status}, nil
 }
-func (LocalProvider) VerifyNotification(map[string]string) (Receipt, error) {
+func (LocalProvider) VerifyNotification(context.Context, map[string]string) (Receipt, error) {
 	return Receipt{}, errors.New("Alipay notification is disabled in local mode")
 }

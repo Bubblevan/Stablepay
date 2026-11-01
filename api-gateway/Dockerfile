@@ -22,7 +22,7 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 WORKDIR /app
 
 COPY --from=builder /out/api-gateway /app/api-gateway
-COPY configs /app/configs
+COPY config/config.docker.yaml /app/config/config.yaml
 
 EXPOSE 8080
 ENTRYPOINT ["/app/api-gateway", "-config", "/app/config/config.yaml"]

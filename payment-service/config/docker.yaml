@@ -46,6 +46,10 @@ rpc_clients:
     address: stablepay-blockchain-adapter:8083
     timeout_ms: 5000
     retry_count: 3
+  alipay_adapter:
+    address: stablepay-alipay-adapter:8086
+    timeout_ms: 10000
+    retry_count: 0
 
 payment:
   timeout_minutes: 5

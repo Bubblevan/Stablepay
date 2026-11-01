@@ -17,9 +17,9 @@ import (
 )
 
 func main() {
-	token := os.Getenv("FIAT_INTERNAL_TOKEN")
+	token := os.Getenv("STABLEPAY_API_KEY")
 	if len(token) < 24 {
-		log.Fatal("FIAT_INTERNAL_TOKEN must match payment-service and contain at least 24 characters")
+		log.Fatal("STABLEPAY_API_KEY must be configured with at least 24 characters")
 	}
 	storePath := os.Getenv("MVP_STORE_PATH")
 	if storePath == "" {
@@ -29,11 +29,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	paymentURL := os.Getenv("FIAT_PAYMENT_URL")
-	if paymentURL == "" {
-		paymentURL = "http://127.0.0.1:8092"
+	gatewayURL := os.Getenv("STABLEPAY_GATEWAY_BASE_URL")
+	if gatewayURL == "" {
+		gatewayURL = "http://127.0.0.1:28080"
 	}
-	service := &procurementmvp.Service{Store: store, Payment: procurementmvp.PaymentClient{BaseURL: paymentURL, Token: token}}
+	service := &procurementmvp.Service{Store: store, Payment: procurementmvp.PaymentClient{BaseURL: gatewayURL, Token: token, Mode: os.Getenv("FIAT_PAYMENT_MODE")}}
 	if os.Getenv("MVP_USE_LLM") == "1" {
 		provider, model := os.Getenv("LLM_PROVIDER"), os.Getenv("LLM_MODEL")
 		if provider == "" {

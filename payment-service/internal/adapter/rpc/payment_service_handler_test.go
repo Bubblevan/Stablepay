@@ -1,10 +1,12 @@
 package rpc
 
 import (
+	"context"
 	"testing"
 
-	commonpb "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	appdto "github.com/stablepay/payment-service/internal/application/dto"
+	commonpb "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
+	paymentpb "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
 	payerrors "github.com/stablepay/payment-service/pkg/errors"
 )
 
@@ -54,5 +56,15 @@ func TestParseInt64RejectsInvalidAsZero(t *testing.T) {
 	}
 	if parseInt64("not-a-timestamp") != 0 {
 		t.Fatal("invalid timestamp should not be converted to a value")
+	}
+}
+
+func TestSimulateFiatPaymentRequiresFiatService(t *testing.T) {
+	response, err := (&PaymentServiceHandler{}).SimulateFiatPayment(context.Background(), &paymentpb.FiatPaymentActionRequest{})
+	if err != nil {
+		t.Fatalf("SimulateFiatPayment returned transport error: %v", err)
+	}
+	if response == nil || response.GetBase() == nil || response.GetBase().GetCode() == 0 {
+		t.Fatalf("expected a service error response, got %+v", response)
 	}
 }

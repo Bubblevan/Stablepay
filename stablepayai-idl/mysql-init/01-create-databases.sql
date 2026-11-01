@@ -7,3 +7,7 @@ CREATE DATABASE IF NOT EXISTS `stablepay_verification_db`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS `stablepay_query_db`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+GRANT ALL PRIVILEGES ON `stablepay_verification_db`.* TO 'stablepay'@'%';
+GRANT ALL PRIVILEGES ON `stablepay_query_db`.* TO 'stablepay'@'%';
+FLUSH PRIVILEGES;

@@ -2,11 +2,14 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	appdto "github.com/stablepay/payment-service/internal/application/dto"
 	appservice "github.com/stablepay/payment-service/internal/application/service"
+	fiatservice "github.com/stablepay/payment-service/internal/fiat"
 	commonpb "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	paymentpb "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
 	payerrors "github.com/stablepay/payment-service/pkg/errors"
@@ -17,11 +20,131 @@ import (
 // HTTP concerns stay in api-gateway; this adapter only translates the canonical
 // Kitex contract to the existing application layer.
 type PaymentServiceHandler struct {
-	app *appservice.PaymentApplicationService
+	app  *appservice.PaymentApplicationService
+	fiat *fiatservice.Service
 }
 
-func NewPaymentServiceHandler(app *appservice.PaymentApplicationService) *PaymentServiceHandler {
-	return &PaymentServiceHandler{app: app}
+func NewPaymentServiceHandler(app *appservice.PaymentApplicationService, fiat ...*fiatservice.Service) *PaymentServiceHandler {
+	h := &PaymentServiceHandler{app: app}
+	if len(fiat) > 0 {
+		h.fiat = fiat[0]
+	}
+	return h
+}
+
+func (h *PaymentServiceHandler) CreateFiatPayment(ctx context.Context, req *paymentpb.CreateFiatPaymentRequest) (*paymentpb.CreateFiatPaymentResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.CreateFiatPaymentResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	base := req.GetBase()
+	order, err := h.fiat.CreateContext(ctx, fiatservice.CreateRequest{RequestID: req.GetRequestId(), IdempotencyKey: baseIdempotencyKey(base), Nonce: req.GetNonce(),
+		ProductID: req.GetProductId(), Subject: req.GetSubject(), QuoteHash: req.GetQuoteHash(), ApprovalRef: req.GetApprovalRef(),
+		AgentDID: string(req.GetAgentDid()), SkillDID: string(req.GetSkillDid()), AmountMinor: req.GetAmountMinor(), Currency: req.GetCurrency()})
+	if err != nil {
+		return &paymentpb.CreateFiatPaymentResponse{Base: fiatErrorBase(base, err)}, nil
+	}
+	return &paymentpb.CreateFiatPaymentResponse{Base: successBase(base), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func (h *PaymentServiceHandler) GetFiatPayment(_ context.Context, req *paymentpb.GetFiatPaymentRequest) (*paymentpb.GetFiatPaymentResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.GetFiatPaymentResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	order, err := h.fiat.Get(req.GetOrderId())
+	if err != nil {
+		return &paymentpb.GetFiatPaymentResponse{Base: fiatErrorBase(req.GetBase(), err)}, nil
+	}
+	return &paymentpb.GetFiatPaymentResponse{Base: successBase(req.GetBase()), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func (h *PaymentServiceHandler) FindFiatPayment(_ context.Context, req *paymentpb.FindFiatPaymentRequest) (*paymentpb.FindFiatPaymentResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.FindFiatPaymentResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	order, err := h.fiat.FindByRequest(req.GetRequestId())
+	if err != nil {
+		return &paymentpb.FindFiatPaymentResponse{Base: fiatErrorBase(req.GetBase(), err)}, nil
+	}
+	return &paymentpb.FindFiatPaymentResponse{Base: successBase(req.GetBase()), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func (h *PaymentServiceHandler) CheckoutFiatPayment(ctx context.Context, req *paymentpb.FiatPaymentActionRequest) (*paymentpb.FiatPaymentActionResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	url, err := h.fiat.CheckoutContext(ctx, req.GetOrderId())
+	if err != nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: fiatErrorBase(req.GetBase(), err)}, nil
+	}
+	mode := h.fiat.Mode()
+	return &paymentpb.FiatPaymentActionResponse{Base: successBase(req.GetBase()), CashierUrl: &url, Mode: &mode}, nil
+}
+
+func (h *PaymentServiceHandler) ReconcileFiatPayment(ctx context.Context, req *paymentpb.FiatPaymentActionRequest) (*paymentpb.FiatPaymentActionResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	order, err := h.fiat.Reconcile(ctx, req.GetOrderId())
+	if err != nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: fiatErrorBase(req.GetBase(), err)}, nil
+	}
+	return &paymentpb.FiatPaymentActionResponse{Base: successBase(req.GetBase()), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func (h *PaymentServiceHandler) SimulateFiatPayment(_ context.Context, req *paymentpb.FiatPaymentActionRequest) (*paymentpb.FiatPaymentActionResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	if strings.TrimSpace(req.GetOrderId()) == "" {
+		return &paymentpb.FiatPaymentActionResponse{Base: errorBase(nil, payerrors.New(payerrors.INVALID_PARAMETERS, "order_id is required"))}, nil
+	}
+	order, err := h.fiat.Simulate(req.GetOrderId())
+	if err != nil {
+		return &paymentpb.FiatPaymentActionResponse{Base: errorBase(req.GetBase(), err)}, nil
+	}
+	return &paymentpb.FiatPaymentActionResponse{Base: successBase(req.GetBase()), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func (h *PaymentServiceHandler) NotifyAlipay(ctx context.Context, req *paymentpb.NotifyAlipayRequest) (*paymentpb.NotifyAlipayResponse, error) {
+	if req == nil || h.fiat == nil {
+		return &paymentpb.NotifyAlipayResponse{Base: fiatErrorBase(nil, errors.New("fiat payment service is unavailable"))}, nil
+	}
+	order, err := h.fiat.NotifyContext(ctx, req.GetParameters())
+	if err != nil {
+		return &paymentpb.NotifyAlipayResponse{Base: fiatErrorBase(req.GetBase(), err)}, nil
+	}
+	return &paymentpb.NotifyAlipayResponse{Base: successBase(req.GetBase()), Order: toFiatPaymentOrder(order)}, nil
+}
+
+func toFiatPaymentOrder(order fiatservice.Order) *paymentpb.FiatPaymentOrder {
+	out := &paymentpb.FiatPaymentOrder{Id: order.ID, RequestId: order.RequestID, ProductId: order.ProductID, Subject: order.Subject,
+		QuoteHash: order.QuoteHash, ApprovalRef: order.ApprovalRef, AgentDid: order.AgentDID, SkillDid: order.SkillDID,
+		AmountMinor: order.AmountMinor, Currency: order.Currency, Mode: order.Mode, Status: order.Status, CreatedAt: order.CreatedAt.UTC().Format(time.RFC3339Nano)}
+	if order.TradeNo != "" {
+		out.TradeNo = &order.TradeNo
+	}
+	if order.VerifiedBy != "" {
+		out.VerifiedBy = &order.VerifiedBy
+	}
+	if order.PaidAt != nil {
+		value := order.PaidAt.UTC().Format(time.RFC3339Nano)
+		out.PaidAt = &value
+	}
+	return out
+}
+
+func fiatErrorBase(req *commonpb.BaseReq, err error) *commonpb.BaseResp {
+	base := successBase(req)
+	base.Message = err.Error()
+	switch {
+	case errors.Is(err, fiatservice.ErrNotFound):
+		base.Code = int32(commonpb.ErrorCode_RESOURCE_NOT_FOUND)
+	case errors.Is(err, fiatservice.ErrConflict):
+		base.Code = int32(commonpb.ErrorCode_PAYMENT_ALREADY_EXISTS)
+	default:
+		base.Code = int32(commonpb.ErrorCode_INVALID_PARAMETERS)
+	}
+	return base
 }
 
 func (h *PaymentServiceHandler) InitiatePayment(ctx context.Context, req *paymentpb.InitiatePaymentRequest) (*paymentpb.InitiatePaymentResponse, error) {

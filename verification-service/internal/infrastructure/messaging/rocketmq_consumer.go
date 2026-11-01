@@ -146,7 +146,7 @@ func (e PaymentEvent) Validate() error {
 	if e.AmountMinor <= 0 {
 		return fmt.Errorf("payment event amount_minor must be positive")
 	}
-	if currency := strings.ToUpper(strings.TrimSpace(e.Currency)); currency != "USDC" && currency != "USDT" {
+	if currency := strings.ToUpper(strings.TrimSpace(e.Currency)); currency != "USDC" && currency != "USDT" && currency != "CNY" {
 		return fmt.Errorf("unsupported payment event currency: %s", e.Currency)
 	}
 	if _, err := time.Parse(time.RFC3339, e.OccurredAt); err != nil && e.Timestamp <= 0 {
@@ -167,6 +167,9 @@ func isSuccessful(tag string, event PaymentEvent) bool {
 	return status == "CONFIRMED" || status == "COMPLETED"
 }
 func currencyCode(currency string) int32 {
+	if strings.EqualFold(strings.TrimSpace(currency), "CNY") || strings.TrimSpace(currency) == "3" {
+		return 3
+	}
 	if strings.EqualFold(strings.TrimSpace(currency), "USDT") || strings.TrimSpace(currency) == "2" {
 		return 2
 	}

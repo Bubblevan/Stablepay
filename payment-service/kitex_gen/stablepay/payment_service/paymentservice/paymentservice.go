@@ -41,6 +41,55 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"CreateFiatPayment": kitex.NewMethodInfo(
+		createFiatPaymentHandler,
+		newPaymentServiceCreateFiatPaymentArgs,
+		newPaymentServiceCreateFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"GetFiatPayment": kitex.NewMethodInfo(
+		getFiatPaymentHandler,
+		newPaymentServiceGetFiatPaymentArgs,
+		newPaymentServiceGetFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"FindFiatPayment": kitex.NewMethodInfo(
+		findFiatPaymentHandler,
+		newPaymentServiceFindFiatPaymentArgs,
+		newPaymentServiceFindFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"CheckoutFiatPayment": kitex.NewMethodInfo(
+		checkoutFiatPaymentHandler,
+		newPaymentServiceCheckoutFiatPaymentArgs,
+		newPaymentServiceCheckoutFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ReconcileFiatPayment": kitex.NewMethodInfo(
+		reconcileFiatPaymentHandler,
+		newPaymentServiceReconcileFiatPaymentArgs,
+		newPaymentServiceReconcileFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"SimulateFiatPayment": kitex.NewMethodInfo(
+		simulateFiatPaymentHandler,
+		newPaymentServiceSimulateFiatPaymentArgs,
+		newPaymentServiceSimulateFiatPaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"NotifyAlipay": kitex.NewMethodInfo(
+		notifyAlipayHandler,
+		newPaymentServiceNotifyAlipayArgs,
+		newPaymentServiceNotifyAlipayResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -179,6 +228,132 @@ func newPaymentServiceGetPaymentRequirementResult() interface{} {
 	return payment_service.NewPaymentServiceGetPaymentRequirementResult()
 }
 
+func createFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceCreateFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceCreateFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).CreateFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceCreateFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceCreateFiatPaymentArgs()
+}
+
+func newPaymentServiceCreateFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceCreateFiatPaymentResult()
+}
+
+func getFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceGetFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceGetFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).GetFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceGetFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceGetFiatPaymentArgs()
+}
+
+func newPaymentServiceGetFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceGetFiatPaymentResult()
+}
+
+func findFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceFindFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceFindFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).FindFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceFindFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceFindFiatPaymentArgs()
+}
+
+func newPaymentServiceFindFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceFindFiatPaymentResult()
+}
+
+func checkoutFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceCheckoutFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceCheckoutFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).CheckoutFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceCheckoutFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceCheckoutFiatPaymentArgs()
+}
+
+func newPaymentServiceCheckoutFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceCheckoutFiatPaymentResult()
+}
+
+func reconcileFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceReconcileFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceReconcileFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).ReconcileFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceReconcileFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceReconcileFiatPaymentArgs()
+}
+
+func newPaymentServiceReconcileFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceReconcileFiatPaymentResult()
+}
+
+func simulateFiatPaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceSimulateFiatPaymentArgs)
+	realResult := result.(*payment_service.PaymentServiceSimulateFiatPaymentResult)
+	success, err := handler.(payment_service.PaymentService).SimulateFiatPayment(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceSimulateFiatPaymentArgs() interface{} {
+	return payment_service.NewPaymentServiceSimulateFiatPaymentArgs()
+}
+
+func newPaymentServiceSimulateFiatPaymentResult() interface{} {
+	return payment_service.NewPaymentServiceSimulateFiatPaymentResult()
+}
+
+func notifyAlipayHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceNotifyAlipayArgs)
+	realResult := result.(*payment_service.PaymentServiceNotifyAlipayResult)
+	success, err := handler.(payment_service.PaymentService).NotifyAlipay(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceNotifyAlipayArgs() interface{} {
+	return payment_service.NewPaymentServiceNotifyAlipayArgs()
+}
+
+func newPaymentServiceNotifyAlipayResult() interface{} {
+	return payment_service.NewPaymentServiceNotifyAlipayResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -224,6 +399,76 @@ func (p *kClient) GetPaymentRequirement(ctx context.Context, req *payment_servic
 	_args.Req = req
 	var _result payment_service.PaymentServiceGetPaymentRequirementResult
 	if err = p.c.Call(ctx, "GetPaymentRequirement", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CreateFiatPayment(ctx context.Context, req *payment_service.CreateFiatPaymentRequest) (r *payment_service.CreateFiatPaymentResponse, err error) {
+	var _args payment_service.PaymentServiceCreateFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceCreateFiatPaymentResult
+	if err = p.c.Call(ctx, "CreateFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetFiatPayment(ctx context.Context, req *payment_service.GetFiatPaymentRequest) (r *payment_service.GetFiatPaymentResponse, err error) {
+	var _args payment_service.PaymentServiceGetFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceGetFiatPaymentResult
+	if err = p.c.Call(ctx, "GetFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) FindFiatPayment(ctx context.Context, req *payment_service.FindFiatPaymentRequest) (r *payment_service.FindFiatPaymentResponse, err error) {
+	var _args payment_service.PaymentServiceFindFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceFindFiatPaymentResult
+	if err = p.c.Call(ctx, "FindFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CheckoutFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest) (r *payment_service.FiatPaymentActionResponse, err error) {
+	var _args payment_service.PaymentServiceCheckoutFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceCheckoutFiatPaymentResult
+	if err = p.c.Call(ctx, "CheckoutFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ReconcileFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest) (r *payment_service.FiatPaymentActionResponse, err error) {
+	var _args payment_service.PaymentServiceReconcileFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceReconcileFiatPaymentResult
+	if err = p.c.Call(ctx, "ReconcileFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SimulateFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest) (r *payment_service.FiatPaymentActionResponse, err error) {
+	var _args payment_service.PaymentServiceSimulateFiatPaymentArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceSimulateFiatPaymentResult
+	if err = p.c.Call(ctx, "SimulateFiatPayment", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) NotifyAlipay(ctx context.Context, req *payment_service.NotifyAlipayRequest) (r *payment_service.NotifyAlipayResponse, err error) {
+	var _args payment_service.PaymentServiceNotifyAlipayArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceNotifyAlipayResult
+	if err = p.c.Call(ctx, "NotifyAlipay", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

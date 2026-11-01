@@ -43,6 +43,11 @@ func (r *RedisClient) Close() error {
 	return r.client.Close()
 }
 
+// SetNX atomically claims short-lived idempotency and replay-protection keys.
+func (r *RedisClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.BoolCmd {
+	return r.client.SetNX(ctx, key, value, ttl)
+}
+
 // IsDuplicate 检查 nonce 是否重复
 func (r *RedisClient) IsDuplicate(ctx context.Context, nonce string) (bool, error) {
 	key := fmt.Sprintf("payment:nonce:%s", nonce)

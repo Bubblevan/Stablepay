@@ -110,6 +110,7 @@ type Currency int64
 const (
 	Currency_USDC Currency = 1
 	Currency_USDT Currency = 2
+	Currency_CNY  Currency = 3
 )
 
 func (p Currency) String() string {
@@ -118,6 +119,8 @@ func (p Currency) String() string {
 		return "USDC"
 	case Currency_USDT:
 		return "USDT"
+	case Currency_CNY:
+		return "CNY"
 	}
 	return "<UNSET>"
 }
@@ -128,6 +131,8 @@ func CurrencyFromString(s string) (Currency, error) {
 		return Currency_USDC, nil
 	case "USDT":
 		return Currency_USDT, nil
+	case "CNY":
+		return Currency_CNY, nil
 	}
 	return Currency(0), fmt.Errorf("not a valid Currency string")
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -82,6 +83,9 @@ func Load(configPath string) (*AppConfig, error) {
 	cfg := &AppConfig{}
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if apiKey := strings.TrimSpace(os.Getenv("GATEWAY_API_KEY")); apiKey != "" {
+		cfg.Security.AllowedAPIKeys = []string{apiKey}
 	}
 	if cfg.Server.Address == "" {
 		cfg.Server.Address = ":8080"

@@ -196,7 +196,7 @@ func (e *MQPaymentEvent) Validate() error {
 	if e.TxID == "" || e.AgentDID == "" || e.SkillDID == "" || e.AmountMinor <= 0 {
 		return fmt.Errorf("payment event business identity is incomplete")
 	}
-	if currency := strings.ToUpper(strings.TrimSpace(e.Currency)); currency != "USDC" && currency != "USDT" {
+	if currency := strings.ToUpper(strings.TrimSpace(e.Currency)); currency != "USDC" && currency != "USDT" && currency != "CNY" {
 		return fmt.Errorf("unsupported payment event currency: %s", e.Currency)
 	}
 	if _, err := time.Parse(time.RFC3339, e.OccurredAt); err != nil {
