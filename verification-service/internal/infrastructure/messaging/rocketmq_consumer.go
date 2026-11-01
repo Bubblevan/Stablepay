@@ -216,6 +216,19 @@ func resolveNameServers(values []string) []string {
 		if !strings.Contains(value, ":") {
 			value = net.JoinHostPort(value, "9876")
 		}
+		// rocketmq-client-go expects IP literals in WithNameServer even though
+		// Compose service discovery supplies hostnames. Resolve Docker DNS here
+		// before constructing the SDK consumer.
+		if host, port, err := net.SplitHostPort(value); err == nil && net.ParseIP(host) == nil {
+			if addresses, lookupErr := net.LookupIP(host); lookupErr == nil {
+				for _, address := range addresses {
+					if ipv4 := address.To4(); ipv4 != nil {
+						value = net.JoinHostPort(ipv4.String(), port)
+						break
+					}
+				}
+			}
+		}
 		result = append(result, value)
 	}
 	if len(result) == 0 {

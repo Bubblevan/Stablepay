@@ -1,7 +1,7 @@
 # 在仓库根目录 StablePay 下构建（需要 payment-service 旁的 blockchain-adapter 以满足 go.mod replace）：
 #   docker build -f payment-service/Dockerfile .
 #
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
@@ -13,6 +13,7 @@ RUN apk add --no-cache git
 WORKDIR /src
 
 COPY blockchain-adapter /src/blockchain-adapter
+COPY did-service /src/did-service
 COPY payment-service /src/payment-service
 
 WORKDIR /src/payment-service
@@ -20,7 +21,7 @@ RUN go mod download
 
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o payment-service ./cmd/server
 
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
+FROM alpine:3.21
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 

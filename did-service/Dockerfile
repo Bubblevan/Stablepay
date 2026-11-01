@@ -1,7 +1,7 @@
 # StablePay DID Service
 # 基于 Kitex 的微服务 - DID 身份服务
 
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -26,7 +26,7 @@ COPY . .
 RUN go build -o did-service ./cmd/server/main.go
 
 # 运行时镜像
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
+FROM alpine:3.21
 
 # 使用阿里云 Alpine 镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories

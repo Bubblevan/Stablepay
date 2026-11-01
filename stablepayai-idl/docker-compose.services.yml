@@ -1,5 +1,6 @@
 services:
   did-service:
+    profiles: ["identity"]
     build:
       context: ../did-service
     image: stablepay-did-service:latest
@@ -26,10 +27,6 @@ services:
     ports:
       - "8888:8888"
     depends_on:
-      did-service:
-        condition: service_started
-      blockchain-adapter:
-        condition: service_started
       mysql:
         condition: service_healthy
       redis:
@@ -41,6 +38,7 @@ services:
     restart: unless-stopped
 
   blockchain-adapter:
+    profiles: ["blockchain"]
     build:
       context: ../blockchain-adapter
     image: stablepay-blockchain-adapter:latest
@@ -83,7 +81,7 @@ services:
     image: stablepay-verification-service:latest
     container_name: stablepay-verification-service
     environment:
-      - ROCKETMQ_NAMESERVER=stablepay-rocketmq-nameserver:9876
+      - ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
       - MYSQL_HOST=stablepay-mysql
       - MYSQL_PORT=3306
       - MYSQL_USER=stablepay
@@ -136,8 +134,6 @@ services:
     ports:
       - "28080:8080"
     depends_on:
-      did-service:
-        condition: service_started
       payment-service:
         condition: service_started
       verification-service:
@@ -152,5 +148,4 @@ services:
 
 networks:
   stablepay-network:
-    external: true
-    name: root_stablepay-network
+    driver: bridge

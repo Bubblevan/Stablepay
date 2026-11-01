@@ -1,7 +1,7 @@
 # StablePay Blockchain Adapter
 # 基于 Kitex 的微服务 - 区块链适配器
 
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/golang:1.26.1-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 # 替换 Alpine 源为阿里云镜像（避免网络超时）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -27,7 +27,7 @@ COPY . .
 RUN go build -mod=mod -o blockchain-adapter ./cmd/server/main.go
 
 # 运行时镜像
-FROM stablepay-registry.cn-shanghai.cr.aliyuncs.com/stablepay-dev/alpine:latest
+FROM alpine:3.21
 
 # 替换 Alpine 源为阿里云镜像
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories

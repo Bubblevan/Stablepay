@@ -67,8 +67,21 @@ $safeRepoRoot = $repoRoot.Replace('\','/')
 $composePrefix = @('-p','root','--env-file',$composeEnv,'-f',(Join-Path $repoRoot 'stablepayai-idl/docker-compose.infra.yml'),'-f',(Join-Path $repoRoot 'stablepayai-idl/docker-compose.services.yml'))
 $profile = @()
 if ($PaymentMode -eq 'alipay_sandbox') { $profile = @('--profile','alipay-sandbox') }
-& docker compose @composePrefix @profile up -d --build
+& docker compose --parallel 1 @composePrefix @profile build
+if ($LASTEXITCODE -ne 0) { throw 'StablePay microservice images did not build. Check Docker Desktop and compose logs.' }
+& docker compose @composePrefix @profile up -d
 if ($LASTEXITCODE -ne 0) { throw 'StablePay microservice stack did not start. Check Docker Desktop and compose logs.' }
+
+# RocketMQ does not create application topics by default. Ensure the payment
+# topic exists before the runtime advertises the Alipay flow as ready; this is
+# safe to repeat and also recovers installations with an existing broker volume.
+$paymentTopicReady = $false
+for ($attempt = 0; $attempt -lt 30; $attempt++) {
+  & docker compose @composePrefix exec -T rocketmq-broker sh /home/rocketmq/rocketmq-5.3.2/bin/mqadmin updateTopic -n rocketmq-nameserver:9876 -c DefaultCluster -t payment_events *> $null
+  if ($LASTEXITCODE -eq 0) { $paymentTopicReady = $true; break }
+  Start-Sleep -Seconds 2
+}
+if (-not $paymentTopicReady) { throw 'RocketMQ payment_events topic is unavailable; inspect the broker and nameserver logs.' }
 
 $runtimeBinary = Join-Path $runRoot 'procurement-runtime.exe'
 $frontendDir = Join-Path $runRoot 'web'

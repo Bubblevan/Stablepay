@@ -26,8 +26,11 @@ type fiatOrderRow struct {
 	Subject        string    `gorm:"size:180;not null"`
 	QuoteHash      string    `gorm:"size:128;not null"`
 	ApprovalRef    string    `gorm:"size:128;not null"`
-	AgentDID       string    `gorm:"size:255;not null"`
-	SkillDID       string    `gorm:"size:255;not null"`
+	// GORM splits the DID initialism as d_id by default, while the payment
+	// schema and Kitex contract use did. Pin the database column names so
+	// inserts do not silently target non-existent agent_d_id/skill_d_id columns.
+	AgentDID       string    `gorm:"column:agent_did;size:255;not null"`
+	SkillDID       string    `gorm:"column:skill_did;size:255;not null"`
 	AmountMinor    int64     `gorm:"not null"`
 	Currency       string    `gorm:"size:8;not null"`
 	Mode           string    `gorm:"size:32;not null"`
@@ -73,6 +76,9 @@ func NewSQLStore(db *gorm.DB, migrate bool) (*SQLStore, error) {
 		if err := db.AutoMigrate(&fiatOrderRow{}, &fiatStoreLock{}, &fiatOutboxRow{}); err != nil {
 			return nil, err
 		}
+		if err := migrateLegacyDIDColumns(db); err != nil {
+			return nil, fmt.Errorf("migrate legacy fiat DID columns: %w", err)
+		}
 	} else if !db.Migrator().HasTable(&fiatOrderRow{}) || !db.Migrator().HasTable(&fiatStoreLock{}) || !db.Migrator().HasTable(&fiatOutboxRow{}) {
 		return nil, errors.New("fiat payment tables are missing; apply payment-service migrations before startup")
 	}
@@ -84,6 +90,30 @@ func NewSQLStore(db *gorm.DB, migrate bool) (*SQLStore, error) {
 		return nil, fmt.Errorf("import legacy fiat snapshot: %w", err)
 	}
 	return s, nil
+}
+
+// migrateLegacyDIDColumns removes columns produced by the old GORM acronym
+// mapping (agent_d_id/skill_d_id). AutoMigrate adds the canonical did columns;
+// copy any existing values before dropping the stale NOT NULL columns, which
+// would otherwise reject all new inserts after an in-place upgrade.
+func migrateLegacyDIDColumns(db *gorm.DB) error {
+	for _, columns := range [][2]string{{"agent_d_id", "agent_did"}, {"skill_d_id", "skill_did"}} {
+		legacy, canonical := columns[0], columns[1]
+		if !db.Migrator().HasColumn(&fiatOrderRow{}, legacy) {
+			continue
+		}
+		if !db.Migrator().HasColumn(&fiatOrderRow{}, canonical) {
+			return fmt.Errorf("canonical column %s is missing", canonical)
+		}
+		query := fmt.Sprintf("UPDATE fiat_payment_orders SET `%s` = `%s` WHERE (`%s` = '' OR `%s` IS NULL) AND `%s` <> ''", canonical, legacy, canonical, canonical, legacy)
+		if err := db.Exec(query).Error; err != nil {
+			return fmt.Errorf("copy %s into %s: %w", legacy, canonical, err)
+		}
+		if err := db.Migrator().DropColumn(&fiatOrderRow{}, legacy); err != nil {
+			return fmt.Errorf("drop obsolete column %s: %w", legacy, err)
+		}
+	}
+	return nil
 }
 
 func (s *SQLStore) importLegacySnapshot() error {

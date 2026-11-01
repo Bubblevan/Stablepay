@@ -1,8 +1,10 @@
-# Root build context is only used by payment-service Dockerfile.
+# Root build context is used by payment-service and Alipay Adapter Dockerfiles.
 # Keep required directories, ignore everything else.
 *
 !payment-service/**
 !blockchain-adapter/**
+!did-service/**
+!alipay-adapter/**
 
 # Exclude heavy artifacts inside included dirs
 payment-service/.git
@@ -32,3 +34,31 @@ blockchain-adapter/.cursor
 blockchain-adapter/.cursor/**
 blockchain-adapter/.idea
 blockchain-adapter/.idea/**
+
+did-service/.git
+did-service/.git/**
+did-service/vendor
+did-service/vendor/**
+did-service/*.exe
+did-service/**/bin
+did-service/**/dist
+did-service/**/tmp
+did-service/**/coverage
+did-service/.cursor
+did-service/.cursor/**
+did-service/.idea
+did-service/.idea/**
+
+alipay-adapter/.git
+alipay-adapter/.git/**
+alipay-adapter/vendor
+alipay-adapter/vendor/**
+alipay-adapter/*.exe
+alipay-adapter/**/bin
+alipay-adapter/**/dist
+alipay-adapter/**/tmp
+alipay-adapter/**/coverage
+alipay-adapter/.cursor
+alipay-adapter/.cursor/**
+alipay-adapter/.idea
+alipay-adapter/.idea/**
