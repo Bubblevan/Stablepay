@@ -33,7 +33,7 @@ function readSandboxConfiguration() {
   const appId = app?.appId;
   const privateKey = app?.appPrivatePkcsKey;
   const alipayPublicKey = app?.alipayPublicKey;
-  const sellerId = partner?.merchantId;
+  const sellerId = app?.pid;
   const requiredValues = [appId, privateKey, alipayPublicKey, sellerId];
   if (!requiredValues.every((value) => typeof value === 'string' && value.length > 0)) {
     throw integrationError('A2M_SANDBOX_CONFIG_INVALID', 'Alipay sandbox app or merchant fields are incomplete');
@@ -124,7 +124,7 @@ function signSellerBill(fields, rawPrivateKey) {
 
 function currentResourceId(agentDid, requestText) {
   const fingerprint = createHash('sha256')
-    .update(`${agentDid}\n${requestText}`, 'utf8')
+    .update(`${agentDid || ''}\n${requestText}`, 'utf8')
     .digest('hex')
     .slice(0, 24);
   return `${A2M_PATH}?request=${fingerprint}`;
@@ -227,11 +227,7 @@ export function createA2MPaymentHandler({ repository, createResource, validateRe
   }
 
   return async function handleA2MRequest(req, res, url) {
-    const agentDid = url.searchParams.get('agent_did');
-    if (!agentDid) {
-      sendJson(res, 400, { code: 'missing_param', message: 'agent_did is required' });
-      return;
-    }
+    const agentDid = url.searchParams.get('agent_did') || undefined;
     if (!repository || typeof repository.createPending !== 'function'
       || typeof repository.findByOutTradeNo !== 'function'
       || typeof repository.prepareFulfillment !== 'function'
@@ -240,7 +236,8 @@ export function createA2MPaymentHandler({ repository, createResource, validateRe
       return;
     }
 
-    const requestText = url.searchParams.get('q') || url.searchParams.get('prompt') || 'default-premium-request';
+    const requestText = url.searchParams.get('q') || url.searchParams.get('prompt')
+      || url.searchParams.get('gift') || 'default-premium-request';
     const resourceId = currentResourceId(agentDid, requestText);
 
     try {

@@ -191,7 +191,7 @@ function buildProof({ agentDid, skillDid, requestText }) {
   const nonce = crypto.randomBytes(12).toString("hex");
   const canonical = [
     "showmethemoney-pro",
-    agentDid,
+    agentDid || "alipay-a2m",
     skillDid,
     requestText || "",
     issuedAt,
@@ -269,7 +269,10 @@ const handleA2MRequest = createA2MPaymentHandler({
       throw error;
     }
   },
-  createResource: ({ agentDid, requestText }) => buildPremiumPayload({ agentDid, requestText }),
+  createResource: ({ agentDid, requestText, resourceId }) => ({
+    resource_id: resourceId,
+    content: buildPremiumPayload({ agentDid, requestText }),
+  }),
 });
 
 async function fetchVerify(agentDid) {

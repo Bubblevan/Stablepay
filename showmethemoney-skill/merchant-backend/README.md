@@ -211,7 +211,7 @@ curl 'http://127.0.0.1:8787/execute?agent_did=did:solana:C2vKSxoDErVhhLrKZvXHMmJ
 * 未购买时应返回 `402`
 * 购买后应返回 `200`，并带 `merchant-generated-proof`
 
-### `GET /a2m/execute?agent_did=<did>&q=<optional_text>`
+### `GET /a2m/execute?q=<optional_text>[&agent_did=<optional_did>]`
 
 同一个受保护能力还支持支付宝 AI 按量付费。已有 `/execute` 的 x402/StablePay 路径保持原样：
 
@@ -221,7 +221,7 @@ curl 'http://127.0.0.1:8787/execute?agent_did=did:solana:C2vKSxoDErVhhLrKZvXHMmJ
 4. 后端将履约结果和唯一交易号事务性写入 MySQL，再调用 `alipay.aipay.agent.fulfillment.confirm`。
 5. 确认成功后返回同一份已持久化的 merchant-generated proof，并设置 `Payment-Validation` Header。
 
-MySQL 的 `a2m_orders` 表会在首次请求时创建，使用唯一订单号、唯一支付宝交易号、行锁和事务保证幂等；确认失败时可用同一 `Payment-Proof` 重试。沙箱配置从项目根目录的 `.alipay-sandbox.json` 读取，只映射 `appIds[0]` 中的应用配置和 `sandboxAccounts.partner` 中的商户 ID，不复制密钥到 `.env`。沙箱网关和 `api_mock_service_id` 固定为沙箱值。
+MySQL 的 `a2m_orders` 表会在首次请求时创建，使用唯一订单号、唯一支付宝交易号、行锁和事务保证幂等；确认失败时可用同一 `Payment-Proof` 重试。沙箱配置从项目根目录的 `.alipay-sandbox.json` 读取，应用和签名密钥取自 `appIds[0]`，Agent Pay 卖家 2088 ID 取自同一应用配置的 `pid`，不复制密钥到 `.env`。沙箱网关和 `api_mock_service_id` 固定为沙箱值。
 
 本机开发时，服务会从 StablePay 根目录 `.env` 只读取已有的 `COMMERCE_RUNTIME_MYSQL_DSN`，复用正在运行的 MySQL；没有该项时，可复制 `.env.example` 并填完整的 `A2M_MYSQL_*`，也支持 `A2M_MYSQL_URL` 或 `A2M_MYSQL_DSN`。生产环境需显式配置数据库连接。`A2M_AMOUNT_CNY` 默认 `0.01`。支付宝配置缺失时，A2M 路由会明确返回 `503`，不会用示例密钥或内存订单继续。
 
