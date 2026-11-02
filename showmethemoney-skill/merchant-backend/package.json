@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "showmethemoney-demo-backend",
   "private": true,
   "type": "module",
@@ -6,6 +6,8 @@
     "start": "node server.mjs"
   },
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "alipay-sdk": "^4.14.0",
+    "dotenv": "^16.6.1",
+    "mysql2": "^3.24.6"
   }
 }

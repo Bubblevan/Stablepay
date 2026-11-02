@@ -1,10 +1,13 @@
 import { createServer } from "node:http";
-import { URL } from "node:url";
+import { URL, fileURLToPath } from "node:url";
+import path from "node:path";
 import crypto from "node:crypto";
 import { config } from "dotenv";
+import { createA2MPaymentHandler, A2M_PATH } from "./a2m-payment.mjs";
+import { createA2MOrderRepository } from "./a2m-order-repository.mjs";
 
 // 从 .env 文件加载环境变量
-config();
+config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), ".env") });
 
 const PORT = Number(process.env.PORT || 8787);
 const GATEWAY_BASE_URL = process.env.GATEWAY_BASE_URL || "https://ai.wenfu.cn";
@@ -17,8 +20,7 @@ const CURRENCY = process.env.CURRENCY || "USDC";
 const MESSAGE = process.env.MESSAGE;
 
 // 该 secret 只在商户后端内部使用，不会暴露给客户端，仅用于生成访问 proof
-const MERCHANT_PROOF_SECRET =
-  process.env.MERCHANT_PROOF_SECRET || "replaces-this-with-a-long-random-secret";
+const MERCHANT_PROOF_SECRET = process.env.MERCHANT_PROOF_SECRET || "";
 
 // 是否暴露调试接口（开发者模式）
 const ENABLE_DEBUG_ROUTES = process.env.ENABLE_DEBUG_ROUTES === "1";
@@ -182,6 +184,9 @@ function buildX402PaymentResponse(txId, txHash) {
 }
 
 function buildProof({ agentDid, skillDid, requestText }) {
+  if (MERCHANT_PROOF_SECRET.length < 32) {
+    throw new Error("MERCHANT_PROOF_SECRET must contain at least 32 characters");
+  }
   const issuedAt = nowIso();
   const nonce = crypto.randomBytes(12).toString("hex");
   const canonical = [
@@ -206,6 +211,66 @@ function buildProof({ agentDid, skillDid, requestText }) {
     display_token: `SHOW-ME-THE-MONEY::${signature.slice(0, 24).toUpperCase()}`,
   };
 }
+
+function buildPremiumPayload({ agentDid, requestText, verifySnapshot, includeX402Version = false }) {
+  const proof = buildProof({ agentDid, skillDid: SKILL_DID || "showmethemoney-pro", requestText });
+  const unlockedStore = {
+    membership_active: true,
+    message: "恭喜！您已解锁 Premium Research Store（付费报告商店）。现在可以单独购买研究报告。",
+    report_store: {
+      base_url: REPORT_STORE_URL,
+      browse_endpoint: "/reports",
+      purchase_endpoint: "/execute",
+      available_reports: UNLOCKED_REPORTS.map((report) => ({
+        id: report.id,
+        title: report.title,
+        description: report.description,
+        price: report.price,
+        currency: report.currency,
+        author: report.author,
+        tags: report.tags,
+      })),
+    },
+    next_steps: [
+      "1. 查看可购买的报告列表",
+      "2. 选择感兴趣的报告",
+      "3. 单独付费解锁完整内容",
+    ],
+  };
+
+  return {
+    ok: true,
+    product: "showmethemoney-pro",
+    ...(includeX402Version ? { x402Version: 1 } : {}),
+    protected_result: {
+      kind: "merchant-generated-proof",
+      message: "Show me the money: premium access granted",
+      request_text: requestText,
+      proof,
+    },
+    access: {
+      agent_did: agentDid,
+      skill_did: SKILL_DID,
+      verified_by_backend: true,
+      verified_at: nowIso(),
+    },
+    unlocked_store: unlockedStore,
+    ...(verifySnapshot === undefined ? {} : { verify_snapshot: verifySnapshot }),
+  };
+}
+
+const a2mOrderRepository = createA2MOrderRepository();
+const handleA2MRequest = createA2MPaymentHandler({
+  repository: a2mOrderRepository,
+  validateResource: () => {
+    if (MERCHANT_PROOF_SECRET.length < 32) {
+      const error = new Error("Merchant proof generation is not configured");
+      error.code = "A2M_RESOURCE_NOT_CONFIGURED";
+      throw error;
+    }
+  },
+  createResource: ({ agentDid, requestText }) => buildPremiumPayload({ agentDid, requestText }),
+});
 
 async function fetchVerify(agentDid) {
   const url = new URL("/api/v1/verify", GATEWAY_BASE_URL);
@@ -312,6 +377,14 @@ async function handleExecute(req, res, url, headers, startTime) {
     });
     logRequest("GET", "/execute", params, 400, Date.now() - startTime, {
       error: "missing agent_did"
+    });
+    return;
+  }
+
+  if (MERCHANT_PROOF_SECRET.length < 32) {
+    writeJson(res, 503, {
+      code: "merchant_proof_not_configured",
+      message: "Merchant proof generation is not configured",
     });
     return;
   }
@@ -491,6 +564,12 @@ const server = createServer(async (req, res) => {
         gateway_base_url: GATEWAY_BASE_URL,
       });
       logRequest("GET", "/healthz", {}, 200, Date.now() - startTime);
+      return;
+    }
+
+    // Alipay AI Pay-per-use reuses the same protected resource; x402 stays on /execute.
+    if (req.method === "GET" && url.pathname === A2M_PATH) {
+      await handleA2MRequest(req, res, url);
       return;
     }
 

@@ -127,14 +127,13 @@ npm install
 
 ### 2. 配置环境变量
 
-复制 `.env` 文件并根据需要修改：
+本地 `.env` 用于保存不进 Git 的后端配置。按需参考 `.env.example` 增补变量；不要用模板覆盖已有 `.env`：
 
 ```bash
-cp .env .env.local
-# 编辑 .env.local 修改配置（如需要）
+# .env 已存在时只增补需要的变量，不要覆盖已有本地配置
 ```
 
-**重要**：`.env` 文件已包含默认配置。你可以直接编辑 `.env`，或创建 `.env.local` 覆盖特定值（`.env.local` 不会被提交到 git）。
+本机 `.env` 已包含随机生成的 `MERCHANT_PROOF_SECRET`。Alipay 应用密钥单独由 Skill 写入 `.alipay-sandbox.json`；不要复制到 `.env`。
 
 ### 3. 启动服务
 
@@ -150,7 +149,7 @@ node server.mjs
 
 ## 环境变量
 
-所有配置通过 `.env` 文件管理（已提供默认配置）。如需覆盖，可创建 `.env.local`。
+通用服务配置通过本机 `.env` 或部署环境变量提供；`.env.example` 只包含非敏感模板值。Alipay 沙箱应用密钥从 `.alipay-sandbox.json` 读取。
 
 | 变量名                     | 默认值                                             | 说明                               |
 | ----------------------- | ----------------------------------------------- | -------------------------------- |
@@ -211,6 +210,20 @@ curl 'http://127.0.0.1:8787/execute?agent_did=did:solana:C2vKSxoDErVhhLrKZvXHMmJ
 
 * 未购买时应返回 `402`
 * 购买后应返回 `200`，并带 `merchant-generated-proof`
+
+### `GET /a2m/execute?agent_did=<did>&q=<optional_text>`
+
+同一个受保护能力还支持支付宝 AI 按量付费。已有 `/execute` 的 x402/StablePay 路径保持原样：
+
+1. 首次调用返回 HTTP `402` 和 `Payment-Needed` Header。
+2. 客户端完成支付后，带原请求参数和 `Payment-Proof` 重试。
+3. 后端调用 `alipay.aipay.agent.payment.verify`，核对本地订单、金额、交易号和资源标识。
+4. 后端将履约结果和唯一交易号事务性写入 MySQL，再调用 `alipay.aipay.agent.fulfillment.confirm`。
+5. 确认成功后返回同一份已持久化的 merchant-generated proof，并设置 `Payment-Validation` Header。
+
+MySQL 的 `a2m_orders` 表会在首次请求时创建，使用唯一订单号、唯一支付宝交易号、行锁和事务保证幂等；确认失败时可用同一 `Payment-Proof` 重试。沙箱配置从项目根目录的 `.alipay-sandbox.json` 读取，只映射 `appIds[0]` 中的应用配置和 `sandboxAccounts.partner` 中的商户 ID，不复制密钥到 `.env`。沙箱网关和 `api_mock_service_id` 固定为沙箱值。
+
+本机开发时，服务会从 StablePay 根目录 `.env` 只读取已有的 `COMMERCE_RUNTIME_MYSQL_DSN`，复用正在运行的 MySQL；没有该项时，可复制 `.env.example` 并填完整的 `A2M_MYSQL_*`，也支持 `A2M_MYSQL_URL` 或 `A2M_MYSQL_DSN`。生产环境需显式配置数据库连接。`A2M_AMOUNT_CNY` 默认 `0.01`。支付宝配置缺失时，A2M 路由会明确返回 `503`，不会用示例密钥或内存订单继续。
 
 ## 调试接口（可选）
 
