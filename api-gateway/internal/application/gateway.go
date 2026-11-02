@@ -101,6 +101,10 @@ func (s *Service) NotifyAlipay(ctx context.Context, parameters map[string]string
 	return s.payment.NotifyAlipay(ctx, parameters)
 }
 
+func (s *Service) MachinePayAccess(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return s.payment.MachinePayAccess(ctx, req)
+}
+
 func getString(in map[string]interface{}, key string) string {
 	value, ok := in[key]
 	if !ok || value == nil {

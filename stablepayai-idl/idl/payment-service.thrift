@@ -146,6 +146,24 @@ struct FiatPaymentActionResponse {
 struct NotifyAlipayRequest { 1: common.BaseReq base, 2: map<string, string> parameters }
 struct NotifyAlipayResponse { 1: common.BaseResp base, 2: optional FiatPaymentOrder order }
 
+/** One metered API invocation protected by Alipay AI Pay Machine Pay. */
+struct MachinePayAccessRequest {
+  1: common.BaseReq base,
+  2: string resource_id,
+  3: string goods_name,
+  4: i64 amount_minor,
+  5: optional string payment_proof_header,
+}
+struct MachinePayAccessResponse {
+  1: common.BaseResp base,
+  2: bool authorized,
+  3: string order_id,
+  4: string payment_link,
+  5: string resource_id,
+  6: i64 amount_minor,
+  7: string status,
+}
+
 service PaymentService {
   InitiatePaymentResponse InitiatePayment(1: InitiatePaymentRequest req),
   GetPaymentStatusResponse GetPaymentStatus(1: GetPaymentStatusRequest req),
@@ -158,5 +176,6 @@ service PaymentService {
   FiatPaymentActionResponse ReconcileFiatPayment(1: FiatPaymentActionRequest req),
   FiatPaymentActionResponse SimulateFiatPayment(1: FiatPaymentActionRequest req),
   NotifyAlipayResponse NotifyAlipay(1: NotifyAlipayRequest req),
+  MachinePayAccessResponse MachinePayAccess(1: MachinePayAccessRequest req),
 }
 

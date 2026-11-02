@@ -22,6 +22,7 @@ type Client interface {
 	ReconcileFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error)
 	SimulateFiatPayment(ctx context.Context, req *payment_service.FiatPaymentActionRequest, callOptions ...callopt.Option) (r *payment_service.FiatPaymentActionResponse, err error)
 	NotifyAlipay(ctx context.Context, req *payment_service.NotifyAlipayRequest, callOptions ...callopt.Option) (r *payment_service.NotifyAlipayResponse, err error)
+	MachinePayAccess(ctx context.Context, req *payment_service.MachinePayAccessRequest, callOptions ...callopt.Option) (r *payment_service.MachinePayAccessResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -106,4 +107,9 @@ func (p *kPaymentServiceClient) SimulateFiatPayment(ctx context.Context, req *pa
 func (p *kPaymentServiceClient) NotifyAlipay(ctx context.Context, req *payment_service.NotifyAlipayRequest, callOptions ...callopt.Option) (r *payment_service.NotifyAlipayResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.NotifyAlipay(ctx, req)
+}
+
+func (p *kPaymentServiceClient) MachinePayAccess(ctx context.Context, req *payment_service.MachinePayAccessRequest, callOptions ...callopt.Option) (r *payment_service.MachinePayAccessResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.MachinePayAccess(ctx, req)
 }

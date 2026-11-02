@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/client/callopt"
 	"github.com/cloudwego/kitex/pkg/retry"
 	"github.com/stablepay/api-gateway/internal/application"
 	"github.com/stablepay/api-gateway/kitex_gen/stablepay/common"
@@ -259,6 +260,33 @@ func (c *KitexPaymentClient) NotifyAlipay(ctx context.Context, parameters map[st
 	}
 	_, _, err = fiatRPCStatus(resp.GetBase())
 	return err
+}
+
+func (c *KitexPaymentClient) MachinePayAccess(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error) {
+	amountMinor := intFromReq(req, "machinepay_amount_minor", 0)
+	if amountMinor < 1 || amountMinor > 5000 {
+		return nil, 400, 10001, fmt.Errorf("invalid Machine Pay amount_minor")
+	}
+	kreq := payment_service.NewMachinePayAccessRequest()
+	kreq.Base = baseRequest(req)
+	kreq.ResourceId = stringFromIface(req["machinepay_resource_id"])
+	kreq.GoodsName = stringFromIface(req["machinepay_goods_name"])
+	kreq.AmountMinor = int64(amountMinor)
+	setOptional(&kreq.PaymentProofHeader, stringFromIface(req["payment_proof_header"]))
+	// Precreate can include an upstream Alipay API call. Keep this RPC above
+	// the adapter's 10s timeout so a challenge is not cut off by the gateway's
+	// general-purpose (shorter) timeout.
+	resp, err := c.cli.MachinePayAccess(ctx, kreq, callopt.WithRPCTimeout(15*time.Second))
+	if err != nil {
+		return nil, 503, 30002, err
+	}
+	if status, code, err := fiatRPCStatus(resp.GetBase()); err != nil {
+		return nil, status, code, err
+	}
+	return map[string]interface{}{
+		"authorized": resp.GetAuthorized(), "order_id": resp.GetOrderId(), "payment_link": resp.GetPaymentLink(),
+		"resource_id": resp.GetResourceId(), "amount_minor": resp.GetAmountMinor(), "status": resp.GetStatus(),
+	}, 200, 0, nil
 }
 
 func fiatOrderMap(order *payment_service.FiatPaymentOrder) map[string]interface{} {

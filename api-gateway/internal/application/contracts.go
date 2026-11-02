@@ -22,6 +22,7 @@ type PaymentServiceClient interface {
 	ReconcileFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
 	SimulateFiatPayment(ctx context.Context, orderID string) (map[string]interface{}, int, int, error)
 	NotifyAlipay(ctx context.Context, parameters map[string]string) error
+	MachinePayAccess(ctx context.Context, req map[string]interface{}) (map[string]interface{}, int, int, error)
 }
 
 type VerificationServiceClient interface {

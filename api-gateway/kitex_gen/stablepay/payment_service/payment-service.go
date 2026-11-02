@@ -1758,6 +1758,181 @@ var fieldIDToName_NotifyAlipayResponse = map[int16]string{
 	2: "order",
 }
 
+type MachinePayAccessRequest struct {
+	Base               *common.BaseReq `thrift:"base,1" frugal:"1,default,common.BaseReq" json:"base"`
+	ResourceId         string          `thrift:"resource_id,2" frugal:"2,default,string" json:"resource_id"`
+	GoodsName          string          `thrift:"goods_name,3" frugal:"3,default,string" json:"goods_name"`
+	AmountMinor        int64           `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
+	PaymentProofHeader *string         `thrift:"payment_proof_header,5,optional" frugal:"5,optional,string" json:"payment_proof_header,omitempty"`
+}
+
+func NewMachinePayAccessRequest() *MachinePayAccessRequest {
+	return &MachinePayAccessRequest{}
+}
+
+func (p *MachinePayAccessRequest) InitDefault() {
+}
+
+var MachinePayAccessRequest_Base_DEFAULT *common.BaseReq
+
+func (p *MachinePayAccessRequest) GetBase() (v *common.BaseReq) {
+	if !p.IsSetBase() {
+		return MachinePayAccessRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *MachinePayAccessRequest) GetResourceId() (v string) {
+	return p.ResourceId
+}
+
+func (p *MachinePayAccessRequest) GetGoodsName() (v string) {
+	return p.GoodsName
+}
+
+func (p *MachinePayAccessRequest) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+var MachinePayAccessRequest_PaymentProofHeader_DEFAULT string
+
+func (p *MachinePayAccessRequest) GetPaymentProofHeader() (v string) {
+	if !p.IsSetPaymentProofHeader() {
+		return MachinePayAccessRequest_PaymentProofHeader_DEFAULT
+	}
+	return *p.PaymentProofHeader
+}
+func (p *MachinePayAccessRequest) SetBase(val *common.BaseReq) {
+	p.Base = val
+}
+func (p *MachinePayAccessRequest) SetResourceId(val string) {
+	p.ResourceId = val
+}
+func (p *MachinePayAccessRequest) SetGoodsName(val string) {
+	p.GoodsName = val
+}
+func (p *MachinePayAccessRequest) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *MachinePayAccessRequest) SetPaymentProofHeader(val *string) {
+	p.PaymentProofHeader = val
+}
+
+func (p *MachinePayAccessRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *MachinePayAccessRequest) IsSetPaymentProofHeader() bool {
+	return p.PaymentProofHeader != nil
+}
+
+func (p *MachinePayAccessRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayAccessRequest(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayAccessRequest = map[int16]string{
+	1: "base",
+	2: "resource_id",
+	3: "goods_name",
+	4: "amount_minor",
+	5: "payment_proof_header",
+}
+
+type MachinePayAccessResponse struct {
+	Base        *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Authorized  bool             `thrift:"authorized,2" frugal:"2,default,bool" json:"authorized"`
+	OrderId     string           `thrift:"order_id,3" frugal:"3,default,string" json:"order_id"`
+	PaymentLink string           `thrift:"payment_link,4" frugal:"4,default,string" json:"payment_link"`
+	ResourceId  string           `thrift:"resource_id,5" frugal:"5,default,string" json:"resource_id"`
+	AmountMinor int64            `thrift:"amount_minor,6" frugal:"6,default,i64" json:"amount_minor"`
+	Status      string           `thrift:"status,7" frugal:"7,default,string" json:"status"`
+}
+
+func NewMachinePayAccessResponse() *MachinePayAccessResponse {
+	return &MachinePayAccessResponse{}
+}
+
+func (p *MachinePayAccessResponse) InitDefault() {
+}
+
+var MachinePayAccessResponse_Base_DEFAULT *common.BaseResp
+
+func (p *MachinePayAccessResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return MachinePayAccessResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *MachinePayAccessResponse) GetAuthorized() (v bool) {
+	return p.Authorized
+}
+
+func (p *MachinePayAccessResponse) GetOrderId() (v string) {
+	return p.OrderId
+}
+
+func (p *MachinePayAccessResponse) GetPaymentLink() (v string) {
+	return p.PaymentLink
+}
+
+func (p *MachinePayAccessResponse) GetResourceId() (v string) {
+	return p.ResourceId
+}
+
+func (p *MachinePayAccessResponse) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *MachinePayAccessResponse) GetStatus() (v string) {
+	return p.Status
+}
+func (p *MachinePayAccessResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *MachinePayAccessResponse) SetAuthorized(val bool) {
+	p.Authorized = val
+}
+func (p *MachinePayAccessResponse) SetOrderId(val string) {
+	p.OrderId = val
+}
+func (p *MachinePayAccessResponse) SetPaymentLink(val string) {
+	p.PaymentLink = val
+}
+func (p *MachinePayAccessResponse) SetResourceId(val string) {
+	p.ResourceId = val
+}
+func (p *MachinePayAccessResponse) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *MachinePayAccessResponse) SetStatus(val string) {
+	p.Status = val
+}
+
+func (p *MachinePayAccessResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *MachinePayAccessResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayAccessResponse(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayAccessResponse = map[int16]string{
+	1: "base",
+	2: "authorized",
+	3: "order_id",
+	4: "payment_link",
+	5: "resource_id",
+	6: "amount_minor",
+	7: "status",
+}
+
 type PaymentService interface {
 	InitiatePayment(ctx context.Context, req *InitiatePaymentRequest) (r *InitiatePaymentResponse, err error)
 
@@ -1780,6 +1955,8 @@ type PaymentService interface {
 	SimulateFiatPayment(ctx context.Context, req *FiatPaymentActionRequest) (r *FiatPaymentActionResponse, err error)
 
 	NotifyAlipay(ctx context.Context, req *NotifyAlipayRequest) (r *NotifyAlipayResponse, err error)
+
+	MachinePayAccess(ctx context.Context, req *MachinePayAccessRequest) (r *MachinePayAccessResponse, err error)
 }
 
 type PaymentServiceInitiatePaymentArgs struct {
@@ -2615,5 +2792,81 @@ func (p *PaymentServiceNotifyAlipayResult) String() string {
 }
 
 var fieldIDToName_PaymentServiceNotifyAlipayResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceMachinePayAccessArgs struct {
+	Req *MachinePayAccessRequest `thrift:"req,1" frugal:"1,default,MachinePayAccessRequest" json:"req"`
+}
+
+func NewPaymentServiceMachinePayAccessArgs() *PaymentServiceMachinePayAccessArgs {
+	return &PaymentServiceMachinePayAccessArgs{}
+}
+
+func (p *PaymentServiceMachinePayAccessArgs) InitDefault() {
+}
+
+var PaymentServiceMachinePayAccessArgs_Req_DEFAULT *MachinePayAccessRequest
+
+func (p *PaymentServiceMachinePayAccessArgs) GetReq() (v *MachinePayAccessRequest) {
+	if !p.IsSetReq() {
+		return PaymentServiceMachinePayAccessArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PaymentServiceMachinePayAccessArgs) SetReq(val *MachinePayAccessRequest) {
+	p.Req = val
+}
+
+func (p *PaymentServiceMachinePayAccessArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PaymentServiceMachinePayAccessArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceMachinePayAccessArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceMachinePayAccessArgs = map[int16]string{
+	1: "req",
+}
+
+type PaymentServiceMachinePayAccessResult struct {
+	Success *MachinePayAccessResponse `thrift:"success,0,optional" frugal:"0,optional,MachinePayAccessResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceMachinePayAccessResult() *PaymentServiceMachinePayAccessResult {
+	return &PaymentServiceMachinePayAccessResult{}
+}
+
+func (p *PaymentServiceMachinePayAccessResult) InitDefault() {
+}
+
+var PaymentServiceMachinePayAccessResult_Success_DEFAULT *MachinePayAccessResponse
+
+func (p *PaymentServiceMachinePayAccessResult) GetSuccess() (v *MachinePayAccessResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceMachinePayAccessResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceMachinePayAccessResult) SetSuccess(x interface{}) {
+	p.Success = x.(*MachinePayAccessResponse)
+}
+
+func (p *PaymentServiceMachinePayAccessResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceMachinePayAccessResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceMachinePayAccessResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceMachinePayAccessResult = map[int16]string{
 	0: "success",
 }

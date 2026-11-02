@@ -76,6 +76,9 @@ func (c *capturePaymentClient) SimulateFiatPayment(context.Context, string) (map
 	return map[string]interface{}{}, http.StatusOK, 0, nil
 }
 func (c *capturePaymentClient) NotifyAlipay(context.Context, map[string]string) error { return nil }
+func (c *capturePaymentClient) MachinePayAccess(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{"authorized": false, "payment_link": "test-link"}, 200, 0, nil
+}
 
 type noopDIDClient struct{}
 

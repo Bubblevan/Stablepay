@@ -22,6 +22,7 @@ import (
 	"github.com/stablepay/payment-service/internal/infrastructure/config"
 	"github.com/stablepay/payment-service/internal/infrastructure/mysql"
 	"github.com/stablepay/payment-service/internal/infrastructure/redis"
+	"github.com/stablepay/payment-service/internal/machinepay"
 	paymentservice "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service/paymentservice"
 	"github.com/stablepay/payment-service/pkg/utils"
 )
@@ -73,6 +74,16 @@ func main() {
 	}
 	fiatApp := fiat.NewService(fiatStore, fiatProvider)
 	fiatApp.SetNonceStore(fiat.NewRedisNonceStore(redisClient, "stablepay:fiat:nonce:"), time.Duration(cfg.Security.NonceCacheMinutes)*time.Minute)
+	machinePayStore, err := machinepay.NewSQLStore(db, cfg.App.Env == "local" || os.Getenv("FIAT_SCHEMA_AUTO_MIGRATE") == "true")
+	if err != nil {
+		logger.Fatal("Failed to initialize Machine Pay store", zap.Error(err))
+	}
+	machinePayProvider, err := machinepay.NewKitexProvider(cfg.RpcClients.AlipayAdapter.Address,
+		cfg.RpcClients.AlipayAdapter.TimeoutMs, cfg.RpcClients.AlipayAdapter.RetryCount)
+	if err != nil {
+		logger.Fatal("Failed to initialize Machine Pay Alipay Adapter client", zap.Error(err))
+	}
+	machinePayApp := machinepay.NewService(machinePayStore, machinePayProvider)
 
 	mqProducer, err := mq.NewPaymentEventProducer(
 		cfg.RocketMQ.NameServers, cfg.RocketMQ.ProducerGroup,
@@ -82,9 +93,15 @@ func main() {
 		logger.Fatal("Failed to create MQ producer", zap.Error(err))
 	}
 	defer mqProducer.Shutdown()
+	machinePayProducer, err := mq.NewMachinePayEventProducer(cfg.RocketMQ.NameServers, cfg.RocketMQ.ProducerGroup+"-machinepay", cfg.RocketMQ.Topics["machinepay_events"], logger)
+	if err != nil {
+		logger.Fatal("Failed to create Machine Pay MQ producer", zap.Error(err))
+	}
+	defer machinePayProducer.Shutdown()
 	outboxCtx, stopOutbox := context.WithCancel(context.Background())
 	defer stopOutbox()
 	go fiat.RunOutboxDispatcher(outboxCtx, fiatStore, mqProducer)
+	go machinepay.RunOutboxDispatcher(outboxCtx, machinePayStore, machinePayProducer)
 
 	paymentRepo := repository.NewPaymentRepository(db)
 	idempotencyRepo := repository.NewPaymentIdempotencyRepository(db)
@@ -134,6 +151,7 @@ func main() {
 	}
 	addr := &net.TCPAddr{IP: net.IPv4zero, Port: port}
 	handler := rpc.NewPaymentServiceHandler(paymentAppService, fiatApp)
+	handler.SetMachinePayService(machinePayApp)
 	svr := paymentservice.NewServer(handler, kitexserver.WithServiceAddr(addr))
 	setupGracefulShutdown(svr, logger)
 	logger.Info("Payment Service started", zap.Int("rpc_port", port))

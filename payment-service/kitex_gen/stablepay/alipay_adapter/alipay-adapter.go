@@ -384,12 +384,334 @@ var fieldIDToName_VerifyNotificationResponse = map[int16]string{
 	2: "receipt",
 }
 
+type MachinePayOrder struct {
+	OrderId     string `thrift:"order_id,1" frugal:"1,default,string" json:"order_id"`
+	ResourceId  string `thrift:"resource_id,2" frugal:"2,default,string" json:"resource_id"`
+	GoodsName   string `thrift:"goods_name,3" frugal:"3,default,string" json:"goods_name"`
+	AmountMinor int64  `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
+	PayBefore   string `thrift:"pay_before,5" frugal:"5,default,string" json:"pay_before"`
+}
+
+func NewMachinePayOrder() *MachinePayOrder {
+	return &MachinePayOrder{}
+}
+
+func (p *MachinePayOrder) InitDefault() {
+}
+
+func (p *MachinePayOrder) GetOrderId() (v string) {
+	return p.OrderId
+}
+
+func (p *MachinePayOrder) GetResourceId() (v string) {
+	return p.ResourceId
+}
+
+func (p *MachinePayOrder) GetGoodsName() (v string) {
+	return p.GoodsName
+}
+
+func (p *MachinePayOrder) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *MachinePayOrder) GetPayBefore() (v string) {
+	return p.PayBefore
+}
+func (p *MachinePayOrder) SetOrderId(val string) {
+	p.OrderId = val
+}
+func (p *MachinePayOrder) SetResourceId(val string) {
+	p.ResourceId = val
+}
+func (p *MachinePayOrder) SetGoodsName(val string) {
+	p.GoodsName = val
+}
+func (p *MachinePayOrder) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *MachinePayOrder) SetPayBefore(val string) {
+	p.PayBefore = val
+}
+
+func (p *MachinePayOrder) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayOrder(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayOrder = map[int16]string{
+	1: "order_id",
+	2: "resource_id",
+	3: "goods_name",
+	4: "amount_minor",
+	5: "pay_before",
+}
+
+type MachinePayPrecreateRequest struct {
+	Order *MachinePayOrder `thrift:"order,1" frugal:"1,default,MachinePayOrder" json:"order"`
+}
+
+func NewMachinePayPrecreateRequest() *MachinePayPrecreateRequest {
+	return &MachinePayPrecreateRequest{}
+}
+
+func (p *MachinePayPrecreateRequest) InitDefault() {
+}
+
+var MachinePayPrecreateRequest_Order_DEFAULT *MachinePayOrder
+
+func (p *MachinePayPrecreateRequest) GetOrder() (v *MachinePayOrder) {
+	if !p.IsSetOrder() {
+		return MachinePayPrecreateRequest_Order_DEFAULT
+	}
+	return p.Order
+}
+func (p *MachinePayPrecreateRequest) SetOrder(val *MachinePayOrder) {
+	p.Order = val
+}
+
+func (p *MachinePayPrecreateRequest) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *MachinePayPrecreateRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayPrecreateRequest(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayPrecreateRequest = map[int16]string{
+	1: "order",
+}
+
+type MachinePayPrecreateResponse struct {
+	Base        *common.BaseResp `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	OrderId     string           `thrift:"order_id,2" frugal:"2,default,string" json:"order_id"`
+	PaymentLink string           `thrift:"payment_link,3" frugal:"3,default,string" json:"payment_link"`
+}
+
+func NewMachinePayPrecreateResponse() *MachinePayPrecreateResponse {
+	return &MachinePayPrecreateResponse{}
+}
+
+func (p *MachinePayPrecreateResponse) InitDefault() {
+}
+
+var MachinePayPrecreateResponse_Base_DEFAULT *common.BaseResp
+
+func (p *MachinePayPrecreateResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return MachinePayPrecreateResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+func (p *MachinePayPrecreateResponse) GetOrderId() (v string) {
+	return p.OrderId
+}
+
+func (p *MachinePayPrecreateResponse) GetPaymentLink() (v string) {
+	return p.PaymentLink
+}
+func (p *MachinePayPrecreateResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *MachinePayPrecreateResponse) SetOrderId(val string) {
+	p.OrderId = val
+}
+func (p *MachinePayPrecreateResponse) SetPaymentLink(val string) {
+	p.PaymentLink = val
+}
+
+func (p *MachinePayPrecreateResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *MachinePayPrecreateResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayPrecreateResponse(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayPrecreateResponse = map[int16]string{
+	1: "base",
+	2: "order_id",
+	3: "payment_link",
+}
+
+type MachinePayProofRequest struct {
+	PaymentProofHeader string `thrift:"payment_proof_header,1" frugal:"1,default,string" json:"payment_proof_header"`
+}
+
+func NewMachinePayProofRequest() *MachinePayProofRequest {
+	return &MachinePayProofRequest{}
+}
+
+func (p *MachinePayProofRequest) InitDefault() {
+}
+
+func (p *MachinePayProofRequest) GetPaymentProofHeader() (v string) {
+	return p.PaymentProofHeader
+}
+func (p *MachinePayProofRequest) SetPaymentProofHeader(val string) {
+	p.PaymentProofHeader = val
+}
+
+func (p *MachinePayProofRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayProofRequest(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayProofRequest = map[int16]string{
+	1: "payment_proof_header",
+}
+
+type MachinePayReceipt struct {
+	OutTradeNo  string `thrift:"out_trade_no,1" frugal:"1,default,string" json:"out_trade_no"`
+	TradeNo     string `thrift:"trade_no,2" frugal:"2,default,string" json:"trade_no"`
+	ResourceId  string `thrift:"resource_id,3" frugal:"3,default,string" json:"resource_id"`
+	AmountMinor int64  `thrift:"amount_minor,4" frugal:"4,default,i64" json:"amount_minor"`
+	Active      bool   `thrift:"active,5" frugal:"5,default,bool" json:"active"`
+	VerifiedBy  string `thrift:"verified_by,6" frugal:"6,default,string" json:"verified_by"`
+}
+
+func NewMachinePayReceipt() *MachinePayReceipt {
+	return &MachinePayReceipt{}
+}
+
+func (p *MachinePayReceipt) InitDefault() {
+}
+
+func (p *MachinePayReceipt) GetOutTradeNo() (v string) {
+	return p.OutTradeNo
+}
+
+func (p *MachinePayReceipt) GetTradeNo() (v string) {
+	return p.TradeNo
+}
+
+func (p *MachinePayReceipt) GetResourceId() (v string) {
+	return p.ResourceId
+}
+
+func (p *MachinePayReceipt) GetAmountMinor() (v int64) {
+	return p.AmountMinor
+}
+
+func (p *MachinePayReceipt) GetActive() (v bool) {
+	return p.Active
+}
+
+func (p *MachinePayReceipt) GetVerifiedBy() (v string) {
+	return p.VerifiedBy
+}
+func (p *MachinePayReceipt) SetOutTradeNo(val string) {
+	p.OutTradeNo = val
+}
+func (p *MachinePayReceipt) SetTradeNo(val string) {
+	p.TradeNo = val
+}
+func (p *MachinePayReceipt) SetResourceId(val string) {
+	p.ResourceId = val
+}
+func (p *MachinePayReceipt) SetAmountMinor(val int64) {
+	p.AmountMinor = val
+}
+func (p *MachinePayReceipt) SetActive(val bool) {
+	p.Active = val
+}
+func (p *MachinePayReceipt) SetVerifiedBy(val string) {
+	p.VerifiedBy = val
+}
+
+func (p *MachinePayReceipt) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayReceipt(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayReceipt = map[int16]string{
+	1: "out_trade_no",
+	2: "trade_no",
+	3: "resource_id",
+	4: "amount_minor",
+	5: "active",
+	6: "verified_by",
+}
+
+type MachinePayVerifyResponse struct {
+	Base    *common.BaseResp   `thrift:"base,1" frugal:"1,default,common.BaseResp" json:"base"`
+	Receipt *MachinePayReceipt `thrift:"receipt,2" frugal:"2,default,MachinePayReceipt" json:"receipt"`
+}
+
+func NewMachinePayVerifyResponse() *MachinePayVerifyResponse {
+	return &MachinePayVerifyResponse{}
+}
+
+func (p *MachinePayVerifyResponse) InitDefault() {
+}
+
+var MachinePayVerifyResponse_Base_DEFAULT *common.BaseResp
+
+func (p *MachinePayVerifyResponse) GetBase() (v *common.BaseResp) {
+	if !p.IsSetBase() {
+		return MachinePayVerifyResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var MachinePayVerifyResponse_Receipt_DEFAULT *MachinePayReceipt
+
+func (p *MachinePayVerifyResponse) GetReceipt() (v *MachinePayReceipt) {
+	if !p.IsSetReceipt() {
+		return MachinePayVerifyResponse_Receipt_DEFAULT
+	}
+	return p.Receipt
+}
+func (p *MachinePayVerifyResponse) SetBase(val *common.BaseResp) {
+	p.Base = val
+}
+func (p *MachinePayVerifyResponse) SetReceipt(val *MachinePayReceipt) {
+	p.Receipt = val
+}
+
+func (p *MachinePayVerifyResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *MachinePayVerifyResponse) IsSetReceipt() bool {
+	return p.Receipt != nil
+}
+
+func (p *MachinePayVerifyResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MachinePayVerifyResponse(%+v)", *p)
+}
+
+var fieldIDToName_MachinePayVerifyResponse = map[int16]string{
+	1: "base",
+	2: "receipt",
+}
+
 type AlipayAdapterService interface {
 	CreateCheckout(ctx context.Context, req *CheckoutRequest) (r *CheckoutResponse, err error)
 
 	QueryTrade(ctx context.Context, req *QueryRequest) (r *QueryResponse, err error)
 
 	VerifyNotification(ctx context.Context, req *VerifyNotificationRequest) (r *VerifyNotificationResponse, err error)
+
+	PrecreateMachinePay(ctx context.Context, req *MachinePayPrecreateRequest) (r *MachinePayPrecreateResponse, err error)
+
+	VerifyMachinePayProof(ctx context.Context, req *MachinePayProofRequest) (r *MachinePayVerifyResponse, err error)
 }
 
 type AlipayAdapterServiceCreateCheckoutArgs struct {
@@ -617,5 +939,157 @@ func (p *AlipayAdapterServiceVerifyNotificationResult) String() string {
 }
 
 var fieldIDToName_AlipayAdapterServiceVerifyNotificationResult = map[int16]string{
+	0: "success",
+}
+
+type AlipayAdapterServicePrecreateMachinePayArgs struct {
+	Req *MachinePayPrecreateRequest `thrift:"req,1" frugal:"1,default,MachinePayPrecreateRequest" json:"req"`
+}
+
+func NewAlipayAdapterServicePrecreateMachinePayArgs() *AlipayAdapterServicePrecreateMachinePayArgs {
+	return &AlipayAdapterServicePrecreateMachinePayArgs{}
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayArgs) InitDefault() {
+}
+
+var AlipayAdapterServicePrecreateMachinePayArgs_Req_DEFAULT *MachinePayPrecreateRequest
+
+func (p *AlipayAdapterServicePrecreateMachinePayArgs) GetReq() (v *MachinePayPrecreateRequest) {
+	if !p.IsSetReq() {
+		return AlipayAdapterServicePrecreateMachinePayArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *AlipayAdapterServicePrecreateMachinePayArgs) SetReq(val *MachinePayPrecreateRequest) {
+	p.Req = val
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AlipayAdapterServicePrecreateMachinePayArgs(%+v)", *p)
+}
+
+var fieldIDToName_AlipayAdapterServicePrecreateMachinePayArgs = map[int16]string{
+	1: "req",
+}
+
+type AlipayAdapterServicePrecreateMachinePayResult struct {
+	Success *MachinePayPrecreateResponse `thrift:"success,0,optional" frugal:"0,optional,MachinePayPrecreateResponse" json:"success,omitempty"`
+}
+
+func NewAlipayAdapterServicePrecreateMachinePayResult() *AlipayAdapterServicePrecreateMachinePayResult {
+	return &AlipayAdapterServicePrecreateMachinePayResult{}
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayResult) InitDefault() {
+}
+
+var AlipayAdapterServicePrecreateMachinePayResult_Success_DEFAULT *MachinePayPrecreateResponse
+
+func (p *AlipayAdapterServicePrecreateMachinePayResult) GetSuccess() (v *MachinePayPrecreateResponse) {
+	if !p.IsSetSuccess() {
+		return AlipayAdapterServicePrecreateMachinePayResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *AlipayAdapterServicePrecreateMachinePayResult) SetSuccess(x interface{}) {
+	p.Success = x.(*MachinePayPrecreateResponse)
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *AlipayAdapterServicePrecreateMachinePayResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AlipayAdapterServicePrecreateMachinePayResult(%+v)", *p)
+}
+
+var fieldIDToName_AlipayAdapterServicePrecreateMachinePayResult = map[int16]string{
+	0: "success",
+}
+
+type AlipayAdapterServiceVerifyMachinePayProofArgs struct {
+	Req *MachinePayProofRequest `thrift:"req,1" frugal:"1,default,MachinePayProofRequest" json:"req"`
+}
+
+func NewAlipayAdapterServiceVerifyMachinePayProofArgs() *AlipayAdapterServiceVerifyMachinePayProofArgs {
+	return &AlipayAdapterServiceVerifyMachinePayProofArgs{}
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofArgs) InitDefault() {
+}
+
+var AlipayAdapterServiceVerifyMachinePayProofArgs_Req_DEFAULT *MachinePayProofRequest
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofArgs) GetReq() (v *MachinePayProofRequest) {
+	if !p.IsSetReq() {
+		return AlipayAdapterServiceVerifyMachinePayProofArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *AlipayAdapterServiceVerifyMachinePayProofArgs) SetReq(val *MachinePayProofRequest) {
+	p.Req = val
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AlipayAdapterServiceVerifyMachinePayProofArgs(%+v)", *p)
+}
+
+var fieldIDToName_AlipayAdapterServiceVerifyMachinePayProofArgs = map[int16]string{
+	1: "req",
+}
+
+type AlipayAdapterServiceVerifyMachinePayProofResult struct {
+	Success *MachinePayVerifyResponse `thrift:"success,0,optional" frugal:"0,optional,MachinePayVerifyResponse" json:"success,omitempty"`
+}
+
+func NewAlipayAdapterServiceVerifyMachinePayProofResult() *AlipayAdapterServiceVerifyMachinePayProofResult {
+	return &AlipayAdapterServiceVerifyMachinePayProofResult{}
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofResult) InitDefault() {
+}
+
+var AlipayAdapterServiceVerifyMachinePayProofResult_Success_DEFAULT *MachinePayVerifyResponse
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofResult) GetSuccess() (v *MachinePayVerifyResponse) {
+	if !p.IsSetSuccess() {
+		return AlipayAdapterServiceVerifyMachinePayProofResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *AlipayAdapterServiceVerifyMachinePayProofResult) SetSuccess(x interface{}) {
+	p.Success = x.(*MachinePayVerifyResponse)
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *AlipayAdapterServiceVerifyMachinePayProofResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AlipayAdapterServiceVerifyMachinePayProofResult(%+v)", *p)
+}
+
+var fieldIDToName_AlipayAdapterServiceVerifyMachinePayProofResult = map[int16]string{
 	0: "success",
 }

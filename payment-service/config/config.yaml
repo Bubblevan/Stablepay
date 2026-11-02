@@ -39,6 +39,7 @@ rocketmq:
   send_timeout: 3000
   topics:
     payment_events: payment_events
+    machinepay_events: machinepay_events
 
 # 下游服务 RPC 配置 (根据联调端口分配)
 rpc_clients:

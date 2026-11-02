@@ -36,6 +36,10 @@ type Resilience struct {
 	DefaultRetry     int `mapstructure:"default_retry" yaml:"default_retry"`
 }
 
+type MachinePay struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+}
+
 type Logging struct {
 	Level           string `mapstructure:"level" yaml:"level"`
 	Format          string `mapstructure:"format" yaml:"format"`
@@ -64,6 +68,7 @@ type AppConfig struct {
 	Redis      Redis                `mapstructure:"redis" yaml:"redis"`
 	Resilience Resilience           `mapstructure:"resilience" yaml:"resilience"`
 	Logging    Logging              `mapstructure:"logging" yaml:"logging"`
+	MachinePay MachinePay           `mapstructure:"machine_pay" yaml:"machine_pay"`
 	Downstream Downstream           `mapstructure:"downstream" yaml:"downstream"`
 	Routes     []domain.RoutePolicy `mapstructure:"routes" yaml:"routes"`
 }
@@ -83,6 +88,13 @@ func Load(configPath string) (*AppConfig, error) {
 	cfg := &AppConfig{}
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if cfg.MachinePay.Enabled {
+		for i := range cfg.Routes {
+			if cfg.Routes[i].MachinePay != nil {
+				cfg.Routes[i].MachinePay.Enabled = true
+			}
+		}
 	}
 	if apiKey := strings.TrimSpace(os.Getenv("GATEWAY_API_KEY")); apiKey != "" {
 		cfg.Security.AllowedAPIKeys = []string{apiKey}

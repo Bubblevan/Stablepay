@@ -30,6 +30,7 @@ rocketmq:
   producer_group: payment-service-producer
   topics:
     payment_events: payment_events
+    machinepay_events: machinepay_events
 
 rpc_clients:
   did_service:

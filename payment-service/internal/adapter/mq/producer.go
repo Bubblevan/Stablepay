@@ -12,6 +12,7 @@ import (
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/stablepay/payment-service/internal/application/dto"
+	"github.com/stablepay/payment-service/internal/machinepay"
 	"github.com/stablepay/payment-service/pkg/constants"
 	"github.com/stablepay/payment-service/pkg/errors"
 	"go.uber.org/zap"
@@ -98,6 +99,54 @@ func (p *PaymentEventProducer) Shutdown() error {
 	}
 	return nil
 }
+
+// MachinePayEventProducer publishes metered CNY API settlements on a separate
+// topic so token-ledger consumers never interpret them as on-chain payments.
+type MachinePayEventProducer struct {
+	producer rocketmq.Producer
+	topic    string
+	logger   *zap.Logger
+}
+
+func NewMachinePayEventProducer(nameServers []string, producerGroup, topic string, logger *zap.Logger) (*MachinePayEventProducer, error) {
+	if strings.TrimSpace(topic) != "machinepay_events" {
+		return nil, fmt.Errorf("Machine Pay event producer topic must be machinepay_events, got %q", topic)
+	}
+	p, err := rocketmq.NewProducer(
+		producer.WithNameServer(resolveNameServers(nameServers)),
+		producer.WithGroupName(producerGroup),
+		producer.WithRetry(3),
+	)
+	if err != nil {
+		return nil, errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to create Machine Pay MQ producer")
+	}
+	if err := p.Start(); err != nil {
+		return nil, errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to start Machine Pay MQ producer")
+	}
+	return &MachinePayEventProducer{producer: p, topic: topic, logger: logger}, nil
+}
+
+func (p *MachinePayEventProducer) PublishMachinePayEvent(ctx context.Context, event machinepay.SettledEvent) error {
+	if event.EventID == "" || event.OrderID == "" || event.TradeNo == "" || event.ResourceID == "" || event.AmountMinor <= 0 || event.Currency != "CNY" {
+		return fmt.Errorf("invalid Machine Pay settlement event")
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	msg := primitive.NewMessage(p.topic, data).WithTag("machinepay.payment.succeeded").WithKeys([]string{event.OrderID})
+	res, err := p.producer.SendSync(ctx, msg)
+	if err != nil {
+		return errors.Wrap(errors.INTERNAL_SERVER_ERROR, err, "failed to publish Machine Pay settlement event")
+	}
+	if res.Status != primitive.SendOK {
+		return fmt.Errorf("Machine Pay event send failed with status %d", res.Status)
+	}
+	p.logger.Info("Machine Pay settlement event published", zap.String("event_id", event.EventID), zap.String("order_id", event.OrderID), zap.String("msg_id", res.MsgID))
+	return nil
+}
+
+func (p *MachinePayEventProducer) Shutdown() error { return p.producer.Shutdown() }
 
 type LocalMessageTable struct{}
 

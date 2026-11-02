@@ -147,6 +147,9 @@ func (m *MockPaymentClient) SimulateFiatPayment(context.Context, string) (map[st
 	return map[string]interface{}{}, 200, 0, nil
 }
 func (m *MockPaymentClient) NotifyAlipay(context.Context, map[string]string) error { return nil }
+func (m *MockPaymentClient) MachinePayAccess(context.Context, map[string]interface{}) (map[string]interface{}, int, int, error) {
+	return map[string]interface{}{"authorized": false, "payment_link": "test-link"}, 200, 0, nil
+}
 
 type MockVerificationClient struct{}
 

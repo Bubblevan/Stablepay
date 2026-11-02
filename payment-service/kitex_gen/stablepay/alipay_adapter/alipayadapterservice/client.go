@@ -14,6 +14,8 @@ type Client interface {
 	CreateCheckout(ctx context.Context, req *alipay_adapter.CheckoutRequest, callOptions ...callopt.Option) (r *alipay_adapter.CheckoutResponse, err error)
 	QueryTrade(ctx context.Context, req *alipay_adapter.QueryRequest, callOptions ...callopt.Option) (r *alipay_adapter.QueryResponse, err error)
 	VerifyNotification(ctx context.Context, req *alipay_adapter.VerifyNotificationRequest, callOptions ...callopt.Option) (r *alipay_adapter.VerifyNotificationResponse, err error)
+	PrecreateMachinePay(ctx context.Context, req *alipay_adapter.MachinePayPrecreateRequest, callOptions ...callopt.Option) (r *alipay_adapter.MachinePayPrecreateResponse, err error)
+	VerifyMachinePayProof(ctx context.Context, req *alipay_adapter.MachinePayProofRequest, callOptions ...callopt.Option) (r *alipay_adapter.MachinePayVerifyResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +60,14 @@ func (p *kAlipayAdapterServiceClient) QueryTrade(ctx context.Context, req *alipa
 func (p *kAlipayAdapterServiceClient) VerifyNotification(ctx context.Context, req *alipay_adapter.VerifyNotificationRequest, callOptions ...callopt.Option) (r *alipay_adapter.VerifyNotificationResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.VerifyNotification(ctx, req)
+}
+
+func (p *kAlipayAdapterServiceClient) PrecreateMachinePay(ctx context.Context, req *alipay_adapter.MachinePayPrecreateRequest, callOptions ...callopt.Option) (r *alipay_adapter.MachinePayPrecreateResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.PrecreateMachinePay(ctx, req)
+}
+
+func (p *kAlipayAdapterServiceClient) VerifyMachinePayProof(ctx context.Context, req *alipay_adapter.MachinePayProofRequest, callOptions ...callopt.Option) (r *alipay_adapter.MachinePayVerifyResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.VerifyMachinePayProof(ctx, req)
 }

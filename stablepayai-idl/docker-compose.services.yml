@@ -67,8 +67,15 @@ services:
       - ALIPAY_PUBLIC_KEY_FILE=/run/secrets/alipay/alipay-public.pem
       - ALIPAY_NOTIFY_URL
       - ALIPAY_RETURN_URL
+      - AIPAY_APP_ID=${AIPAY_APP_ID:-}
+      - AIPAY_MACHINE_PAY_SERVICE_ID=${AIPAY_MACHINE_PAY_SERVICE_ID:-}
+      - AIPAY_PRIVATE_KEY=${AIPAY_PRIVATE_KEY:-}
+      - AIPAY_ALIPAY_PUBLIC_KEY=${AIPAY_ALIPAY_PUBLIC_KEY:-}
+      - AIPAY_GATEWAY_URL=${AIPAY_GATEWAY_URL:-https://openapi-sandbox.dl.alipaydev.com/gateway.do}
+      - AIPAY_PRIVATE_KEY_FILE=${AIPAY_PRIVATE_KEY_FILE:-/run/secrets/alipay/app-private.pem}
+      - AIPAY_ALIPAY_PUBLIC_KEY_FILE=${AIPAY_ALIPAY_PUBLIC_KEY_FILE:-/run/secrets/alipay/alipay-public.pem}
     volumes:
-      - ${ALIPAY_KEYS_DIR:?set ALIPAY_KEYS_DIR}:/run/secrets/alipay:ro
+      - ${ALIPAY_KEYS_DIR:-../.local-run/secrets/alipay}:/run/secrets/alipay:ro
     ports:
       - "8086:8086"
     networks:
@@ -130,6 +137,7 @@ services:
     environment:
       - CONFIG_PATH=/app/config/config.yaml
       - GATEWAY_API_KEY
+      - STABLEPAY_MACHINE_PAY_ENABLED=${AIPAY_MACHINE_PAY_ENABLED:-false}
       - PROCUREMENT_MVP_URL
     ports:
       - "28080:8080"

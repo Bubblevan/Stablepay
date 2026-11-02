@@ -36,6 +36,7 @@ rocketmq:
   send_timeout: 3000
   topics:
     payment_events: payment_events
+    machinepay_events: machinepay_events
 
 rpc_clients:
   did_service:

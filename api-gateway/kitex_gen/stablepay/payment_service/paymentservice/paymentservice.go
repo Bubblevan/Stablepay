@@ -90,6 +90,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"MachinePayAccess": kitex.NewMethodInfo(
+		machinePayAccessHandler,
+		newPaymentServiceMachinePayAccessArgs,
+		newPaymentServiceMachinePayAccessResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -354,6 +361,24 @@ func newPaymentServiceNotifyAlipayResult() interface{} {
 	return payment_service.NewPaymentServiceNotifyAlipayResult()
 }
 
+func machinePayAccessHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment_service.PaymentServiceMachinePayAccessArgs)
+	realResult := result.(*payment_service.PaymentServiceMachinePayAccessResult)
+	success, err := handler.(payment_service.PaymentService).MachinePayAccess(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceMachinePayAccessArgs() interface{} {
+	return payment_service.NewPaymentServiceMachinePayAccessArgs()
+}
+
+func newPaymentServiceMachinePayAccessResult() interface{} {
+	return payment_service.NewPaymentServiceMachinePayAccessResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -469,6 +494,16 @@ func (p *kClient) NotifyAlipay(ctx context.Context, req *payment_service.NotifyA
 	_args.Req = req
 	var _result payment_service.PaymentServiceNotifyAlipayResult
 	if err = p.c.Call(ctx, "NotifyAlipay", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) MachinePayAccess(ctx context.Context, req *payment_service.MachinePayAccessRequest) (r *payment_service.MachinePayAccessResponse, err error) {
+	var _args payment_service.PaymentServiceMachinePayAccessArgs
+	_args.Req = req
+	var _result payment_service.PaymentServiceMachinePayAccessResult
+	if err = p.c.Call(ctx, "MachinePayAccess", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

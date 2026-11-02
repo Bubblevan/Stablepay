@@ -36,7 +36,7 @@ func RegisterRoutes(
 	})
 
 	for _, policy := range routes {
-		routeHandler := handler.Proxy(policy.Name)
+		routeHandler := handler.Proxy(policy.Name, policy.MachinePay)
 		chain := []app.HandlerFunc{
 			middleware.PolicyInjector(policy),
 			authVerify,

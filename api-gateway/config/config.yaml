@@ -19,6 +19,9 @@ redis:
   password: ""
   db: 0
 
+machine_pay:
+  enabled: false
+
 resilience:
   default_timeout_ms: 1000
   default_retry: 1
@@ -175,6 +178,11 @@ routes:
     retry: 1
     auth: "api_key"
     rate_limits: { ip_per_minute: 100, did_per_minute: 50, route_per_minute: 100 }
+    machine_pay:
+      resource_id: "verify-batch"
+      goods_name: "StablePay Batch API"
+      amount_minor: 1
+      enabled: false
   - name: "verification.proof"
     method: "GET"
     path: "/api/v1/verify/proof"

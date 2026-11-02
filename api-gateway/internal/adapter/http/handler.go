@@ -21,7 +21,7 @@ func NewHandler(appService *application.Service) *Handler {
 	return &Handler{app: appService}
 }
 
-func (h *Handler) Proxy(routeName string) app.HandlerFunc {
+func (h *Handler) Proxy(routeName string, machinePay ...*domain.MachinePayRoute) app.HandlerFunc {
 	return func(c context.Context, ctx *app.RequestContext) {
 		req := map[string]interface{}{}
 		for _, p := range ctx.Params {
@@ -46,6 +46,37 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 		setIfAbsent(req, "signature", getCtxString(ctx, domain.CtxSignature))
 		setIfAbsent(req, "timestamp", getCtxString(ctx, domain.CtxTimestamp))
 		setIfAbsent(req, "nonce", getCtxString(ctx, domain.CtxNonce))
+
+		if len(machinePay) > 0 && machinePay[0] != nil && machinePay[0].Enabled {
+			policy := machinePay[0]
+			if strings.TrimSpace(stringFromMap(req, "idempotency_key")) == "" {
+				Fail(ctx, domain.ErrInvalidParameters, map[string]interface{}{"detail": "X-Idempotency-Key is required for Machine Pay resources"})
+				return
+			}
+			req["machinepay_resource_id"] = policy.ResourceID
+			req["machinepay_goods_name"] = policy.GoodsName
+			req["machinepay_amount_minor"] = policy.AmountMinor
+			req["payment_proof_header"] = string(ctx.GetHeader("Payment-Proof"))
+			access, status, code, err := h.app.MachinePayAccess(c, req)
+			if err != nil {
+				failFromCode(ctx, status, code, err)
+				return
+			}
+			authorized, _ := access["authorized"].(bool)
+			if !authorized {
+				link := stringFromMap(access, "payment_link")
+				if link == "" {
+					Fail(ctx, domain.ErrInternalServer, map[string]interface{}{"detail": "Machine Pay challenge is missing its payment link"})
+					return
+				}
+				ctx.Response.Header.Set("amtPaymentLink", link)
+				ctx.JSON(consts.StatusPaymentRequired, map[string]interface{}{
+					"error": "Payment Required", "order_id": access["order_id"], "resource_id": access["resource_id"],
+					"amount_minor": access["amount_minor"], "currency": "CNY",
+				})
+				return
+			}
+		}
 		if price, ok := req["price"]; ok {
 			if _, exists := req["amount"]; !exists {
 				req["amount"] = price
@@ -74,6 +105,17 @@ func (h *Handler) Proxy(routeName string) app.HandlerFunc {
 		}
 		failFromCode(ctx, httpStatus, code, detailErr)
 	}
+}
+
+func stringFromMap(in map[string]interface{}, key string) string {
+	value, ok := in[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 // NotifyAlipay is the sole provider callback endpoint. Alipay RSA2 verification

@@ -10,6 +10,7 @@ import (
 	appdto "github.com/stablepay/payment-service/internal/application/dto"
 	appservice "github.com/stablepay/payment-service/internal/application/service"
 	fiatservice "github.com/stablepay/payment-service/internal/fiat"
+	machinepayservice "github.com/stablepay/payment-service/internal/machinepay"
 	commonpb "github.com/stablepay/payment-service/kitex_gen/stablepay/common"
 	paymentpb "github.com/stablepay/payment-service/kitex_gen/stablepay/payment_service"
 	payerrors "github.com/stablepay/payment-service/pkg/errors"
@@ -20,8 +21,9 @@ import (
 // HTTP concerns stay in api-gateway; this adapter only translates the canonical
 // Kitex contract to the existing application layer.
 type PaymentServiceHandler struct {
-	app  *appservice.PaymentApplicationService
-	fiat *fiatservice.Service
+	app        *appservice.PaymentApplicationService
+	fiat       *fiatservice.Service
+	machinePay *machinepayservice.Service
 }
 
 func NewPaymentServiceHandler(app *appservice.PaymentApplicationService, fiat ...*fiatservice.Service) *PaymentServiceHandler {
@@ -30,6 +32,32 @@ func NewPaymentServiceHandler(app *appservice.PaymentApplicationService, fiat ..
 		h.fiat = fiat[0]
 	}
 	return h
+}
+
+func (h *PaymentServiceHandler) SetMachinePayService(service *machinepayservice.Service) {
+	if h != nil {
+		h.machinePay = service
+	}
+}
+
+func (h *PaymentServiceHandler) MachinePayAccess(ctx context.Context, req *paymentpb.MachinePayAccessRequest) (*paymentpb.MachinePayAccessResponse, error) {
+	if req == nil || h.machinePay == nil {
+		return &paymentpb.MachinePayAccessResponse{Base: fiatErrorBase(nil, errors.New("Machine Pay service is unavailable"))}, nil
+	}
+	base := req.GetBase()
+	var proof string
+	if req.IsSetPaymentProofHeader() {
+		proof = req.GetPaymentProofHeader()
+	}
+	result, err := h.machinePay.Access(ctx, machinepayservice.AccessRequest{
+		IdempotencyKey: baseIdempotencyKey(base), ResourceID: req.GetResourceId(), GoodsName: req.GetGoodsName(),
+		AmountMinor: req.GetAmountMinor(), PaymentProof: proof,
+	})
+	if err != nil {
+		return &paymentpb.MachinePayAccessResponse{Base: fiatErrorBase(base, err)}, nil
+	}
+	return &paymentpb.MachinePayAccessResponse{Base: successBase(base), Authorized: result.Authorized,
+		OrderId: result.OrderID, PaymentLink: result.PaymentLink, ResourceId: result.ResourceID, AmountMinor: result.AmountMinor, Status: result.Status}, nil
 }
 
 func (h *PaymentServiceHandler) CreateFiatPayment(ctx context.Context, req *paymentpb.CreateFiatPaymentRequest) (*paymentpb.CreateFiatPaymentResponse, error) {
@@ -137,9 +165,9 @@ func fiatErrorBase(req *commonpb.BaseReq, err error) *commonpb.BaseResp {
 	base := successBase(req)
 	base.Message = err.Error()
 	switch {
-	case errors.Is(err, fiatservice.ErrNotFound):
+	case errors.Is(err, fiatservice.ErrNotFound), errors.Is(err, machinepayservice.ErrNotFound):
 		base.Code = int32(commonpb.ErrorCode_RESOURCE_NOT_FOUND)
-	case errors.Is(err, fiatservice.ErrConflict):
+	case errors.Is(err, fiatservice.ErrConflict), errors.Is(err, machinepayservice.ErrConflict):
 		base.Code = int32(commonpb.ErrorCode_PAYMENT_ALREADY_EXISTS)
 	default:
 		base.Code = int32(commonpb.ErrorCode_INVALID_PARAMETERS)

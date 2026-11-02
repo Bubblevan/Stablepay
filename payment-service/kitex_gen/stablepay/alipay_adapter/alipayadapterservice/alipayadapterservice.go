@@ -34,6 +34,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"PrecreateMachinePay": kitex.NewMethodInfo(
+		precreateMachinePayHandler,
+		newAlipayAdapterServicePrecreateMachinePayArgs,
+		newAlipayAdapterServicePrecreateMachinePayResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"VerifyMachinePayProof": kitex.NewMethodInfo(
+		verifyMachinePayProofHandler,
+		newAlipayAdapterServiceVerifyMachinePayProofArgs,
+		newAlipayAdapterServiceVerifyMachinePayProofResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +168,42 @@ func newAlipayAdapterServiceVerifyNotificationResult() interface{} {
 	return alipay_adapter.NewAlipayAdapterServiceVerifyNotificationResult()
 }
 
+func precreateMachinePayHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*alipay_adapter.AlipayAdapterServicePrecreateMachinePayArgs)
+	realResult := result.(*alipay_adapter.AlipayAdapterServicePrecreateMachinePayResult)
+	success, err := handler.(alipay_adapter.AlipayAdapterService).PrecreateMachinePay(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newAlipayAdapterServicePrecreateMachinePayArgs() interface{} {
+	return alipay_adapter.NewAlipayAdapterServicePrecreateMachinePayArgs()
+}
+
+func newAlipayAdapterServicePrecreateMachinePayResult() interface{} {
+	return alipay_adapter.NewAlipayAdapterServicePrecreateMachinePayResult()
+}
+
+func verifyMachinePayProofHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*alipay_adapter.AlipayAdapterServiceVerifyMachinePayProofArgs)
+	realResult := result.(*alipay_adapter.AlipayAdapterServiceVerifyMachinePayProofResult)
+	success, err := handler.(alipay_adapter.AlipayAdapterService).VerifyMachinePayProof(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newAlipayAdapterServiceVerifyMachinePayProofArgs() interface{} {
+	return alipay_adapter.NewAlipayAdapterServiceVerifyMachinePayProofArgs()
+}
+
+func newAlipayAdapterServiceVerifyMachinePayProofResult() interface{} {
+	return alipay_adapter.NewAlipayAdapterServiceVerifyMachinePayProofResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +239,26 @@ func (p *kClient) VerifyNotification(ctx context.Context, req *alipay_adapter.Ve
 	_args.Req = req
 	var _result alipay_adapter.AlipayAdapterServiceVerifyNotificationResult
 	if err = p.c.Call(ctx, "VerifyNotification", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) PrecreateMachinePay(ctx context.Context, req *alipay_adapter.MachinePayPrecreateRequest) (r *alipay_adapter.MachinePayPrecreateResponse, err error) {
+	var _args alipay_adapter.AlipayAdapterServicePrecreateMachinePayArgs
+	_args.Req = req
+	var _result alipay_adapter.AlipayAdapterServicePrecreateMachinePayResult
+	if err = p.c.Call(ctx, "PrecreateMachinePay", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) VerifyMachinePayProof(ctx context.Context, req *alipay_adapter.MachinePayProofRequest) (r *alipay_adapter.MachinePayVerifyResponse, err error) {
+	var _args alipay_adapter.AlipayAdapterServiceVerifyMachinePayProofArgs
+	_args.Req = req
+	var _result alipay_adapter.AlipayAdapterServiceVerifyMachinePayProofResult
+	if err = p.c.Call(ctx, "VerifyMachinePayProof", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
